@@ -1,0 +1,32 @@
+{
+  "name": "@unidm/desktop",
+  "version": "0.5.0",
+  "private": true,
+  "description": "UniDM desktop shell — Electron main, preload bridge, React renderer",
+  "type": "module",
+  "main": "./dist/main/main.js",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "test": "vitest run",
+    "start": "npm run build && electron ."
+  },
+  "dependencies": {
+    "@unidm/contracts": "*",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@fluentui/react-components": "9.74.9",
+    "@fluentui/react-icons": "2.0.343",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.5.1",
+    "vite": "8.3.3",
+    "vitest": "5.0.3"
+  }
+}
