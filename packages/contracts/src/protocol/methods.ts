@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import {
   DownloadCreateParams, DownloadCreateResult, DownloadListParams, DownloadListResult,
   JobIdParams, JobByIdResult, DownloadRemoveParams, DownloadRemoveResult,
@@ -44,6 +44,21 @@ export const METHODS = {
   "browser.tab.reload": { server: "main", params: TabIdParams, result: TabResult },
   "browser.tab.setMuted": { server: "main", params: TabMuteParams, result: TabResult },
   "browser.tab.list": { server: "main", params: TabListParams, result: TabListResult },
+  /**
+   * Renderer reports the content-area rect where browser tabs render (WebContentsView is an
+   * overlay above the shell UI, so geometry comes from the layout that owns the hole).
+   * Zero width/height hides the overlay (shell views other than Browse).
+   */
+  "browser.setViewportBounds": {
+    server: "main",
+    params: z.object({
+      x: z.number().int().min(0),
+      y: z.number().int().min(0),
+      width: z.number().int().min(0),
+      height: z.number().int().min(0),
+    }),
+    result: z.object({ applied: z.literal(true) }),
+  },
   "settings.get": { server: "main", params: SettingsGetParams, result: SettingsGetResult },
   "settings.setAll": { server: "main", params: SettingsSetAllParams, result: SettingsSetAllResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "./theme/ThemeProvider.js";
 import { AppShell } from "./app/AppShell.js";
 import { subscribeSettingsChanged } from "./stores/settings.js";
+import { subscribeBrowserEvents, createTab, closeTab, useBrowserStore } from "./stores/browser.js";
 
 /**
  * Renderer bootstrap: the settings store must be loaded before first paint so the shell
@@ -12,6 +13,7 @@ import { subscribeSettingsChanged } from "./stores/settings.js";
 
 async function boot(): Promise<void> {
   subscribeSettingsChanged();
+  subscribeBrowserEvents();
   const root = createRoot(document.getElementById("app") ?? document.body);
   root.render(
     <StrictMode>
@@ -21,6 +23,21 @@ async function boot(): Promise<void> {
     </StrictMode>,
   );
   document.getElementById("boot")?.remove();
+  // First-run browser surface: a single new tab, matching desktop browser convention.
+  void createTab();
+
+  // Browser keyboard conventions (accelerator set grows with features).
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "t") {
+      e.preventDefault();
+      void createTab();
+    } else if (e.ctrlKey && !e.shiftKey && !e.altKey && key === "w") {
+      e.preventDefault();
+      const id = useBrowserStore.getState().activeTabId;
+      if (id) void closeTab(id);
+    }
+  });
   const appRoot = document.getElementById("app");
   if (appRoot) {
     appRoot.style.height = "100%";

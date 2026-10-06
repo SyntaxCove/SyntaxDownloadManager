@@ -5,6 +5,7 @@ import { bindElectronRpc } from "./ipc/electron-rpc.js";
 import { createMainWindow } from "./window.js";
 import { resolveAppPaths } from "./paths.js";
 import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
+import { registerBrowserDomain } from "./domains/browser.js";
 
 /**
  * UniDM entry point. Lifecycle:
@@ -47,6 +48,12 @@ if (!gotLock) {
 
     createMainWindow(paths);
 
+    const mainWindow = () => BrowserWindow.getAllWindows()[0];
+    const tabManager = registerBrowserDomain(router, mainWindow);
+    app.on("before-quit", () => {
+      tabManager.destroyAll();
+    });
+
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow(paths);
     });
@@ -57,7 +64,4 @@ if (!gotLock) {
     app.quit();
   });
 
-  app.on("before-quit", () => {
-    // Phase 5 will append core shutdown (SIGTERM → SIGKILL escalation) here.
-  });
 }
