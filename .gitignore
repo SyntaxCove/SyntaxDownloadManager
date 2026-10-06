@@ -1,2 +1,26 @@
-skills/
+# UniDM monorepo gitignore
+
 node_modules/
+dist/
+out/
+*.tsbuildinfo
+.vite/
+
+# Rust
+core/target/
+**/*.rs.bk
+
+# Electron / packaging
+apps/desktop/release/
+
+# Runtime artifacts
+*.log
+userData/
+db/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

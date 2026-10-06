@@ -1,0 +1,64 @@
+# UniDM — Phase Map (Authoritative)
+
+> Reconstruction note: the original 65-section master prompt chunks and the phase documents of the
+> previous sandbox session were lost to a sandbox reset. This file is the authoritative phase map
+> going forward, reconstructed from the persisted specification summary. Phases are executed
+> strictly in order; each phase follows Plan → Implement → Test → Fix → Document → Review → Commit.
+> Engineering priority: data integrity > security > reliability/recovery > correctness >
+> maintainability > performance > UX > feature breadth.
+
+## Ground rules (from the master specification)
+
+- Downloads are **persistent resumable jobs**: an expired URL never destroys the job or the bytes
+  already downloaded. Recovery re-acquires a source, revalidates with multiple signals
+  (Content-Length / ETag / Last-Modified / Content-Type), rebinds the job to the new source, and
+  fills only the missing ranges.
+- No AI features anywhere in the product.
+- The end user must not install FFmpeg / Deno / Python / Node / yt-dlp / torrent client — all are
+  bundled by later phases.
+- No DRM or paywall circumvention of any kind. YouTube must never be blocked or degraded.
+- Rust core (`download-core.exe` on Windows) is an independent supervised subprocess that owns the
+  persistent database. Electron supervises it; the renderer never touches storage directly.
+- Browser tabs use `WebContentsView` (never the deprecated `BrowserView`).
+- Linux sandbox builds the full codebase and runs headless tests; Windows GUI execution and .exe
+  installer builds happen on the user's device.
+
+## Phase map
+
+| # | Title | Status |
+|---|-------|--------|
+| 0 | Monorepo foundation, tooling, conventions, phase map | delivered (this session) |
+| 1 | `packages/contracts` v1 — versioned domain schemas, protocol envelopes, cross-language fixtures | delivered (this session) |
+| 2 | Electron main shell — lifecycle, security hardening, typed IPC router, preload bridge | delivered (this session) |
+| 3 | Renderer foundation — Vite + React + Fluent UI v9, theme engine, app shell, settings persistence | delivered (this session) |
+| 4 | Browser engine — `WebContentsView` tab manager, `browser.*` IPC, tab strip UI | delivered (this session) |
+| 5 | Rust core v1 — stdio JSONL RPC, SQLite storage, supervised lifecycle, resumable HTTP engine, Downloads UI | delivered (this session) |
+| 6 | Segmented multi-connection engine, per-segment journal, integrity (checksums) | pending |
+| 7 | Recovery engine v2 — source re-acquisition, multi-signal revalidation, rebind, gap-fill | pending |
+| 8 | Queue, scheduler policies, concurrency and bandwidth management | pending |
+| 9 | Proxy engine — profiles, per-tab / per-job routing | pending |
+| 10 | Bundled media toolkit — pinned FFmpeg / yt-dlp / Deno fetch + version manifest | pending |
+| 11 | Media inspector / extractor — `media.inspect`, manifests | pending |
+| 12 | Media download & merge pipeline (video/audio/subtitle mux) | pending |
+| 13 | Torrent engine + UI | pending |
+| 14 | Browser history, bookmarks, downloads library | pending |
+| 15 | Scheduler jobs + automation | pending |
+| 16 | Settings domain completion | pending |
+| 17 | Notifications, toasts, tray integration | pending |
+| 18 | Auto-update channel | pending |
+| 19 | Packaging — electron-builder NSIS installer (user-side build) | pending |
+| 20 | Diagnostics — structured logs, log export, health report | pending |
+| 21 | Accessibility + i18n (fa / en) | pending |
+| 22 | Performance budgets — startup, memory, UI latency | pending |
+| 23 | Security audit — IPC surface, CSP, permission policy review | pending |
+| 24–31 | Hardening, E2E suites, release engineering, docs, 1.0.0 | pending |
+
+## Contract versioning
+
+- `packages/contracts` exports `CONTRACT_VERSION`. The Rust mirror crate `dc-protocol` declares the
+  same value and fails on mismatch.
+- Breaking changes bump the major version; additive changes bump the minor. The IPC boundary
+  validates every request, response and event against zod schemas (TS side) / serde types (Rust
+  side) at runtime.
+- Cross-language fixtures live in `packages/contracts/fixtures/` and are consumed by both vitest
+  and `cargo test` to prove both implementations agree on the wire format.
