@@ -4,6 +4,7 @@ import { ThemeProvider } from "./theme/ThemeProvider.js";
 import { AppShell } from "./app/AppShell.js";
 import { subscribeSettingsChanged } from "./stores/settings.js";
 import { subscribeBrowserEvents, createTab, closeTab, useBrowserStore } from "./stores/browser.js";
+import { subscribeDownloadEvents } from "./stores/downloads.js";
 
 /**
  * Renderer bootstrap: the settings store must be loaded before first paint so the shell
@@ -14,6 +15,7 @@ import { subscribeBrowserEvents, createTab, closeTab, useBrowserStore } from "./
 async function boot(): Promise<void> {
   subscribeSettingsChanged();
   subscribeBrowserEvents();
+  subscribeDownloadEvents();
   const root = createRoot(document.getElementById("app") ?? document.body);
   root.render(
     <StrictMode>

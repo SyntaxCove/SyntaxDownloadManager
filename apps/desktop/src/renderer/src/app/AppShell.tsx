@@ -6,9 +6,10 @@ import {
   tokens,
   Tooltip,
 } from "@fluentui/react-components";
-import { SettingsRegular, GlobeRegular } from "@fluentui/react-icons";
+import { SettingsRegular, GlobeRegular, ArrowDownloadRegular } from "@fluentui/react-icons";
 import { SettingsPage } from "../pages/SettingsPage.js";
 import { BrowsePage } from "../pages/BrowsePage.js";
+import { DownloadsPage } from "../pages/DownloadsPage.js";
 
 /**
  * App shell: drag-region title bar (Windows 11 overlay) + left navigation + content.
@@ -42,7 +43,7 @@ const useStyles = makeStyles({
   content: { flex: 1, minHeight: 0, overflow: "auto", padding: "16px" },
 });
 
-type View = "browse" | "settings";
+type View = "browse" | "downloads" | "settings";
 
 // Drag regions are vendor-specific CSS; Griffel has no typed shorthand, so they are applied
 // as inline styles with an explicit cast.
@@ -51,6 +52,7 @@ const noDragStyle = { WebkitAppRegion: "no-drag" } as unknown as React.CSSProper
 
 const NAV: ReadonlyArray<{ id: View; label: string; icon: React.ReactElement }> = [
   { id: "browse", label: "Browse", icon: <GlobeRegular /> },
+  { id: "downloads", label: "Downloads", icon: <ArrowDownloadRegular /> },
   { id: "settings", label: "Settings", icon: <SettingsRegular /> },
 ];
 
@@ -81,6 +83,7 @@ export function AppShell(): ReactNode {
         </nav>
         <main className={styles.content} style={noDragStyle}>
           {view === "browse" ? <BrowsePage /> : null}
+          {view === "downloads" ? <DownloadsPage /> : null}
           {view === "settings" ? <SettingsPage /> : null}
         </main>
       </div>

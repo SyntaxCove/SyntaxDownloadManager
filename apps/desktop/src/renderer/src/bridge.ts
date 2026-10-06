@@ -1,4 +1,4 @@
-import type { UnidmBridge, MainMethodName, MethodParams, MethodResult } from "@unidm/contracts";
+import type { UnidmBridge, MethodName, MethodParams, MethodResult } from "@unidm/contracts";
 import { METHODS, EVENTS, UniDmError } from "@unidm/contracts";
 import type { z } from "zod";
 
@@ -24,8 +24,12 @@ export function getBridge(): UnidmBridge {
   return bridge;
 }
 
-/** Typed RPC with runtime result validation against the contract registry. */
-export async function rpc<M extends MainMethodName>(
+/**
+ * Typed RPC with runtime result validation against the contract registry.
+ * Every registered method is callable from the renderer: `main`-served methods run in the
+ * main process, `core`-served methods are proxied transparently to the Rust core.
+ */
+export async function rpc<M extends MethodName>(
   method: M,
   ...args: MethodParams<M> extends undefined ? [] : [params: MethodParams<M>]
 ): Promise<MethodResult<M>> {

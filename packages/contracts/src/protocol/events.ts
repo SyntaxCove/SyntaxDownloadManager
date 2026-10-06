@@ -25,6 +25,13 @@ export const EVENTS = {
       protocolVersion: z.number().int(),
     }),
   },
+  /** Supervisor lifecycle broadcasts (main → renderer). */
+  "core.state": {
+    source: "main",
+    payload: z.object({
+      status: z.enum(["starting", "ready", "restarting", "unavailable"]),
+    }),
+  },
   // main → renderer
   "browser.tab.updated": { source: "main", payload: TabUpdatedEvent },
   "browser.tab.closed": { source: "main", payload: TabClosedEvent },

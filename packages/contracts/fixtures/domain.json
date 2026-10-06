@@ -2,6 +2,7 @@
   "downloadJob": {
     "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0T",
     "url": "https://example.com/files/setup.zip",
+    "destinationDir": "/home/user/Downloads",
     "destinationPath": "/home/user/Downloads/setup.zip",
     "status": "downloading",
     "totalBytes": 104857600,

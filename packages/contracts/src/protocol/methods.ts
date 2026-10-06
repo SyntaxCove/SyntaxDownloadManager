@@ -23,10 +23,17 @@ export interface MethodEntry {
   readonly server: "main" | "core";
 }
 
+const PingResult = z.object({
+  pong: z.literal(true),
+  contractVersion: z.string().min(1),
+  protocolVersion: z.number().int(),
+  now: z.number().int().nonnegative(),
+});
+
 export const METHODS = {
   // ---- core (Rust download-core, Phase 5) ----
-  "core.ping": { server: "core" },
-  "core.shutdown": { server: "core" },
+  "core.ping": { server: "core", params: z.object({}).optional(), result: PingResult },
+  "core.shutdown": { server: "core", params: z.object({}).optional(), result: z.object({ ok: z.literal(true) }) },
   "download.create": { server: "core", params: DownloadCreateParams, result: DownloadCreateResult },
   "download.list": { server: "core", params: DownloadListParams, result: DownloadListResult },
   "download.get": { server: "core", params: JobIdParams, result: JobByIdResult },
@@ -34,6 +41,12 @@ export const METHODS = {
   "download.resume": { server: "core", params: JobIdParams, result: JobByIdResult },
   "download.cancel": { server: "core", params: JobIdParams, result: JobByIdResult },
   "download.remove": { server: "core", params: DownloadRemoveParams, result: DownloadRemoveResult },
+  /** Applied by main at startup and whenever the parallel-downloads setting changes. */
+  "download.setConcurrency": {
+    server: "core",
+    params: z.object({ max: z.number().int().min(1).max(8) }),
+    result: z.object({ applied: z.literal(true) }),
+  },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },

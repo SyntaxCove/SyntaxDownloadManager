@@ -24,8 +24,12 @@ export const DownloadJob = z.object({
   id: Ulid,
   /** Source URL at creation time. Re-binding to new sources happens in the recovery phases. */
   url: z.url(),
-  /** Absolute final path (destinationDir + resolved filename). */
-  destinationPath: z.string().min(1),
+  /** Absolute save directory (known at creation). */
+  destinationDir: z.string().min(1),
+  /** Absolute final path; null until the probe resolves the filename. */
+  destinationPath: z.string().min(1).nullable(),
+  /** Explicit filename from creation params, when provided. */
+  filename: z.string().min(1).nullish(),
   status: DownloadStatus,
   /** `null` while unknown (probe failed or server omitted Content-Length). */
   totalBytes: z.number().int().nonnegative().nullable(),
@@ -34,9 +38,11 @@ export const DownloadJob = z.object({
   etag: z.string().nullable(),
   lastModified: z.string().nullable(),
   contentType: z.string().nullable(),
-  speedBps: z.number().nonnegative().nullable(),
-  etaSeconds: z.number().nonnegative().nullable(),
+  speedBps: z.number().int().nonnegative().nullable(),
+  etaSeconds: z.number().int().nonnegative().nullable(),
   errorCode: z.string().nullable(),
+  /** Request headers (UA/Referer/Cookie) captured at creation; required for faithful resume. */
+  headers: z.record(z.string(), z.string()).nullish(),
   /** Epoch milliseconds (avoids datetime parsing divergence between TS and Rust). */
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
@@ -79,7 +85,7 @@ export const DownloadProgress = z.object({
   jobId: Ulid,
   receivedBytes: z.number().int().nonnegative(),
   totalBytes: z.number().int().nonnegative().nullable(),
-  speedBps: z.number().nonnegative(),
-  etaSeconds: z.number().nonnegative().nullable(),
+  speedBps: z.number().int().nonnegative(),
+  etaSeconds: z.number().int().nonnegative().nullable(),
 });
 export type DownloadProgress = z.infer<typeof DownloadProgress>;

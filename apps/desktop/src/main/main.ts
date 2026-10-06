@@ -1,11 +1,14 @@
 import { app, BrowserWindow } from "electron";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { EVENTS } from "@unidm/contracts";
 import { IpcRouter } from "./ipc/router.js";
 import { bindElectronRpc } from "./ipc/electron-rpc.js";
 import { createMainWindow } from "./window.js";
 import { resolveAppPaths } from "./paths.js";
 import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
+import { registerDownloadDomain } from "./domains/download.js";
+import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
 
 /**
  * UniDM entry point. Lifecycle:
@@ -50,8 +53,25 @@ if (!gotLock) {
 
     const mainWindow = () => BrowserWindow.getAllWindows()[0];
     const tabManager = registerBrowserDomain(router, mainWindow);
+
+    // Rust download core: supervised subprocess owning the SQLite database.
+    const supervisor = new CoreSupervisor({
+      binaryPath: resolveCoreBinaryPath({ appRoot, isPackaged: app.isPackaged, envOverride: process.env.UNIDM_CORE_BIN }),
+      dbPath: join(app.getPath("userData"), "downloads.db"),
+      maxConcurrent: settingsStore.settings.concurrentDownloads,
+      log: (msg) => console.log(msg),
+    });
+    supervisor.on("state", (status: string) => {
+      // Broadcast lifecycle to every renderer (downloads page shows a banner).
+      router.emit("core.state", EVENTS["core.state"].payload, { status });
+    });
+    registerDownloadDomain(router, supervisor);
+    supervisor.start();
+
     app.on("before-quit", () => {
       tabManager.destroyAll();
+      // Persisting job state before teardown outranks a fast exit.
+      void supervisor.stop(4_000);
     });
 
     app.on("activate", () => {

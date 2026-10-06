@@ -29,3 +29,20 @@ Stage Summary:
 - Repo layout established: packages/contracts, apps/desktop (main/preload/renderer),
   core/ (Rust workspace: dc-protocol, dc-storage, download-core), docs/, scripts/.
 - Next: Phase 1 contracts package.
+
+---
+Task ID: 0-5 (rebuild)
+Agent: main
+Task: Deliver Phases 0→5 for "فاز ۵" (sandbox reset recovery)
+
+Work Log:
+- Rebuilt Phases 0–4 from scratch (commits 60801e6, 1d95ed1, 0d53b2e, e35fbd6, 98abf40).
+- Phase 5: Rust workspace (dc-protocol/dc-storage/download-core), 25 cargo tests incl.
+  cross-language fixtures + engine integration with local HTTP server + spawned-binary e2e;
+  TS CoreSupervisor/CoreClient/backoff + download domain + Downloads UI (42 desktop tests).
+- Full verify: typecheck ✓, vitest 54 ✓, cargo fmt/clippy ✓, cargo test 25 ✓, vite build ✓.
+
+Stage Summary:
+- Through Phase 5, the app has: sandboxed Electron shell, validated typed IPC, React+Fluent
+  UI with theme/settings, WebContentsView browser tabs, and a supervised resumable download
+  engine with SQLite persistence. Next: Phase 6 (segmented engine) per docs/PHASES.md.
