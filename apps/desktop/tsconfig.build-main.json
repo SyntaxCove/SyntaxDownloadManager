@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "outDir": "dist/main",
+    "rootDir": "src/main",
+    "sourceMap": true
+  },
+  "include": ["src/main"],
+  "exclude": ["src/main/__tests__"]
+}

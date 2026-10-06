@@ -3,15 +3,16 @@
   "version": "0.5.0",
   "private": true,
   "description": "UniDM desktop shell — Electron main, preload bridge, React renderer",
-  "type": "module",
+  "type": "commonjs",
   "main": "./dist/main/main.js",
   "scripts": {
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "build:main": "tsc -p tsconfig.main.json",
+    "build:main": "tsc -p tsconfig.build-main.json",
     "build:renderer": "vite build",
-    "build": "npm run build:main && npm run build:renderer",
+    "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "test": "vitest run",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload/preload.cjs --sourcemap=external"
   },
   "dependencies": {
     "@unidm/contracts": "*",
@@ -27,6 +28,7 @@
     "@vitejs/plugin-react": "6.1.2",
     "electron": "44.5.1",
     "vite": "8.3.3",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "esbuild": "0.28.2"
   }
 }
