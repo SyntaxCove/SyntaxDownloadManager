@@ -23,6 +23,15 @@ export const AppSettings = z.object({
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
+/** Canonical defaults — the single source for main-process persistence and renderer UI. */
+export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
+  theme: "system",
+  language: "en",
+  downloadDir: "~/Downloads",
+  concurrentDownloads: 3,
+  speedLimitKBps: 0,
+});
+
 export const SettingsGetParams = z.object({});
 export const SettingsGetResult = z.object({ settings: AppSettings });
 

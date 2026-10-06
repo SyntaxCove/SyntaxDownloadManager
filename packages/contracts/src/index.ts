@@ -13,3 +13,4 @@ export * from "./domain/scheduler.js";
 export * from "./protocol/envelope.js";
 export * from "./protocol/methods.js";
 export * from "./protocol/events.js";
+export * from "./protocol/renderer-bridge.js";

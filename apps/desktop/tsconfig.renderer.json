@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src/renderer", "vite.config.ts"]
+  "include": ["src/renderer", "vite.config.mts"]
 }

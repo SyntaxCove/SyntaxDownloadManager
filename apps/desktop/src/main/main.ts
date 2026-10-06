@@ -4,17 +4,15 @@ import { IpcRouter } from "./ipc/router.js";
 import { bindElectronRpc } from "./ipc/electron-rpc.js";
 import { createMainWindow } from "./window.js";
 import { resolveAppPaths } from "./paths.js";
+import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 
 /**
  * UniDM entry point. Lifecycle:
  *  1. single-instance lock (second launch focuses the existing window);
  *  2. renderer process sandbox enabled process-wide before `ready`;
- *  3. shell window + typed IPC router bound to Electron.
- *
- * Feature domains register their methods on the same router in their own phases:
- * settings (Phase 3), browser tabs (Phase 4), downloads via the Rust core (Phase 5+).
- * The Rust core is NOT spawned here yet — Phase 5 introduces the supervisor behind the same
- * router surface (`download.*` methods), so this wiring never changes shape again.
+ *  3. shell window + typed IPC router bound to Electron;
+ *  4. settings domain registered on the router (Phase 3); browser tabs (Phase 4) and the
+ *     Rust download core (Phase 5) register on the same surface later.
  */
 
 const gotLock = app.requestSingleInstanceLock();
@@ -31,7 +29,7 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     const appRoot = app.isPackaged ? process.resourcesPath : resolve(__dirname, "../..");
     const paths = resolveAppPaths({
       appRoot,
@@ -40,6 +38,11 @@ if (!gotLock) {
     });
 
     const router = new IpcRouter((msg) => console.log(msg));
+
+    const settingsStore = new SettingsStore(app.getPath("userData"));
+    await settingsStore.load();
+    registerSettingsDomain(router, settingsStore);
+
     bindElectronRpc(router, () => BrowserWindow.getAllWindows());
 
     createMainWindow(paths);
