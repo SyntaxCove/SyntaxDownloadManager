@@ -46,3 +46,35 @@ Stage Summary:
 - Through Phase 5, the app has: sandboxed Electron shell, validated typed IPC, React+Fluent
   UI with theme/settings, WebContentsView browser tabs, and a supervised resumable download
   engine with SQLite persistence. Next: Phase 6 (segmented engine) per docs/PHASES.md.
+
+---
+Task ID: 6
+Agent: main
+Task: Phase 6 — segmented multi-connection engine, per-segment journal, integrity (checksums)
+
+Work Log:
+- Plan: docs/phase-6-plan.md (two write modes, window planner, journal discipline,
+  integrity gates, contracts v1.1.0 additive, test plan, verification gate).
+- Reinstalled toolchain after sandbox reset (rustup 1.99.0 + rustfmt + clippy; sha2 pinned
+  to crates.io max stable 0.11.0, verified 2026-10-07).
+- Implemented: segments.rs (planner + journal helpers + hex/normalize), engine v2
+  (per-window tasks, If-Range guards, Content-Range start/total validation, window-capped
+  writes, bounded retries + bounded clean restarts, pause/cancel cursor flush, streaming
+  SHA-256 + expected-checksum verdict + fsync-before-rename), dc-storage migration v2
+  (segments table + job integrity columns + transactional segment API), server/manager/main
+  wiring (download.setConcurrency gains maxConnectionsPerDownload, UNIDM_MAX_CONNECTIONS).
+- Contracts v1.1.0: DownloadJob integrity/segmentation fields with pinned wire rules
+  (nullable = always serialized; nullish = omitted), setConcurrency extension, settings
+  maxConnectionsPerDownload, segmented + legacy fixtures; npm package version 1.1.0.
+- Electron: supervisor env knob; main.ts applies both limits at core-ready and re-applies on
+  settings.changed; SettingsPage slider; DownloadsPage connection + checksum badges (Fluent).
+- Fixed during Test/Fix: zero-byte + unknown-total Content-Range semantics, append-mode EOF
+  completion, Stopped outcome for the stop race, early-exit "done" journal marker, pre-existing
+  core.test.ts unhandled-rejection flake, clippy findings (truncate(false), div_ceil, lints).
+
+Stage Summary:
+- Verification gate all green: cargo fmt/clippy clean, cargo test 49 passed (was 25),
+  vitest 60 passed (was 54), typecheck + vite build pass.
+- Commit 4b5db7c; phase report docs/phase-6-report.md; PHASES.md #6 delivered.
+- Next: Phase 7 (recovery engine v2 — source re-acquisition, multi-signal revalidation,
+  rebind, gap-fill) per docs/PHASES.md.

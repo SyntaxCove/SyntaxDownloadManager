@@ -33,7 +33,7 @@
 | 3 | Renderer foundation — Vite + React + Fluent UI v9, theme engine, app shell, settings persistence | delivered (this session) |
 | 4 | Browser engine — `WebContentsView` tab manager, `browser.*` IPC, tab strip UI | delivered (this session) |
 | 5 | Rust core v1 — stdio JSONL RPC, SQLite storage, supervised lifecycle, resumable HTTP engine, Downloads UI | delivered (this session) |
-| 6 | Segmented multi-connection engine, per-segment journal, integrity (checksums) | pending |
+| 6 | Segmented multi-connection engine, per-segment journal, integrity (checksums) | delivered (2026-10-07) |
 | 7 | Recovery engine v2 — source re-acquisition, multi-signal revalidation, rebind, gap-fill | pending |
 | 8 | Queue, scheduler policies, concurrency and bandwidth management | pending |
 | 9 | Proxy engine — profiles, per-tab / per-job routing | pending |
