@@ -189,3 +189,161 @@ fn spawned_binary_end_to_end() {
     assert!(saw_ready, "binary must announce core.ready");
     assert!(saw_pong, "binary must answer core.ping");
 }
+
+/// Full-surface e2e: create a job (with an expected checksum) through the JSONL protocol,
+/// against a real local HTTP server, and watch it reach `completed` with a verified digest.
+#[tokio::test]
+async fn create_with_checksum_completes_over_rpc() {
+    // 1.2 MiB deterministic body → 2 segments at 2 connections (>= 1 MiB minimum each).
+    let body: Vec<u8> = (0..(1200 * 1024u32))
+        .map(|i| ((i as u64 * 31 + 7) % 256) as u8)
+        .collect();
+    let server = common_test_server::ShaServer::start(body.clone()).await;
+
+    let (mut w, mut r) = spawn_serve().await;
+    let expected = {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update(&body);
+        h.finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+
+    let dir = std::env::temp_dir().join(format!(
+        "dc-rpc-e2e-{}-{}",
+        std::process::id(),
+        dc_protocol::new_ulid()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let create = serde_json::json!({
+        "v": 1, "id": "ck1", "method": "download.create",
+        "params": {
+            "url": server.base_url(),
+            "destinationDir": dir.display().to_string(),
+            "checksum": { "algorithm": "sha256", "value": expected }
+        }
+    });
+    let response = request(&mut w, &mut r, &create.to_string()).await;
+    assert_eq!(response["ok"], true, "create must succeed: {response}");
+    let job_id = response["result"]["job"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        response["result"]["job"]["checksumExpected"],
+        expected.as_str()
+    );
+
+    let mut completed = false;
+    for _ in 0..200 {
+        let get = request(
+            &mut w,
+            &mut r,
+            &serde_json::json!({"v":1,"id":"g","method":"download.get","params":{"id":job_id}})
+                .to_string(),
+        )
+        .await;
+        if get["result"]["job"]["status"] == "completed" {
+            assert_eq!(get["result"]["job"]["checksumVerified"], true);
+            assert_eq!(get["result"]["job"]["checksumActual"], expected.as_str());
+            assert!(get["result"]["job"]["segmentCount"].as_i64().unwrap() >= 2);
+            completed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(completed, "job must complete through the RPC surface");
+
+    // cleanup
+    let _ = request(
+        &mut w,
+        &mut r,
+        &serde_json::json!({"v":1,"id":"rm","method":"download.remove",
+            "params":{"id":job_id,"deletePartialFile":true}})
+        .to_string(),
+    )
+    .await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+mod common_test_server {
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    pub struct ShaServer {
+        addr: std::net::SocketAddr,
+    }
+
+    impl ShaServer {
+        pub async fn start(body: Vec<u8>) -> Arc<Self> {
+            let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+            let addr = listener.local_addr().unwrap();
+            let body = Arc::new(body);
+            let body_cl = body.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Ok((socket, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let b = body_cl.clone();
+                    tokio::spawn(async move {
+                        serve_file(socket, b).await;
+                    });
+                }
+            });
+            Arc::new(Self { addr })
+        }
+
+        pub fn base_url(&self) -> String {
+            format!("http://{}/file", self.addr)
+        }
+    }
+
+    async fn serve_file(mut socket: TcpStream, body: Arc<Vec<u8>>) {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = socket.read(&mut chunk).await.unwrap_or(0);
+            if n == 0 {
+                return;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let request = String::from_utf8_lossy(&buf).to_lowercase();
+        let mut range_start: Option<u64> = None;
+        let mut range_end: Option<u64> = None;
+        for line in request.lines() {
+            if let Some(v) = line.strip_prefix("range: bytes=") {
+                let mut parts = v.trim().split('-');
+                range_start = parts.next().and_then(|s| s.parse().ok());
+                range_end = parts.next().and_then(|s| s.parse().ok());
+            }
+        }
+        let len = body.len();
+        let head = match (range_start, range_end) {
+            (Some(s), e) if s < len as u64 => {
+                let end = e.map(|x| (x as usize).min(len - 1)).unwrap_or(len - 1);
+                let slice_len = end - s as usize + 1;
+                format!(
+                    "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nContent-Length: {slice_len}\r\nAccept-Ranges: bytes\r\nETag: \"sha-e2e\"\r\nContent-Range: bytes {s}-{end}/{len}\r\nConnection: close\r\n\r\n"
+                )
+            }
+            _ => format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len}\r\nAccept-Ranges: bytes\r\nETag: \"sha-e2e\"\r\nConnection: close\r\n\r\n"
+            ),
+        };
+        socket.write_all(head.as_bytes()).await.ok();
+        match range_start {
+            Some(s) => socket.write_all(&body[s as usize..]).await.ok(),
+            None => socket.write_all(&body).await.ok(),
+        };
+        socket.flush().await.ok();
+    }
+}

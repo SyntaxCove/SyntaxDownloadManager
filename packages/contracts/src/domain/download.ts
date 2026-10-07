@@ -2,8 +2,9 @@ import { z } from "zod";
 import { Ulid } from "../ids.js";
 
 /**
- * Download domain — contract v1 covers the Phase 5 engine (single-stream resumable jobs).
- * Segmentation/recovery states and fields are added in later contract minor versions.
+ * Download domain — contract v1.1 adds the Phase 6 segmented engine: per-segment journal,
+ * connections-per-download and integrity checksums. All new fields are additive (nullable /
+ * optional) so v1 payloads remain valid.
  */
 
 export const DownloadStatus = z.enum([
@@ -19,6 +20,33 @@ export type DownloadStatus = z.infer<typeof DownloadStatus>;
 
 /** Terminal statuses: no engine task is running for the job. */
 export const TERMINAL_STATUSES: readonly DownloadStatus[] = ["completed", "failed", "canceled"];
+
+/** Checksum algorithms accepted for expected-integrity verification (Phase 6). */
+export const ChecksumAlgorithm = z.enum(["sha256", "sha1", "md5"]);
+export type ChecksumAlgorithm = z.infer<typeof ChecksumAlgorithm>;
+
+/** Hex digest lengths per algorithm — validated at the boundary, case-insensitive. */
+export const CHECKSUM_HEX_LENGTH: Record<ChecksumAlgorithm, number> = {
+  sha256: 64,
+  sha1: 40,
+  md5: 32,
+};
+
+export const Checksum = z
+  .object({
+    algorithm: ChecksumAlgorithm,
+    /** Lowercase hex digest of the complete file. */
+    value: z
+      .string()
+      .regex(/^[0-9a-fA-F]+$/, "checksum value must be hex")
+      .refine((v) => Object.values(CHECKSUM_HEX_LENGTH).includes(v.length), {
+        message: "checksum hex length must match the algorithm (sha256=64, sha1=40, md5=32)",
+      }),
+  })
+  .refine((c) => c.value.length === CHECKSUM_HEX_LENGTH[c.algorithm], {
+    message: "checksum hex length does not match algorithm",
+  });
+export type Checksum = z.infer<typeof Checksum>;
 
 export const DownloadJob = z.object({
   id: Ulid,
@@ -43,7 +71,16 @@ export const DownloadJob = z.object({
   errorCode: z.string().nullable(),
   /** Request headers (UA/Referer/Cookie) captured at creation; required for faithful resume. */
   headers: z.record(z.string(), z.string()).nullish(),
-  /** Epoch milliseconds (avoids datetime parsing divergence between TS and Rust). */
+  // ---- v1.1 (Phase 6): segmentation + integrity ----
+  /** Number of range windows the engine planned; null for legacy single-stream jobs. */
+  segmentCount: z.number().int().min(1).nullable(),
+  /** Expected checksum provided at creation (compared at completion); null when none. */
+  checksumAlgorithm: ChecksumAlgorithm.nullish(),
+  checksumExpected: z.string().regex(/^[0-9a-fA-F]+$/).nullish(),
+  /** Streaming SHA-256 digest computed by the engine over the finished part file. */
+  checksumActual: z.string().regex(/^[0-9a-fA-F]+$/).nullable(),
+  /** Result of the expected-vs-actual comparison; null = never compared (no expected). */
+  checksumVerified: z.boolean().nullable(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });
@@ -53,12 +90,14 @@ export const DownloadCreateParams = z.object({
   url: z.url(),
   /** Absolute directory the file will be saved into (must exist; core creates it if missing). */
   destinationDir: z.string().min(1),
-  /** Optional explicit filename; otherwise derived from the URL/Content-Disposition (Phase 5 probe). */
+  /** Optional explicit filename; otherwise derived from the URL/Content-Disposition (probe). */
   filename: z.string().min(1).optional(),
   /** false (default): auto-uniquify to "name (2).ext"; true: refuse with `file_exists`. */
   overwrite: z.boolean().optional().default(false),
   /** Extra request headers (User-Agent, Referer, cookies) captured from the browser context. */
   headers: z.record(z.string(), z.string()).optional(),
+  /** v1.1: expected file checksum — the engine verifies the download before declaring completion. */
+  checksum: Checksum.optional(),
 });
 export type DownloadCreateParams = z.infer<typeof DownloadCreateParams>;
 

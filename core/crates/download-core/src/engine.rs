@@ -1,31 +1,64 @@
-//! Resumable download engine — one task per active job.
+//! Segmented multi-connection resumable download engine (v2).
 //!
-//! Resume safety (data integrity outranks everything):
-//!  - probe with `Range: bytes=0-0` captures size/validators/accept-ranges;
-//!  - resume sends `Range: bytes=N-` **with** `If-Range: <validator>`; a 200 answer means the
-//!    source changed → the part file is truncated and the job restarts from zero instead of
-//!    producing a corrupt hybrid file;
-//!  - validators (ETag / Last-Modified) and the header set persist in the DB across runs;
-//!  - completion fsyncs the file before the atomic `.part` → final rename.
+//! Data-integrity rules (they outrank everything else):
+//!  - the per-segment journal NEVER leads the file: `written` is persisted after the bytes
+//!    reach the OS, so a crash can only cost a small re-download, never a hole;
+//!  - resume requests carry `If-Range` with the validator of the source the part came from;
+//!    a 200 answer means the source changed → the whole run restarts from zero (bounded);
+//!  - `206` answers are validated against the requested offset and total before any write;
+//!  - writes are hard-capped at the planned window end — server surplus bytes are dropped;
+//!  - completion verifies Σ written == total, then hashes the part file with SHA-256 and —
+//!    when the job carries an expected checksum — refuses to declare success on mismatch;
+//!  - the final rename happens only after fsync.
+//!
+//! Jobs whose source does not support ranges (or whose size is unknown) run as a single
+//! append-mode window; the model is identical, only the window is open-ended. A v1-era part
+//! (bytes on disk, validators persisted, no journal rows) is migrated forward instead of
+//! being discarded.
 
 use std::collections::HashMap;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use dc_protocol::job::DownloadJob;
+use dc_protocol::job::{ChecksumAlgorithm, DownloadJob};
 use dc_protocol::{new_ulid, ContractError, ErrorCode, EventEnvelope};
-use dc_storage::JobStore;
+use dc_storage::{JobStore, SegmentRow};
 use futures_util::StreamExt;
+use sha2::{Digest, Sha256};
 use tokio::fs::OpenOptions;
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::segments::{
+    journal_from_plan, journal_matches_plan, normalize_expected, plan_windows, to_hex, Window,
+    MAX_CONNECTIONS_CAP, MIN_SEGMENT_BYTES,
+};
+
 pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
+/// Journal flush cadence per segment (the durable cursor trails in-memory by at most ~1 MiB).
+const JOURNAL_FLUSH_BYTES: u64 = 1024 * 1024;
+/// Attempts per segment against transient network/stream errors before the job fails.
+const MAX_SEGMENT_ATTEMPTS: usize = 3;
+/// Linear backoff between segment attempts.
+const RETRY_BACKOFF_MS: u64 = 300;
+/// How often a source change (200 on a ranged request) may trigger a clean restart.
+const MAX_SOURCE_RESTARTS: usize = 2;
+/// Chunk size for the completion hash pass.
+const HASH_CHUNK: usize = 256 * 1024;
 
 pub type EventsTx = mpsc::UnboundedSender<EventEnvelope>;
+
+/// Expected checksum supplied at creation (validated + normalized by the caller).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChecksumSpec {
+    pub algorithm: ChecksumAlgorithm,
+    pub value: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct CreateJobParams {
@@ -34,6 +67,7 @@ pub struct CreateJobParams {
     pub filename: Option<String>,
     pub overwrite: bool,
     pub headers: Option<HashMap<String, String>>,
+    pub checksum: Option<ChecksumSpec>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -113,10 +147,35 @@ fn set_error(job: &mut DownloadJob, err: &ContractError) {
     touch(job);
 }
 
+/// Outcome of one segment task.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SegmentOutcome {
+    /// The window is fully on disk.
+    Done,
+    /// The source changed under us (200 on a ranged request / total mismatch):
+    /// the caller wipes the journal and restarts the run.
+    Restart,
+    /// Supervisor teardown observed inside the task; the run must not continue.
+    Stopped,
+}
+
+/// Per-run shared state across the segment tasks.
+#[derive(Debug)]
+struct RunState {
+    /// Σ of every segment's in-memory write cursor (authoritative live received count).
+    received: Arc<AtomicU64>,
+    /// Set by the first task that detects a source change; peers exit early.
+    restart: Arc<AtomicBool>,
+    /// In-memory write cursors per segment index — flushed to the journal on pause/cancel
+    /// so a user-initiated pause resumes exactly where the UI says it did.
+    cursors: Arc<Mutex<Vec<u64>>>,
+}
+
 pub struct Engine {
     pub store: Arc<JobStore>,
     pub client: reqwest::Client,
     pub events: EventsTx,
+    max_connections: Arc<AtomicU64>,
 }
 
 impl Engine {
@@ -130,7 +189,14 @@ impl Engine {
             store,
             client,
             events,
+            max_connections: Arc::new(AtomicU64::new(4)),
         }
+    }
+
+    /// Connections per download (segmentation ceiling); clamped to the contract range.
+    pub fn set_max_connections(&self, max: usize) {
+        self.max_connections
+            .store(max.clamp(1, MAX_CONNECTIONS_CAP) as u64, Ordering::SeqCst);
     }
 
     pub fn emit_job(&self, job: &DownloadJob) {
@@ -163,6 +229,14 @@ impl Engine {
                 "only http(s) URLs are supported",
             ));
         }
+        let checksum = match &params.checksum {
+            Some(spec) => {
+                let value = normalize_expected(spec.algorithm, &spec.value)
+                    .map_err(|msg| ContractError::new(ErrorCode::InvalidParams, msg))?;
+                Some((spec.algorithm, value))
+            }
+            None => None,
+        };
         let ts = now_ms();
         let job = DownloadJob {
             id: new_ulid(),
@@ -180,6 +254,11 @@ impl Engine {
             eta_seconds: None,
             error_code: None,
             headers: params.headers.clone(),
+            segment_count: None,
+            checksum_algorithm: checksum.as_ref().map(|(a, _)| *a),
+            checksum_expected: checksum.as_ref().map(|(_, v)| v.clone()),
+            checksum_actual: None,
+            checksum_verified: None,
             created_at: ts,
             updated_at: ts,
         };
@@ -187,7 +266,7 @@ impl Engine {
         Ok(job)
     }
 
-    /// The per-job task: probe → download loop. Runs until terminal/paused or stop token.
+    /// The per-job task: probe → segmented download → verify. Runs until terminal/paused.
     pub async fn run_job(
         self: Arc<Self>,
         mut job: DownloadJob,
@@ -218,10 +297,9 @@ impl Engine {
         // Resume safety: If-Range must carry the validators of the SOURCE THE PART CAME FROM
         // (persisted before this run), never the freshly probed ones — otherwise a changed
         // source would answer 206 against the new validator and the part would be spliced
-        // with foreign bytes. A mismatch then yields 200 → restart from zero below.
-        // Capture them BEFORE the probe overwrites job.etag/last_modified.
-        let part_etag = job.etag.clone();
-        let part_last_modified = job.last_modified.clone();
+        // with foreign bytes. Captured BEFORE the probe overwrites job.etag/last_modified.
+        let mut part_etag = job.etag.clone();
+        let mut part_last_modified = job.last_modified.clone();
 
         // ---- probing ----
         job.status = "probing".into();
@@ -229,12 +307,12 @@ impl Engine {
         self.store.update_job(job)?;
         self.emit_job(job);
 
-        let probe = tokio::select! {
+        let mut probe = tokio::select! {
             _ = stop.cancelled() => return Ok(()),
             r = self.probe(job) => r?,
         };
 
-        // ---- destination resolution ----
+        // ---- destination resolution (once; the part file is bound to this path) ----
         let base_name = job
             .filename
             .clone()
@@ -262,175 +340,694 @@ impl Engine {
         self.store.update_job(job)?;
         self.emit_job(job);
 
-        // ---- download ----
-        job.status = "downloading".into();
-        touch(job);
-        self.store.update_job(job)?;
-        self.emit_job(job);
+        // ---- segmented run loop (bounded clean restarts on source change) ----
+        let mut restarts_used = 0usize;
+        loop {
+            let max_conn = self.max_connections.load(Ordering::SeqCst) as usize;
+            let windows = plan_windows(
+                job.total_bytes,
+                probe.ranges_supported,
+                max_conn,
+                MIN_SEGMENT_BYTES,
+            );
 
-        let received_start = match tokio::fs::metadata(&part_path).await {
+            // Journal reconciliation. A v1-era part (no journal rows) is migrated forward
+            // instead of thrown away; a plan change resets the journal.
+            let mut journal = self.store.list_segments(job.id.as_str())?;
+            if journal.is_empty() {
+                journal = self.migrate_v1_part(job, &part_path, &windows).await?;
+            }
+            if !journal_matches_plan(&journal, &windows) {
+                tracing::info!(job = %job.id, "plan changed — resetting segment journal");
+                journal = journal_from_plan(&windows);
+                self.store
+                    .replace_segments(job.id.as_str(), &journal)
+                    .map_err(EngineError::Contract)?;
+            }
+            // A part with bytes but no validators cannot be proven to match the source:
+            // integrity policy discards it rather than risking a hybrid file.
+            let part_validators = part_etag.clone().or_else(|| part_last_modified.clone());
+            let has_written = journal.iter().any(|s| s.written_bytes > 0);
+            if has_written && part_validators.is_none() {
+                tracing::warn!(job = %job.id, "unprovable part (no validators) — discarding");
+                journal = journal_from_plan(&windows);
+                self.store
+                    .replace_segments(job.id.as_str(), &journal)
+                    .map_err(EngineError::Contract)?;
+            }
+
+            let offset_mode = windows.iter().all(|w| w.end.is_some());
+            let initial_written: u64 = journal.iter().map(|s| s.written_bytes).sum();
+
+            // Align the part file with the journal before any writer opens it.
+            if offset_mode {
+                // Sparse pre-size: the windows tile [0, total) exactly.
+                let file = OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(&part_path)
+                    .await
+                    .map_err(EngineError::Io)?;
+                file.set_len(job.total_bytes.unwrap_or(0))
+                    .await
+                    .map_err(EngineError::Io)?;
+            } else {
+                // Append mode: truncate to the durable cursor (drops any stale crash tail).
+                let file = OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(&part_path)
+                    .await
+                    .map_err(EngineError::Io)?;
+                file.set_len(initial_written)
+                    .await
+                    .map_err(EngineError::Io)?;
+            }
+
+            // The If-Range validator for every request of this run: the PART's validators
+            // when resuming written data, otherwise the freshly probed ones.
+            let if_range = if has_written {
+                part_validators.clone()
+            } else {
+                job.etag.clone().or_else(|| job.last_modified.clone())
+            };
+
+            job.segment_count = Some(windows.len().max(1) as u64);
+            job.status = "downloading".into();
+            job.received_bytes = initial_written;
+            job.speed_bps = None;
+            touch(job);
+            self.store.update_job(job)?;
+            self.emit_job(job);
+
+            let state = Arc::new(RunState {
+                received: Arc::new(AtomicU64::new(initial_written)),
+                restart: Arc::new(AtomicBool::new(false)),
+                cursors: Arc::new(Mutex::new(
+                    journal.iter().map(|s| s.written_bytes).collect(),
+                )),
+            });
+
+            // Progress ticker: one throttled stream of updates for the whole run.
+            let ticker_stop = CancellationToken::new();
+            let ticker = self.spawn_ticker(
+                job.id.as_str().to_string(),
+                job.total_bytes,
+                state.received.clone(),
+                ticker_stop.clone(),
+            );
+
+            // One task per window.
+            let mut tasks: JoinSet<Result<SegmentOutcome, EngineError>> = JoinSet::new();
+            for (idx, window) in windows.iter().enumerate() {
+                let row = journal[idx].clone();
+                tasks.spawn(Self::run_segment(
+                    self.store.clone(),
+                    self.client.clone(),
+                    job.clone(),
+                    idx,
+                    *window,
+                    row,
+                    part_path.clone(),
+                    if_range.clone(),
+                    state.clone(),
+                    stop.clone(),
+                ));
+            }
+
+            let mut run_result: Result<(), EngineError> = Ok(());
+            let mut source_changed = false;
+            while !tasks.is_empty() {
+                tokio::select! {
+                    _ = stop.cancelled() => {
+                        tasks.abort_all();
+                        ticker_stop.cancel();
+                        let _ = ticker.await;
+                        return Ok(());
+                    }
+                    cmd = cmd_rx.recv() => {
+                        tasks.abort_all();
+                        ticker_stop.cancel();
+                        let _ = ticker.await;
+                        self.finalize_run(job, &state, "commanded stop");
+                        if let Some(cmd) = cmd {
+                            match cmd {
+                                JobCommand::Pause => {
+                                    job.status = "paused".into();
+                                    job.speed_bps = None;
+                                    job.eta_seconds = None;
+                                    touch(job);
+                                    self.store.update_job(job)?;
+                                    self.emit_job(job);
+                                }
+                                JobCommand::Cancel => {
+                                    job.status = "canceled".into();
+                                    job.speed_bps = None;
+                                    job.eta_seconds = None;
+                                    touch(job);
+                                    self.store.update_job(job)?;
+                                    self.emit_job(job);
+                                }
+                            }
+                        }
+                        return Ok(());
+                    }
+                    done = tasks.join_next(), if !tasks.is_empty() => {
+                        match done {
+                            Some(Ok(Ok(SegmentOutcome::Done))) => {}
+                            Some(Ok(Ok(SegmentOutcome::Stopped))) => {
+                                tasks.abort_all();
+                                ticker_stop.cancel();
+                                let _ = ticker.await;
+                                return Ok(());
+                            }
+                            Some(Ok(Ok(SegmentOutcome::Restart))) => {
+                                source_changed = true;
+                                tasks.abort_all();
+                            }
+                            Some(Ok(Err(err))) => {
+                                run_result = Err(err);
+                                tasks.abort_all();
+                            }
+                            Some(Err(join)) => {
+                                run_result = Err(EngineError::Contract(ContractError::new(
+                                    ErrorCode::InternalError,
+                                    format!("segment task panicked: {join}"),
+                                )));
+                                tasks.abort_all();
+                            }
+                            None => {}
+                        }
+                    }
+                }
+            }
+            ticker_stop.cancel();
+            let _ = ticker.await;
+            if stop.is_cancelled() {
+                return Ok(());
+            }
+
+            if let Err(err) = run_result {
+                self.finalize_run(job, &state, "failure");
+                return Err(err);
+            }
+
+            if source_changed {
+                if restarts_used >= MAX_SOURCE_RESTARTS {
+                    return Err(EngineError::Contract(ContractError::new(
+                        ErrorCode::HttpError,
+                        "source changed repeatedly — giving up after clean restarts",
+                    )));
+                }
+                restarts_used += 1;
+                tracing::info!(job = %job.id, restart = restarts_used, "source changed — clean restart");
+
+                // Wipe the journal and the part BEFORE anything can re-migrate the stale
+                // bytes, then re-probe so the next pass carries fresh validators.
+                state.received.store(0, Ordering::SeqCst);
+                self.store.delete_segments(job.id.as_str())?;
+                let file = OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(&part_path)
+                    .await
+                    .map_err(EngineError::Io)?;
+                file.set_len(0).await.map_err(EngineError::Io)?;
+                part_etag = None;
+                part_last_modified = None;
+
+                job.status = "probing".into();
+                touch(job);
+                self.store.update_job(job)?;
+                probe = self.probe(job).await?;
+                job.total_bytes = probe.total_bytes;
+                job.etag = probe.etag.clone();
+                job.last_modified = probe.last_modified.clone();
+                job.content_type = probe.content_type.clone();
+                job.received_bytes = 0;
+                touch(job);
+                self.store.update_job(job)?;
+                continue;
+            }
+
+            // ---- completion verification ----
+            return self.complete(job, &state, &part_path, offset_mode).await;
+        }
+    }
+
+    /// Persist cursors + received count when a run stops without completing.
+    fn finalize_run(&self, job: &mut DownloadJob, state: &RunState, context: &str) {
+        let cursors = state.cursors.lock().expect("cursors mutex poisoned");
+        for (idx, written) in cursors.iter().enumerate() {
+            let _ = self.store.update_segment_progress(
+                job.id.as_str(),
+                idx as u64,
+                *written,
+                "downloading",
+            );
+        }
+        drop(cursors);
+        job.received_bytes = state.received.load(Ordering::SeqCst);
+        let _ = self
+            .store
+            .update_progress(job.id.as_str(), job.received_bytes, 0, None);
+        tracing::debug!(job = %job.id, context, "run stopped without completing");
+    }
+
+    /// v1 → v2 journal migration: a legacy single-stream part (bytes on disk, validators
+    /// persisted, no journal rows) becomes one window covering the file so the bytes are
+    /// kept instead of re-downloaded.
+    async fn migrate_v1_part(
+        &self,
+        job: &DownloadJob,
+        part_path: &Path,
+        windows: &[Window],
+    ) -> Result<Vec<SegmentRow>, EngineError> {
+        let part_len = match tokio::fs::metadata(part_path).await {
             Ok(meta) => meta.len(),
             Err(_) => 0,
         };
-        job.received_bytes = received_start;
+        let has_validators = job.etag.is_some() || job.last_modified.is_some();
+        let first_window_covers_start = windows.first().map(|w| w.start).unwrap_or(1) == 0;
 
-        let mut request = self.client.get(&job.url);
-        if let Some(headers) = &job.headers {
-            for (k, v) in headers {
-                request = request.header(k, v);
-            }
-        }
-        if received_start > 0 && probe.ranges_supported {
-            request = request.header(reqwest::header::RANGE, format!("bytes={received_start}-"));
-            if let Some(etag) = &part_etag {
-                request = request.header(reqwest::header::IF_RANGE, etag);
-            } else if let Some(lm) = &part_last_modified {
-                request = request.header(reqwest::header::IF_RANGE, lm);
-            }
+        if part_len == 0 || !has_validators || !first_window_covers_start {
+            let fresh = journal_from_plan(windows);
+            self.store
+                .replace_segments(job.id.as_str(), &fresh)
+                .map_err(EngineError::Contract)?;
+            return Ok(fresh);
         }
 
-        let response = tokio::select! {
-            _ = stop.cancelled() => return Ok(()),
-            r = request.send() => r.map_err(EngineError::Http)?,
+        let mut rows = journal_from_plan(windows);
+        let window_len = rows[0].end_offset.map(|e| e - rows[0].start_offset + 1);
+        let written = match window_len {
+            Some(len) => part_len.min(len),
+            None => part_len, // open-ended window: keep everything the file has
         };
-        let status = response.status();
-        let headers = response.headers().clone();
-        let mut stream = response.bytes_stream();
+        rows[0].written_bytes = written;
+        rows[0].status = if written > 0 {
+            "downloading".into()
+        } else {
+            "pending".into()
+        };
+        if written > 0 {
+            tracing::info!(job = %job.id, written, "migrated v1 part into segment journal");
+        }
+        self.store
+            .replace_segments(job.id.as_str(), &rows)
+            .map_err(EngineError::Contract)?;
+        Ok(rows)
+    }
 
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .read(true)
-            .open(&part_path)
+    /// Spawn the throttled progress ticker for one run; returns its join handle.
+    fn spawn_ticker(
+        &self,
+        job_id: String,
+        total: Option<u64>,
+        received: Arc<AtomicU64>,
+        stop: CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let store = self.store.clone();
+        let events = self.events.clone();
+        tokio::spawn(async move {
+            let mut last_tick = Instant::now();
+            let mut last_bytes = received.load(Ordering::SeqCst);
+            loop {
+                tokio::select! {
+                    _ = stop.cancelled() => break,
+                    _ = tokio::time::sleep(PROGRESS_INTERVAL) => {
+                        let now_bytes = received.load(Ordering::SeqCst);
+                        let dt = last_tick.elapsed().as_secs_f64().max(0.001);
+                        let speed = ((now_bytes.saturating_sub(last_bytes)) as f64 / dt) as u64;
+                        let eta = match (total, speed) {
+                            (Some(t), s) if s > 0 && t > now_bytes => Some((t - now_bytes) / s),
+                            _ => None,
+                        };
+                        let _ = store.update_progress(&job_id, now_bytes, speed, eta);
+                        let _ = events.send(EventEnvelope {
+                            v: dc_protocol::PROTOCOL_VERSION,
+                            event: "download.progress".into(),
+                            payload: Some(serde_json::json!({
+                                "jobId": job_id,
+                                "receivedBytes": now_bytes,
+                                "totalBytes": total,
+                                "speedBps": speed,
+                                "etaSeconds": eta,
+                            })),
+                        });
+                        last_tick = Instant::now();
+                        last_bytes = now_bytes;
+                    }
+                }
+            }
+        })
+    }
+
+    /// Completion: size check → SHA-256 pass → expected-checksum verdict → fsync → rename.
+    async fn complete(
+        &self,
+        job: &mut DownloadJob,
+        state: &RunState,
+        part_path: &Path,
+        offset_mode: bool,
+    ) -> Result<(), EngineError> {
+        let received = state.received.load(Ordering::SeqCst);
+        job.received_bytes = received;
+
+        if offset_mode {
+            if let Some(total) = job.total_bytes {
+                if received != total {
+                    return Err(EngineError::Contract(ContractError::new(
+                        ErrorCode::InternalError,
+                        format!("segmented size mismatch: {received} of {total}"),
+                    )));
+                }
+            }
+        }
+
+        // Streaming SHA-256 over the finished part file.
+        let mut file = tokio::fs::File::open(part_path)
             .await
             .map_err(EngineError::Io)?;
-
-        if status == reqwest::StatusCode::PARTIAL_CONTENT {
-            file.seek(SeekFrom::End(0)).await.map_err(EngineError::Io)?;
-            if let Some(total) = headers
-                .get(reqwest::header::CONTENT_RANGE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(parse_total_from_content_range)
-            {
-                job.total_bytes = Some(total);
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; HASH_CHUNK];
+        loop {
+            let n = file.read(&mut buf).await.map_err(EngineError::Io)?;
+            if n == 0 {
+                break;
             }
-        } else if status == reqwest::StatusCode::OK {
-            // 200 after a ranged request ⇒ source changed (If-Range mismatch) ⇒ integrity
-            // policy: discard the stale part and restart from zero rather than corrupting.
-            if received_start > 0 && probe.ranges_supported {
-                tracing::info!(job = %job.id, "source changed (If-Range mismatch) — restarting from zero");
-            }
-            file.set_len(0).await.map_err(EngineError::Io)?;
-            job.received_bytes = 0;
-            if let Some(len) = headers
-                .get(reqwest::header::CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok())
-            {
-                job.total_bytes = Some(len);
-            }
-        } else {
-            let code = if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
-                ErrorCode::RangeNotSatisfiable
-            } else {
-                ErrorCode::HttpError
-            };
-            return Err(EngineError::Contract(
-                ContractError::new(code, format!("unexpected HTTP status {status}"))
-                    .with_data(serde_json::json!({ "status": status.as_u16() })),
-            ));
+            hasher.update(&buf[..n]);
         }
-        self.store.update_job(job)?;
+        drop(file);
+        let digest = to_hex(&hasher.finalize());
+        job.checksum_actual = Some(digest);
 
-        let mut last_tick = Instant::now();
-        let mut last_bytes = job.received_bytes;
+        if let Some(expected) = job.checksum_expected.clone() {
+            let matches =
+                expected.to_lowercase() == *job.checksum_actual.clone().unwrap_or_default();
+            job.checksum_verified = Some(matches);
+            if !matches {
+                job.status = "failed".into();
+                job.error_code = Some(ErrorCode::ChecksumMismatch.as_str().into());
+                job.speed_bps = None;
+                job.eta_seconds = None;
+                touch(job);
+                self.store.update_job(job)?;
+                self.emit_job(job);
+                tracing::warn!(job = %job.id, "checksum mismatch — part kept for inspection");
+                return Ok(());
+            }
+        }
+
+        // fsync before the atomic rename (completion must be durable before visible).
+        let file = OpenOptions::new()
+            .write(true)
+            .open(part_path)
+            .await
+            .map_err(EngineError::Io)?;
+        file.sync_all().await.map_err(EngineError::Io)?;
+        drop(file);
+
+        let final_path = PathBuf::from(job.destination_path.clone().unwrap_or_default());
+        let target = if tokio::fs::try_exists(&final_path).await.unwrap_or(false) {
+            uniquify(&final_path).await
+        } else {
+            final_path
+        };
+        tokio::fs::rename(part_path, &target)
+            .await
+            .map_err(EngineError::Io)?;
+        job.destination_path = Some(target.display().to_string());
+        job.status = "completed".into();
+        job.speed_bps = None;
+        job.eta_seconds = None;
+        if let Some(total) = job.total_bytes {
+            job.received_bytes = total.max(job.received_bytes);
+        }
+        touch(job);
+        self.store.update_job(job)?;
+        self.emit_job(job);
+        Ok(())
+    }
+
+    /// One segment task: fetch its window with resume + integrity guards.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_segment(
+        store: Arc<JobStore>,
+        client: reqwest::Client,
+        job: DownloadJob,
+        seg_index: usize,
+        window: Window,
+        row: SegmentRow,
+        part_path: PathBuf,
+        if_range: Option<String>,
+        state: Arc<RunState>,
+        stop: CancellationToken,
+    ) -> Result<SegmentOutcome, EngineError> {
+        let mut written = row.written_bytes;
+        let mut attempts = 0usize;
+        let open_ended = window.end.is_none();
 
         loop {
-            tokio::select! {
-                _ = stop.cancelled() => {
-                    file.flush().await.ok();
-                    return Ok(());
+            if state.restart.load(Ordering::SeqCst) {
+                return Ok(SegmentOutcome::Restart);
+            }
+
+            // Window already satisfied?
+            if let Some(len) = window.byte_len() {
+                if written >= len {
+                    // Mark done in the journal too (e.g. migrated/already-fetched windows).
+                    let _ = store.update_segment_progress(
+                        job.id.as_str(),
+                        seg_index as u64,
+                        written,
+                        "done",
+                    );
+                    return Ok(SegmentOutcome::Done);
                 }
-                cmd = cmd_rx.recv() => {
-                    file.flush().await.ok();
-                    match cmd {
-                        Some(JobCommand::Pause) => {
-                            job.status = "paused".into();
-                            job.speed_bps = None;
-                            job.eta_seconds = None;
-                            touch(job);
-                            self.store.update_job(job)?;
-                            self.emit_job(job);
-                            return Ok(());
-                        }
-                        Some(JobCommand::Cancel) => {
-                            job.status = "canceled".into();
-                            job.speed_bps = None;
-                            job.eta_seconds = None;
-                            touch(job);
-                            self.store.update_job(job)?;
-                            self.emit_job(job);
-                            return Ok(());
-                        }
-                        None => return Ok(()),
+            }
+
+            let (req_start, remaining) = match window.end {
+                Some(end) => {
+                    let win_len = end - window.start + 1;
+                    (window.start + written, win_len - written)
+                }
+                None => (window.start + written, u64::MAX),
+            };
+            let ranged = window.end.is_some() || written > 0;
+
+            let mut request = client.get(&job.url);
+            if let Some(headers) = &job.headers {
+                for (k, v) in headers {
+                    request = request.header(k, v);
+                }
+            }
+            if ranged {
+                let range = match window.end {
+                    Some(end) => format!("bytes={req_start}-{end}"),
+                    None => format!("bytes={req_start}-"),
+                };
+                request = request.header(reqwest::header::RANGE, range);
+                if let Some(v) = &if_range {
+                    request = request.header(reqwest::header::IF_RANGE, v);
+                }
+            }
+
+            let response = match request.send().await {
+                Ok(r) => r,
+                Err(err) => {
+                    attempts += 1;
+                    flush_segment_cursor(&store, &job, seg_index, written);
+                    if attempts > MAX_SEGMENT_ATTEMPTS {
+                        return Err(EngineError::Http(err));
+                    }
+                    backoff_sleep(attempts).await;
+                    continue;
+                }
+            };
+            let status = response.status();
+
+            // Shared streaming block after the per-status validation below.
+            enum Fetch {
+                /// Bounded window write (206): cap at `remaining`.
+                Window,
+                /// Open-ended append (200 fresh / 206 open): stream until EOF.
+                Append,
+            }
+
+            let fetch: Fetch = if status == reqwest::StatusCode::PARTIAL_CONTENT {
+                // Integrity gate: the answer must start exactly where we asked.
+                let headers = response.headers().clone();
+                let Some((cr_start, cr_total)) = headers
+                    .get(reqwest::header::CONTENT_RANGE)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(parse_content_range)
+                else {
+                    return Err(EngineError::Contract(ContractError::new(
+                        ErrorCode::HttpError,
+                        "206 without a parseable Content-Range",
+                    )));
+                };
+                if cr_start != req_start {
+                    return Err(EngineError::Contract(ContractError::new(
+                        ErrorCode::HttpError,
+                        format!(
+                            "Content-Range start {cr_start} does not match requested {req_start}"
+                        ),
+                    )));
+                }
+                if let (Some(job_total), Some(cr_total)) = (job.total_bytes, cr_total) {
+                    if cr_total != job_total {
+                        // The representation changed size under us → clean restart.
+                        state.restart.store(true, Ordering::SeqCst);
+                        return Ok(SegmentOutcome::Restart);
                     }
                 }
-                chunk = stream.next() => {
-                    match chunk {
-                        Some(Ok(bytes)) => {
-                            file.write_all(&bytes).await.map_err(EngineError::Io)?;
-                            job.received_bytes += bytes.len() as u64;
+                if open_ended {
+                    Fetch::Append
+                } else {
+                    Fetch::Window
+                }
+            } else if status == reqwest::StatusCode::OK {
+                if ranged {
+                    // If-Range mismatch (or a Range-ignoring server): the source changed
+                    // under a part that came from a different representation.
+                    state.restart.store(true, Ordering::SeqCst);
+                    return Ok(SegmentOutcome::Restart);
+                }
+                Fetch::Append
+            } else if status.as_u16() == 416 {
+                return Err(EngineError::Contract(ContractError::new(
+                    ErrorCode::RangeNotSatisfiable,
+                    format!("segment request rejected with HTTP 416 (start {req_start})"),
+                )));
+            } else if status.is_server_error() {
+                attempts += 1;
+                flush_segment_cursor(&store, &job, seg_index, written);
+                if attempts > MAX_SEGMENT_ATTEMPTS {
+                    return Err(EngineError::Contract(
+                        ContractError::new(
+                            ErrorCode::HttpError,
+                            format!("segment failed with HTTP {status}"),
+                        )
+                        .with_data(serde_json::json!({ "status": status.as_u16() })),
+                    ));
+                }
+                backoff_sleep(attempts).await;
+                continue;
+            } else {
+                return Err(EngineError::Contract(
+                    ContractError::new(
+                        ErrorCode::HttpError,
+                        format!("unexpected HTTP status {status}"),
+                    )
+                    .with_data(serde_json::json!({ "status": status.as_u16() })),
+                ));
+            };
 
-                            if last_tick.elapsed() >= PROGRESS_INTERVAL {
-                                let dt = last_tick.elapsed().as_secs_f64().max(0.001);
-                                let speed = ((job.received_bytes - last_bytes) as f64 / dt) as u64;
-                                job.speed_bps = Some(speed);
-                                job.eta_seconds = match (job.total_bytes, speed) {
-                                    (Some(total), s) if s > 0 && total > job.received_bytes => {
-                                        Some((total - job.received_bytes) / s)
-                                    }
-                                    _ => None,
-                                };
-                                last_tick = Instant::now();
-                                last_bytes = job.received_bytes;
-                                let _ = self.store.update_progress(
-                                    job.id.as_str(),
-                                    job.received_bytes,
-                                    speed,
-                                    job.eta_seconds,
-                                );
-                                self.emit_progress(job);
-                            }
+            let is_window_fetch = matches!(fetch, Fetch::Window);
+
+            let mut stream = response.bytes_stream();
+            let mut file = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .read(true)
+                .open(&part_path)
+                .await
+                .map_err(EngineError::Io)?;
+            file.seek(SeekFrom::Start(req_start))
+                .await
+                .map_err(EngineError::Io)?;
+
+            let mut left = remaining;
+            let mut since_flush = 0u64;
+            let mut stream_error: Option<reqwest::Error> = None;
+            let mut ended_at_eof = false;
+            while left > 0 {
+                let next = tokio::select! {
+                    _ = stop.cancelled() => {
+                        drop(file);
+                        flush_segment_cursor(&store, &job, seg_index, written);
+                        return Ok(SegmentOutcome::Stopped);
+                    }
+                    chunk = stream.next() => chunk,
+                };
+                match next {
+                    Some(Ok(bytes)) => {
+                        let take = (bytes.len() as u64).min(left) as usize;
+                        file.write_all(&bytes[..take])
+                            .await
+                            .map_err(EngineError::Io)?;
+                        written += take as u64;
+                        left -= take as u64;
+                        state.received.fetch_add(take as u64, Ordering::SeqCst);
+                        *state
+                            .cursors
+                            .lock()
+                            .expect("cursors mutex poisoned")
+                            .get_mut(seg_index)
+                            .expect("cursor slot") = written;
+                        since_flush += take as u64;
+                        if take < bytes.len() || left == 0 {
+                            // Window cap reached — surplus bytes are dropped on purpose.
+                            break;
                         }
-                        Some(Err(e)) => return Err(EngineError::Http(e)),
-                        None => {
-                            // stream complete — flush, fsync, atomic rename
+                        if since_flush >= JOURNAL_FLUSH_BYTES {
                             file.flush().await.map_err(EngineError::Io)?;
-                            file.sync_all().await.map_err(EngineError::Io)?;
-                            drop(file);
-
-                            let final_path = PathBuf::from(job.destination_path.clone().unwrap_or_default());
-                            let target = if tokio::fs::try_exists(&final_path).await.unwrap_or(false) {
-                                uniquify(&final_path).await
-                            } else {
-                                final_path
-                            };
-                            tokio::fs::rename(&part_path, &target).await.map_err(EngineError::Io)?;
-                            job.destination_path = Some(target.display().to_string());
-                            job.status = "completed".into();
-                            job.speed_bps = None;
-                            job.eta_seconds = None;
-                            if let Some(total) = job.total_bytes {
-                                job.received_bytes = total.max(job.received_bytes);
-                            }
-                            touch(job);
-                            self.store.update_job(job)?;
-                            self.emit_job(job);
-                            return Ok(());
+                            flush_segment_cursor(&store, &job, seg_index, written);
+                            since_flush = 0;
                         }
+                    }
+                    Some(Err(err)) => {
+                        stream_error = Some(err);
+                        break;
+                    }
+                    None => {
+                        ended_at_eof = true;
+                        break;
                     }
                 }
             }
+            file.flush().await.map_err(EngineError::Io)?;
+            drop(file);
+
+            if state.restart.load(Ordering::SeqCst) {
+                return Ok(SegmentOutcome::Restart);
+            }
+
+            // Window satisfied when: cap hit (left == 0) or, for an open-ended window,
+            // the server closed the stream (EOF is the natural end).
+            if left == 0 || (open_ended && ended_at_eof) {
+                let _ = store.update_segment_progress(
+                    job.id.as_str(),
+                    seg_index as u64,
+                    written,
+                    "done",
+                );
+                return Ok(SegmentOutcome::Done);
+            }
+
+            // Short stream / transient failure: bounded retry.
+            attempts += 1;
+            flush_segment_cursor(&store, &job, seg_index, written);
+            if let Some(err) = stream_error {
+                if attempts > MAX_SEGMENT_ATTEMPTS {
+                    return Err(EngineError::Http(err));
+                }
+            } else if attempts > MAX_SEGMENT_ATTEMPTS {
+                if is_window_fetch {
+                    return Err(EngineError::Contract(ContractError::new(
+                        ErrorCode::NetworkError,
+                        "segment stream ended before the window was filled",
+                    )));
+                }
+                return Ok(SegmentOutcome::Done); // open-ended EOF handled above; defensive
+            }
+            backoff_sleep(attempts).await;
         }
     }
 
@@ -502,17 +1099,25 @@ impl Engine {
     }
 }
 
+async fn backoff_sleep(attempt: usize) {
+    tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_MS * attempt as u64)).await;
+}
+
+/// Durable journal cursor for one segment. Callers invoke this AFTER the bytes reached the
+/// OS, so the journal can never lead the file.
+fn flush_segment_cursor(store: &Arc<JobStore>, job: &DownloadJob, seg_index: usize, written: u64) {
+    let _ =
+        store.update_segment_progress(job.id.as_str(), seg_index as u64, written, "downloading");
+}
+
 fn filename_from_url(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
-    let last = parsed
-        .path_segments()?
-        .filter(|s| !s.is_empty())
-        .last()?
-        .to_string();
+    let segments: Vec<&str> = parsed.path_segments()?.filter(|s| !s.is_empty()).collect();
+    let last = segments.last()?;
     if last.is_empty() {
         None
     } else {
-        Some(last)
+        Some((*last).to_string())
     }
 }
 
@@ -578,6 +1183,19 @@ fn parse_total_from_content_range(value: &str) -> Option<u64> {
     }
 }
 
+/// Parse `bytes {start}-{end}/{total}` → (start, Option<total>); total None for `*`.
+fn parse_content_range(value: &str) -> Option<(u64, Option<u64>)> {
+    let rest = value.trim().strip_prefix("bytes")?.trim();
+    let (range, total) = rest.split_once('/')?;
+    let start = range.split('-').next()?.trim().parse().ok()?;
+    let total = if total.trim() == "*" {
+        None
+    } else {
+        Some(total.trim().parse().ok()?)
+    };
+    Some((start, total))
+}
+
 fn parse_content_disposition(value: &str) -> Option<String> {
     for part in value.split(';') {
         let part = part.trim();
@@ -621,6 +1239,16 @@ mod tests {
             Some(12345)
         );
         assert_eq!(parse_total_from_content_range("bytes 0-0/*"), None);
+    }
+
+    #[test]
+    fn content_range_start_total_parsing() {
+        assert_eq!(
+            parse_content_range("bytes 100-999/12345"),
+            Some((100, Some(12345)))
+        );
+        assert_eq!(parse_content_range("bytes 0-0/*"), Some((0, None)));
+        assert_eq!(parse_content_range("garbage"), None);
     }
 
     #[test]

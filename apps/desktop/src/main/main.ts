@@ -59,6 +59,7 @@ if (!gotLock) {
       binaryPath: resolveCoreBinaryPath({ appRoot, isPackaged: app.isPackaged, envOverride: process.env.UNIDM_CORE_BIN }),
       dbPath: join(app.getPath("userData"), "downloads.db"),
       maxConcurrent: settingsStore.settings.concurrentDownloads,
+      maxConnectionsPerDownload: settingsStore.settings.maxConnectionsPerDownload,
       log: (msg) => console.log(msg),
     });
     supervisor.on("state", (status: string) => {
@@ -67,6 +68,25 @@ if (!gotLock) {
     });
     registerDownloadDomain(router, supervisor);
     supervisor.start();
+
+    // Push the concurrency settings to the core at startup and re-apply whenever the
+    // user changes them (the core clamps and applies both live).
+    const applyCoreLimits = (): void => {
+      const { concurrentDownloads, maxConnectionsPerDownload } = settingsStore.settings;
+      void supervisor
+        .request("download.setConcurrency", {
+          max: concurrentDownloads,
+          maxConnectionsPerDownload,
+        })
+        .catch(() => undefined); // core not ready yet — env defaults already cover it
+    };
+    supervisor
+      .whenReady()
+      .then(applyCoreLimits)
+      .catch(() => undefined);
+    router.onEvent((name) => {
+      if (name === "settings.changed") applyCoreLimits();
+    });
 
     app.on("before-quit", () => {
       tabManager.destroyAll();

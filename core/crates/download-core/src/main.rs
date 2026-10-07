@@ -26,15 +26,20 @@ fn main() {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(3)
         .clamp(1, 8);
+    let max_connections = std::env::var("UNIDM_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(4)
+        .clamp(1, 16);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("tokio runtime builds");
-    runtime.block_on(run(db_path, max_concurrent));
+    runtime.block_on(run(db_path, max_concurrent, max_connections));
 }
 
-async fn run(db_path: String, max_concurrent: usize) {
+async fn run(db_path: String, max_concurrent: usize, max_connections: usize) {
     let store = match dc_storage::JobStore::open(std::path::Path::new(&db_path)) {
         Ok(s) => Arc::new(s),
         Err(err) => {
@@ -50,6 +55,7 @@ async fn run(db_path: String, max_concurrent: usize) {
     let (events_tx, mut events_rx) = mpsc::unbounded_channel::<dc_protocol::EventEnvelope>();
     let manager = download_core::JobManager::new(store, events_tx);
     manager.set_max_concurrent(max_concurrent);
+    manager.set_max_connections(max_connections);
 
     // Bridge engine events into the shared outbound writer.
     let bridge_tx = outbound_tx.clone();

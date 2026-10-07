@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  DownloadJob, DownloadProgress, BrowserTab, AppSettings, MediaManifest,
+  DownloadJob, DownloadProgress, DownloadCreateParams, BrowserTab, AppSettings, MediaManifest,
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
   METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION,
   newUlid, ulidTime, normalizeUlid, Ulid, makeRequest, makeSuccess, makeError, makeEvent,
@@ -95,5 +95,70 @@ describe("registry integrity", () => {
   it("contract/protocol versions are exported", () => {
     expect(CONTRACT_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     expect(PROTOCOL_VERSION).toBe(1);
+  });
+});
+
+describe("v1.1 segmented engine + integrity (Phase 6)", () => {
+  it("parses the segmented job fixture (segmentCount + checksum fields)", () => {
+    const job = DownloadJob.parse(domainFixture.downloadJobSegmented);
+    expect(job.segmentCount).toBe(4);
+    expect(job.checksumAlgorithm).toBe("sha256");
+    expect(job.checksumExpected).toMatch(/^[0-9a-f]{64}$/);
+    expect(job.checksumActual).toBeNull();
+    expect(job.checksumVerified).toBeNull();
+  });
+
+  it("still parses the legacy v1 job fixture (new keys nullable/absent)", () => {
+    const job = DownloadJob.parse(domainFixture.downloadJob);
+    expect(job.segmentCount).toBeNull();
+    expect(job.checksumAlgorithm).toBeUndefined();
+    expect(job.checksumActual).toBeNull();
+    expect(job.checksumVerified).toBeNull();
+  });
+
+  it("accepts create params with a valid checksum", () => {
+    const params = DownloadCreateParams.parse({
+      url: "https://example.com/setup.zip",
+      destinationDir: "/home/user/Downloads",
+      checksum: { algorithm: "sha256", value: "ab".repeat(32) },
+    });
+    expect(params.checksum?.algorithm).toBe("sha256");
+    expect(params.checksum?.value).toBe("ab".repeat(32));
+  });
+
+  it("rejects checksums whose hex length does not match the algorithm", () => {
+    const bad = {
+      url: "https://example.com/setup.zip",
+      destinationDir: "/home/user/Downloads",
+      checksum: { algorithm: "sha256", value: "ab".repeat(16) },
+    };
+    expect(DownloadCreateParams.safeParse(bad).success).toBe(false);
+    const nonHex = {
+      url: "https://example.com/setup.zip",
+      destinationDir: "/home/user/Downloads",
+      checksum: { algorithm: "md5", value: "zz".repeat(16) },
+    };
+    expect(DownloadCreateParams.safeParse(nonHex).success).toBe(false);
+  });
+
+  it("setConcurrency accepts the optional maxConnectionsPerDownload", () => {
+    const entry = METHODS["download.setConcurrency"];
+    const ok = entry.params.parse({ max: 3, maxConnectionsPerDownload: 8 });
+    expect(ok.maxConnectionsPerDownload).toBe(8);
+    const legacy = entry.params.parse({ max: 3 });
+    expect(legacy.maxConnectionsPerDownload).toBeUndefined();
+    expect(
+      entry.params.safeParse({ max: 3, maxConnectionsPerDownload: 0 }).success,
+    ).toBe(false);
+    expect(
+      entry.params.safeParse({ max: 3, maxConnectionsPerDownload: 17 }).success,
+    ).toBe(false);
+  });
+
+  it("appSettings default maxConnectionsPerDownload = 4 and rejects out-of-range", () => {
+    expect(AppSettings.parse({}).maxConnectionsPerDownload).toBe(4);
+    expect(AppSettings.safeParse({ maxConnectionsPerDownload: 0 }).success).toBe(false);
+    expect(AppSettings.safeParse({ maxConnectionsPerDownload: 17 }).success).toBe(false);
+    expect(AppSettings.parse(domainFixture.appSettings).maxConnectionsPerDownload).toBe(4);
   });
 });

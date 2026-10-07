@@ -113,6 +113,18 @@ export function SettingsPage(): ReactNode {
             onChange={(_, data) => void update({ concurrentDownloads: data.value })}
           />
         </Field>
+        <Field
+          label={`Connections per download: ${settings.maxConnectionsPerDownload}`}
+          hint="Parallel range connections used to accelerate a single download (1 = single stream)"
+        >
+          <Slider
+            min={1}
+            max={16}
+            step={1}
+            value={settings.maxConnectionsPerDownload}
+            onChange={(_, data) => void update({ maxConnectionsPerDownload: data.value })}
+          />
+        </Field>
         <Field label="Speed limit (KiB/s, 0 = unlimited)">
           <Input
             type="number"

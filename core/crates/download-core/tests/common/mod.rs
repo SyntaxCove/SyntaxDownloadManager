@@ -1,12 +1,24 @@
 //! Minimal HTTP/1.1 test server (tokio TCP) that behaves like a static file server with
 //! range support — enough surface to prove the engine's resume/integrity behavior.
+//! Phase 6 adds fault-injection toggles: range-less servers, over-sending responses and
+//! Content-Range lies, plus per-request observation for multi-connection assertions.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+#[derive(Default)]
+pub struct ServerToggles {
+    /// Ignore Range entirely and never advertise Accept-Ranges (200-only server).
+    pub disable_ranges: bool,
+    /// Honor the range START but stream through EOF, ignoring the requested end
+    /// (the engine must cap writes at its window).
+    pub over_send: bool,
+    /// Report a Content-Range start shifted by +10 while sending honest bytes.
+    pub lie_content_range: bool,
+}
 
 pub struct TestServer {
     pub base_url: String,
@@ -14,9 +26,13 @@ pub struct TestServer {
     body: Arc<Vec<u8>>,
     body_v2: Arc<Vec<u8>>,
     last_range: Arc<AtomicU64>,
-    last_if_range: Arc<StdMutex<Option<String>>>,
+    range_starts: Arc<StdMutex<Vec<u64>>>,
+    if_range_values: Arc<StdMutex<Vec<String>>>,
     delay_per_chunk_ms: u64,
+    chunk_size: usize,
     active_version: Arc<AtomicU64>,
+    requests: Arc<AtomicU64>,
+    toggles: ServerToggles,
 }
 
 impl TestServer {
@@ -28,12 +44,37 @@ impl TestServer {
     pub fn etag_of_v1(&self) -> &'static str {
         self.etag
     }
+
+    pub fn range_starts(&self) -> Vec<u64> {
+        self.range_starts.lock().unwrap().clone()
+    }
+
+    pub fn request_count(&self) -> u64 {
+        self.requests.load(Ordering::SeqCst)
+    }
 }
 
 impl TestServer {
     /// Serve `body` (with If-Range semantics); when `rotate_version` is triggered, the server
     /// serves `body_v2` with a different etag — simulating a changed source.
     pub async fn start(body: Vec<u8>, body_v2: Vec<u8>, delay_per_chunk_ms: u64) -> Arc<Self> {
+        Self::start_with(
+            body,
+            body_v2,
+            delay_per_chunk_ms,
+            1024,
+            ServerToggles::default(),
+        )
+        .await
+    }
+
+    pub async fn start_with(
+        body: Vec<u8>,
+        body_v2: Vec<u8>,
+        delay_per_chunk_ms: u64,
+        chunk_size: usize,
+        toggles: ServerToggles,
+    ) -> Arc<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let port = listener.local_addr().unwrap().port();
         let etag = "\"test-etag-v1\"";
@@ -41,13 +82,17 @@ impl TestServer {
 
         let state = Arc::new(Self {
             base_url: format!("http://127.0.0.1:{port}/file"),
-            etag: etag,
+            etag,
             body: Arc::new(body),
             body_v2: Arc::new(body_v2),
             last_range: Arc::new(AtomicU64::new(u64::MAX)),
-            last_if_range: Arc::new(StdMutex::new(None)),
+            range_starts: Arc::new(StdMutex::new(Vec::new())),
+            if_range_values: Arc::new(StdMutex::new(Vec::new())),
             delay_per_chunk_ms,
+            chunk_size,
             active_version: Arc::new(AtomicU64::new(1)),
+            requests: Arc::new(AtomicU64::new(0)),
+            toggles,
         });
         let etag_v2 = etag_v2.to_string();
         let server_state = state.clone();
@@ -65,6 +110,7 @@ impl TestServer {
         });
         state
     }
+
     pub fn last_range_start(&self) -> Option<u64> {
         let v = self.last_range.load(Ordering::SeqCst);
         if v == u64::MAX {
@@ -74,8 +120,15 @@ impl TestServer {
         }
     }
 
+    /// Every If-Range value seen by this server, in arrival order.
+    pub fn if_range_seen(&self) -> Vec<String> {
+        self.if_range_values.lock().unwrap().clone()
+    }
+
+    /// The most recent If-Range value, if any.
+    #[allow(dead_code)]
     pub fn last_if_range(&self) -> Option<String> {
-        self.last_if_range.lock().unwrap().clone()
+        self.if_range_seen().last().cloned()
     }
 }
 
@@ -95,22 +148,29 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
     }
     let request = String::from_utf8_lossy(&buf).to_lowercase();
     let mut range_start: Option<u64> = None;
+    let mut range_end: Option<u64> = None;
     let mut if_range: Option<String> = None;
     for line in request.lines() {
         if let Some(v) = line.strip_prefix("range: bytes=") {
             let v = v.trim();
-            range_start = v.split('-').next().and_then(|s| s.parse().ok());
+            let mut parts = v.split('-');
+            range_start = parts.next().and_then(|s| s.parse().ok());
+            range_end = parts.next().and_then(|s| s.parse().ok());
         }
         if let Some(v) = line.strip_prefix("if-range:") {
             if_range = Some(v.trim().to_string());
         }
     }
     if let Some(ir) = &if_range {
-        *server.last_if_range.lock().unwrap() = Some(ir.clone());
+        server.if_range_values.lock().unwrap().push(ir.clone());
     }
     server
         .last_range
         .store(range_start.unwrap_or(u64::MAX), Ordering::SeqCst);
+    if let Some(s) = range_start {
+        server.range_starts.lock().unwrap().push(s);
+    }
+    server.requests.fetch_add(1, Ordering::SeqCst);
 
     // Active-version model: fresh requests always return the *current* source version.
     // If-Range lets the engine prove which version its part came from; a mismatch is the
@@ -124,6 +184,25 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
         server.etag.to_string()
     };
 
+    // Toggled range-less behavior: a plain 200-only server.
+    if server.toggles.disable_ranges {
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nETag: {}\r\nConnection: close\r\n\r\n",
+            body.len(),
+            etag
+        );
+        socket.write_all(head.as_bytes()).await.ok();
+        write_chunked(
+            &mut socket,
+            body,
+            server.delay_per_chunk_ms,
+            server.chunk_size,
+        )
+        .await;
+        socket.flush().await.ok();
+        return;
+    }
+
     // RFC 7233: a Range request with If-Range that does NOT match the current representation
     // must be answered with the full 200 representation (never a 206 splice).
     let if_range_matches = match (&if_range, is_v2) {
@@ -131,9 +210,18 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
         (Some(ir), true) => ir.eq_ignore_ascii_case(&etag),
         (None, _) => true,
     };
+
     let (start, end, status) = match range_start {
         Some(s) if s < body.len() as u64 && if_range_matches => {
-            (s as usize, body.len() - 1, "206 Partial Content")
+            // `over_send` ignores the requested END and streams through EOF.
+            let e = if server.toggles.over_send {
+                body.len() - 1
+            } else {
+                range_end
+                    .map(|e| (e as usize).min(body.len() - 1))
+                    .unwrap_or(body.len() - 1)
+            };
+            (s as usize, e.max(s as usize), "206 Partial Content")
         }
         Some(_) if !if_range_matches => (0usize, body.len() - 1, "200 OK"),
         Some(_) => {
@@ -146,6 +234,11 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
     };
 
     let slice = &body[start..=end];
+    let reported_start = if server.toggles.lie_content_range && status.starts_with("206") {
+        start + 10
+    } else {
+        start
+    };
     let mut response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nETag: {}\r\nConnection: close\r\n",
         slice.len(),
@@ -154,7 +247,7 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
     if status.starts_with("206") {
         response.push_str(&format!(
             "Content-Range: bytes {}-{}/{}\r\n",
-            start,
+            reported_start,
             end,
             body.len()
         ));
@@ -162,26 +255,28 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
     response.push_str("\r\n");
     socket.write_all(response.as_bytes()).await.ok();
 
-    if server.delay_per_chunk_ms > 0 {
-        for piece in slice.chunks(1024) {
-            socket.write_all(piece).await.ok();
-            tokio::time::sleep(std::time::Duration::from_millis(server.delay_per_chunk_ms)).await;
-        }
-    } else {
-        socket.write_all(slice).await.ok();
-    }
+    write_chunked(
+        &mut socket,
+        slice,
+        server.delay_per_chunk_ms,
+        server.chunk_size,
+    )
+    .await;
     socket.flush().await.ok();
 }
 
-pub fn http_map(pairs: &[(&str, &str)]) -> Option<HashMap<String, String>> {
-    if pairs.is_empty() {
-        None
+async fn write_chunked(
+    socket: &mut TcpStream,
+    slice: &[u8],
+    delay_per_chunk_ms: u64,
+    chunk_size: usize,
+) {
+    if delay_per_chunk_ms > 0 {
+        for piece in slice.chunks(chunk_size) {
+            socket.write_all(piece).await.ok();
+            tokio::time::sleep(std::time::Duration::from_millis(delay_per_chunk_ms)).await;
+        }
     } else {
-        Some(
-            pairs
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
-        )
+        socket.write_all(slice).await.ok();
     }
 }

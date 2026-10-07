@@ -68,9 +68,11 @@ describe("CoreClient", () => {
   it("times out requests that never get a response", async () => {
     const { client } = makePair();
     const promise = client.request("download.list", {}, 500);
-    const expectation = expect(promise).rejects;
+    // Attach the rejection handler BEFORE advancing the clock — otherwise the rejection
+    // fires unhandled and vitest flags the run (flaky, not deterministic).
+    const expectation = expect(promise).rejects.toMatchObject({ code: "timeout" });
     await vi.advanceTimersByTimeAsync(600);
-    await expectation.toMatchObject({ code: "timeout" });
+    await expectation;
     client.removeAllListeners();
   });
 

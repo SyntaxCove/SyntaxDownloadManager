@@ -34,7 +34,35 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
     CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);",
+    // v2 (Phase 6): per-segment journal + integrity columns.
+    "ALTER TABLE jobs ADD COLUMN checksum_algorithm TEXT;
+     ALTER TABLE jobs ADD COLUMN checksum_expected TEXT;
+     ALTER TABLE jobs ADD COLUMN checksum_actual TEXT;
+     ALTER TABLE jobs ADD COLUMN checksum_verified INTEGER;
+     ALTER TABLE jobs ADD COLUMN segment_count INTEGER;
+     CREATE TABLE IF NOT EXISTS segments (
+        job_id        TEXT NOT NULL,
+        seg_index     INTEGER NOT NULL,
+        start_offset  INTEGER NOT NULL,
+        end_offset    INTEGER,
+        written_bytes INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL,
+        PRIMARY KEY (job_id, seg_index)
+     );
+     CREATE INDEX IF NOT EXISTS idx_segments_job ON segments(job_id);",
 ];
+
+/// One journal row of the per-segment download state (Phase 6).
+/// `end_offset == None` marks the append-mode single window (open-ended stream).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentRow {
+    pub seg_index: u64,
+    pub start_offset: u64,
+    pub end_offset: Option<u64>,
+    pub written_bytes: u64,
+    /// "pending" | "downloading" | "done"
+    pub status: String,
+}
 
 pub struct JobStore {
     conn: Mutex<Connection>,
@@ -122,8 +150,11 @@ impl JobStore {
         conn.execute(
             "INSERT INTO jobs (id, url, destination_dir, destination_path, filename, status,
                                total_bytes, received_bytes, etag, last_modified, content_type,
-                               speed_bps, eta_seconds, error_code, headers_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                               speed_bps, eta_seconds, error_code, headers_json, created_at, updated_at,
+                               checksum_algorithm, checksum_expected, checksum_actual, checksum_verified,
+                               segment_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                     ?18, ?19, ?20, ?21, ?22)",
             params![
                 job.id.as_str(),
                 job.url,
@@ -142,6 +173,11 @@ impl JobStore {
                 headers_to_json(&job.headers),
                 job.created_at,
                 job.updated_at,
+                job.checksum_algorithm.map(|a| a.as_str().to_string()),
+                job.checksum_expected,
+                job.checksum_actual,
+                job.checksum_verified.map(|v| v as i64),
+                job.segment_count.map(|v| v as i64),
             ],
         )
         .map_err(wrap_sqlite("insert job"))?;
@@ -178,7 +214,9 @@ impl JobStore {
                 "UPDATE jobs SET url=?2, destination_dir=?3, destination_path=?4, filename=?5,
                         status=?6, total_bytes=?7, received_bytes=?8, etag=?9, last_modified=?10,
                         content_type=?11, speed_bps=?12, eta_seconds=?13, error_code=?14,
-                        headers_json=?15, updated_at=?16
+                        headers_json=?15, updated_at=?16,
+                        checksum_algorithm=?17, checksum_expected=?18, checksum_actual=?19,
+                        checksum_verified=?20, segment_count=?21
                  WHERE id=?1",
                 params![
                     job.id.as_str(),
@@ -197,6 +235,11 @@ impl JobStore {
                     job.error_code,
                     headers_to_json(&job.headers),
                     job.updated_at,
+                    job.checksum_algorithm.map(|a| a.as_str().to_string()),
+                    job.checksum_expected,
+                    job.checksum_actual,
+                    job.checksum_verified.map(|v| v as i64),
+                    job.segment_count.map(|v| v as i64),
                 ],
             )
             .map_err(wrap_sqlite("update job"))?;
@@ -230,6 +273,83 @@ impl JobStore {
             .map_err(wrap_sqlite("delete job"))?;
         Ok(n > 0)
     }
+
+    // ---- per-segment journal (Phase 6) ----
+
+    /// Atomically replace the journal with a fresh plan (all segments pending, 0 written).
+    pub fn replace_segments(&self, job_id: &str, segments: &[SegmentRow]) -> StorageResult<()> {
+        let mut conn = self.conn.lock().expect("storage mutex poisoned");
+        let tx = conn.transaction().map_err(wrap_sqlite("segment tx"))?;
+        tx.execute("DELETE FROM segments WHERE job_id = ?1", params![job_id])
+            .map_err(wrap_sqlite("segment reset"))?;
+        for s in segments {
+            tx.execute(
+                "INSERT INTO segments (job_id, seg_index, start_offset, end_offset, written_bytes, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    job_id,
+                    s.seg_index as i64,
+                    s.start_offset as i64,
+                    s.end_offset.map(|v| v as i64),
+                    s.written_bytes as i64,
+                    s.status,
+                ],
+            )
+            .map_err(wrap_sqlite("segment insert"))?;
+        }
+        tx.commit().map_err(wrap_sqlite("segment commit"))?;
+        Ok(())
+    }
+
+    /// Journal rows for a job, ordered by segment index.
+    pub fn list_segments(&self, job_id: &str) -> StorageResult<Vec<SegmentRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT seg_index, start_offset, end_offset, written_bytes, status
+                 FROM segments WHERE job_id = ?1 ORDER BY seg_index ASC",
+            )
+            .map_err(wrap_sqlite("list segments"))?;
+        let rows = stmt
+            .query_map(params![job_id], |row| {
+                Ok(SegmentRow {
+                    seg_index: row.get::<_, i64>(0)?.max(0) as u64,
+                    start_offset: row.get::<_, i64>(1)?.max(0) as u64,
+                    end_offset: row.get::<_, Option<i64>>(2)?.map(|v| v.max(0) as u64),
+                    written_bytes: row.get::<_, i64>(3)?.max(0) as u64,
+                    status: row.get(4)?,
+                })
+            })
+            .map_err(wrap_sqlite("list segments"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list segments"))
+    }
+
+    /// Advance one segment's durable write cursor. Call AFTER the bytes are on disk
+    /// (the journal must never lead the file).
+    pub fn update_segment_progress(
+        &self,
+        job_id: &str,
+        seg_index: u64,
+        written_bytes: u64,
+        status: &str,
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "UPDATE segments SET written_bytes = ?3, status = ?4
+             WHERE job_id = ?1 AND seg_index = ?2",
+            params![job_id, seg_index as i64, written_bytes as i64, status],
+        )
+        .map_err(wrap_sqlite("update segment"))?;
+        Ok(())
+    }
+
+    pub fn delete_segments(&self, job_id: &str) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute("DELETE FROM segments WHERE job_id = ?1", params![job_id])
+            .map_err(wrap_sqlite("delete segments"))?;
+        Ok(())
+    }
 }
 
 fn job_from_row(row: &Row<'_>) -> rusqlite::Result<DownloadJob> {
@@ -259,9 +379,41 @@ fn job_from_row(row: &Row<'_>) -> rusqlite::Result<DownloadJob> {
             .ok()
             .flatten()
             .and_then(|s| serde_json::from_str(&s).ok()),
+        segment_count: row
+            .get::<_, Option<i64>>("segment_count")
+            .ok()
+            .flatten()
+            .map(|v| v.max(0) as u64),
+        checksum_algorithm: row
+            .get::<_, Option<String>>("checksum_algorithm")
+            .ok()
+            .flatten()
+            .and_then(|s| parse_checksum_algorithm(&s)),
+        checksum_expected: row
+            .get::<_, Option<String>>("checksum_expected")
+            .ok()
+            .flatten(),
+        checksum_actual: row
+            .get::<_, Option<String>>("checksum_actual")
+            .ok()
+            .flatten(),
+        checksum_verified: row
+            .get::<_, Option<i64>>("checksum_verified")
+            .ok()
+            .flatten()
+            .map(|v| v != 0),
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
+}
+
+fn parse_checksum_algorithm(s: &str) -> Option<dc_protocol::ChecksumAlgorithm> {
+    match s {
+        "sha256" => Some(dc_protocol::ChecksumAlgorithm::Sha256),
+        "sha1" => Some(dc_protocol::ChecksumAlgorithm::Sha1),
+        "md5" => Some(dc_protocol::ChecksumAlgorithm::Md5),
+        _ => None,
+    }
 }
 
 fn headers_to_json(headers: &Option<std::collections::HashMap<String, String>>) -> Option<String> {

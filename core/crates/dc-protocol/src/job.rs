@@ -1,7 +1,39 @@
 //! DownloadJob — mirrors packages/contracts/src/domain/download.ts (camelCase on the wire).
+//!
+//! Wire-shape rules (must match the zod schemas exactly):
+//!  - fields the TS side declares `.nullable()` are ALWAYS serialized (None → null);
+//!  - fields the TS side declares `.nullish()`/`.optional()` are omitted when None.
 
 use crate::ids::Ulid;
 use serde::{Deserialize, Serialize};
+
+/// Checksum algorithms (v1.1) — mirrors `ChecksumAlgorithm` in the TS contracts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChecksumAlgorithm {
+    Sha256,
+    Sha1,
+    Md5,
+}
+
+impl ChecksumAlgorithm {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChecksumAlgorithm::Sha256 => "sha256",
+            ChecksumAlgorithm::Sha1 => "sha1",
+            ChecksumAlgorithm::Md5 => "md5",
+        }
+    }
+
+    /// Required lowercase-hex digest length for the algorithm.
+    pub fn hex_len(&self) -> usize {
+        match self {
+            ChecksumAlgorithm::Sha256 => 64,
+            ChecksumAlgorithm::Sha1 => 40,
+            ChecksumAlgorithm::Md5 => 32,
+        }
+    }
+}
 
 pub const DOWNLOAD_STATUSES: [&str; 7] = [
     "queued",
@@ -24,8 +56,8 @@ pub struct DownloadJob {
     /// Absolute save directory (known at creation).
     #[serde(rename = "destinationDir")]
     pub destination_dir: String,
-    /// Absolute final path; None until the probe resolves the filename.
-    #[serde(rename = "destinationPath", skip_serializing_if = "Option::is_none")]
+    /// Absolute final path; null until the probe resolves the filename (always serialized).
+    #[serde(rename = "destinationPath")]
     pub destination_path: Option<String>,
     /// Explicit filename from creation params, when provided.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +81,21 @@ pub struct DownloadJob {
     /// Request headers captured at creation (absent/null when none were given).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<std::collections::HashMap<String, String>>,
+    // ---- v1.1 (Phase 6): segmentation + integrity ----
+    /// Number of planned range windows; null until the probe plans them (always serialized).
+    #[serde(rename = "segmentCount")]
+    pub segment_count: Option<u64>,
+    /// Expected checksum from creation params (omitted when none was given).
+    #[serde(rename = "checksumAlgorithm", skip_serializing_if = "Option::is_none")]
+    pub checksum_algorithm: Option<ChecksumAlgorithm>,
+    #[serde(rename = "checksumExpected", skip_serializing_if = "Option::is_none")]
+    pub checksum_expected: Option<String>,
+    /// Streaming SHA-256 over the finished part file (always serialized; null before hashing).
+    #[serde(rename = "checksumActual")]
+    pub checksum_actual: Option<String>,
+    /// Expected-vs-actual verdict; null = never compared (always serialized).
+    #[serde(rename = "checksumVerified")]
+    pub checksum_verified: Option<bool>,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]

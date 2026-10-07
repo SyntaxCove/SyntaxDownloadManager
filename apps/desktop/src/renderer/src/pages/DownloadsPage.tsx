@@ -17,6 +17,9 @@ import {
   PlayRegular,
   StopRegular,
   AddRegular,
+  PlugConnectedRegular,
+  ShieldCheckmarkRegular,
+  ShieldErrorRegular,
 } from "@fluentui/react-icons";
 import { useDownloadsStore, type CoreStatus } from "../stores/downloads.js";
 import { useSettingsStore } from "../stores/settings.js";
@@ -202,6 +205,21 @@ function JobCard(props: {
             <Text className={styles.meta}>· {formatBytes(job.speedBps)}/s</Text>
             <Text className={styles.meta}>· ETA {formatEta(job.etaSeconds)}</Text>
           </>
+        ) : null}
+        {job.segmentCount && job.segmentCount > 1 && job.status === "downloading" ? (
+          <Text className={styles.meta} title="Parallel range connections">
+            · <PlugConnectedRegular style={{ verticalAlign: -2 }} /> {job.segmentCount} connections
+          </Text>
+        ) : null}
+        {job.checksumVerified === true ? (
+          <Text className={styles.meta} title={`SHA-256 ${job.checksumActual ?? ""}`}>
+            · <ShieldCheckmarkRegular style={{ verticalAlign: -2, color: tokens.colorPaletteGreenForeground1 }} /> checksum verified
+          </Text>
+        ) : null}
+        {job.checksumVerified === false ? (
+          <Text className={styles.meta} title={`expected ${job.checksumExpected ?? ""}, got ${job.checksumActual ?? ""}`}>
+            · <ShieldErrorRegular style={{ verticalAlign: -2, color: tokens.colorPaletteRedForeground1 }} /> checksum mismatch
+          </Text>
         ) : null}
         {job.errorCode ? <Text className={styles.meta}>· error: {job.errorCode}</Text> : null}
       </div>

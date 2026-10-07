@@ -30,6 +30,8 @@ export interface SupervisorOptions {
   /** Absolute SQLite path handed to the core via UNIDM_DB. */
   dbPath: string;
   maxConcurrent: number;
+  /** Range connections per download (Phase 6 segmentation ceiling; core clamps 1..16). */
+  maxConnectionsPerDownload?: number;
   log?: (msg: string) => void;
   /** Test hook: override process spawning. */
   spawnFn?: typeof spawn;
@@ -90,6 +92,9 @@ export class CoreSupervisor extends EventEmitter {
         ...process.env,
         UNIDM_DB: this.options.dbPath,
         UNIDM_MAX_CONCURRENT: String(this.options.maxConcurrent),
+        ...(this.options.maxConnectionsPerDownload !== undefined
+          ? { UNIDM_MAX_CONNECTIONS: String(this.options.maxConnectionsPerDownload) }
+          : {}),
       },
     });
     this.child = child;

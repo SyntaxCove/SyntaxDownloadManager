@@ -16,8 +16,10 @@ export const AppSettings = z.object({
   language: AppLanguage.optional().default("en"),
   /** Default directory for new downloads. */
   downloadDir: z.string().min(1).optional().default("~/Downloads"),
-  /** Max parallel active downloads (engine v1: 1..8). */
+  /** Max parallel active downloads (engine: 1..8). */
   concurrentDownloads: z.number().int().min(1).max(8).optional().default(3),
+  /** Max range connections per single download (Phase 6 segmented engine; 1..16). */
+  maxConnectionsPerDownload: z.number().int().min(1).max(16).optional().default(4),
   /** Global speed limit in KiB/s; 0 = unlimited. */
   speedLimitKBps: z.number().int().min(0).optional().default(0),
 });
@@ -29,6 +31,7 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   language: "en",
   downloadDir: "~/Downloads",
   concurrentDownloads: 3,
+  maxConnectionsPerDownload: 4,
   speedLimitKBps: 0,
 });
 

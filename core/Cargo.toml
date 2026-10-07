@@ -24,6 +24,8 @@ tracing = "0.1.44"
 url = "2.5.8"
 futures-util = "0.3.31"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# max stable on crates.io verified 2026-10-07 (phase-6 report)
+sha2 = "0.11.0"
 
 dc-protocol = { path = "crates/dc-protocol" }
 dc-storage = { path = "crates/dc-storage" }

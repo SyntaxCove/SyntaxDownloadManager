@@ -29,7 +29,6 @@ pub struct JobManager {
     jobs: Mutex<HashMap<String, JobHandle>>,
     max_concurrent: AtomicUsize,
 }
-
 impl JobManager {
     pub fn new(store: Arc<JobStore>, events: EventsTx) -> Arc<Self> {
         let engine = Arc::new(Engine::new(store.clone(), events));
@@ -44,6 +43,11 @@ impl JobManager {
     pub fn set_max_concurrent(self: &Arc<Self>, max: usize) {
         self.max_concurrent.store(max, Ordering::SeqCst);
         self.pump();
+    }
+
+    /// Connections per download (Phase 6): affects newly planned runs.
+    pub fn set_max_connections(self: &Arc<Self>, max: usize) {
+        self.engine.set_max_connections(max);
     }
 
     pub async fn create(

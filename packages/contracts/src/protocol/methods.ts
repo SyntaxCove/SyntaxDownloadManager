@@ -41,10 +41,14 @@ export const METHODS = {
   "download.resume": { server: "core", params: JobIdParams, result: JobByIdResult },
   "download.cancel": { server: "core", params: JobIdParams, result: JobByIdResult },
   "download.remove": { server: "core", params: DownloadRemoveParams, result: DownloadRemoveResult },
-  /** Applied by main at startup and whenever the parallel-downloads setting changes. */
+  /** Applied by main at startup and whenever the parallel-downloads settings change.
+   *  `maxConnectionsPerDownload` (v1.1) controls segmentation of a single job. */
   "download.setConcurrency": {
     server: "core",
-    params: z.object({ max: z.number().int().min(1).max(8) }),
+    params: z.object({
+      max: z.number().int().min(1).max(8),
+      maxConnectionsPerDownload: z.number().int().min(1).max(16).optional(),
+    }),
     result: z.object({ applied: z.literal(true) }),
   },
   // ---- main (Electron main process) ----

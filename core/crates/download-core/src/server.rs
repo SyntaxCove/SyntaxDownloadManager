@@ -15,8 +15,10 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::engine::CreateJobParams;
+use crate::engine::{ChecksumSpec, CreateJobParams};
 use crate::manager::JobManager;
+use crate::segments::normalize_expected;
+use dc_protocol::ChecksumAlgorithm;
 
 #[derive(Deserialize)]
 struct JobIdParams {
@@ -31,6 +33,12 @@ struct RemoveParams {
 }
 
 #[derive(Deserialize)]
+struct ChecksumParams {
+    algorithm: ChecksumAlgorithm,
+    value: String,
+}
+
+#[derive(Deserialize)]
 struct CreateParams {
     url: String,
     #[serde(rename = "destinationDir")]
@@ -39,11 +47,14 @@ struct CreateParams {
     #[serde(default)]
     overwrite: bool,
     headers: Option<std::collections::HashMap<String, String>>,
+    checksum: Option<ChecksumParams>,
 }
 
 #[derive(Deserialize)]
 struct SetConcurrencyParams {
     max: usize,
+    #[serde(rename = "maxConnectionsPerDownload")]
+    max_connections_per_download: Option<usize>,
 }
 
 pub type OutboundTx = mpsc::UnboundedSender<String>;
@@ -140,10 +151,25 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
         "download.setConcurrency" => {
             let p: SetConcurrencyParams = parse(&params)?;
             manager.set_max_concurrent(p.max);
+            if let Some(per_job) = p.max_connections_per_download {
+                manager.set_max_connections(per_job);
+            }
             Ok(serde_json::json!({ "applied": true }))
         }
         "download.create" => {
             let p: CreateParams = parse(&params)?;
+            let checksum = match p.checksum {
+                Some(c) => {
+                    // Boundary validation: hex + length must match the algorithm.
+                    let value = normalize_expected(c.algorithm, &c.value)
+                        .map_err(|msg| ContractError::new(ErrorCode::InvalidParams, msg))?;
+                    Some(ChecksumSpec {
+                        algorithm: c.algorithm,
+                        value,
+                    })
+                }
+                None => None,
+            };
             let job = manager
                 .create(CreateJobParams {
                     url: p.url,
@@ -151,6 +177,7 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
                     filename: p.filename,
                     overwrite: p.overwrite,
                     headers: p.headers,
+                    checksum,
                 })
                 .await?;
             job_json(job)

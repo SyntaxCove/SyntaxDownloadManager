@@ -1,6 +1,7 @@
 //! Cross-language fixture tests: dc-protocol must deserialize exactly what the TypeScript
 //! side serializes, and vice versa. Fixtures live in packages/contracts/fixtures.
 
+use dc_protocol::job::ChecksumAlgorithm;
 use dc_protocol::{DownloadJob, ErrorEnvelope, EventEnvelope, RequestEnvelope, SuccessEnvelope};
 
 fn fixtures_dir() -> String {
@@ -51,4 +52,34 @@ fn rust_serialization_matches_ts_wire_format() {
         out, doc["downloadJob"],
         "wire format divergence between TS and Rust"
     );
+}
+
+#[test]
+fn parses_and_round_trips_segmented_job_fixture() {
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: DownloadJob = serde_json::from_value(doc["downloadJobSegmented"].clone()).unwrap();
+    assert_eq!(job.segment_count, Some(4));
+    assert_eq!(job.checksum_algorithm, Some(ChecksumAlgorithm::Sha256));
+    assert_eq!(job.checksum_verified, None);
+    let out: serde_json::Value = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        out, doc["downloadJobSegmented"],
+        "wire format divergence between TS and Rust (segmented job)"
+    );
+}
+
+#[test]
+fn legacy_job_with_new_fields_serializes_nulls_not_omissions() {
+    // The TS contract requires segmentCount / checksumActual / checksumVerified to be
+    // PRESENT (nullable) on the wire; nullish checksum provenance stays absent.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: DownloadJob = serde_json::from_value(doc["downloadJob"].clone()).unwrap();
+    let out = serde_json::to_value(&job).unwrap();
+    assert!(out.get("segmentCount").is_some());
+    assert!(out.get("checksumActual").is_some());
+    assert!(out.get("checksumVerified").is_some());
+    assert!(out.get("checksumAlgorithm").is_none());
+    assert!(out.get("checksumExpected").is_none());
 }
