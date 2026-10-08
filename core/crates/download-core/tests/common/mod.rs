@@ -40,6 +40,7 @@ pub struct TestServer {
 
 impl TestServer {
     /// Simulate the source changing under our feet: fresh requests now return v2.
+    #[allow(dead_code)] // used by the engine.rs/recover.rs test binaries only
     pub fn rotate_to_v2(&self) {
         self.active_version.store(2, Ordering::SeqCst);
     }
@@ -68,6 +69,7 @@ impl TestServer {
         self.etag
     }
 
+    #[allow(dead_code)] // used by the engine.rs test binary only
     pub fn range_starts(&self) -> Vec<u64> {
         self.range_starts.lock().unwrap().clone()
     }
@@ -81,6 +83,7 @@ impl TestServer {
 impl TestServer {
     /// Serve `body` (with If-Range semantics); when `rotate_version` is triggered, the server
     /// serves `body_v2` with a different etag — simulating a changed source.
+    #[allow(dead_code)] // used by the engine.rs/recover.rs test binaries only
     pub async fn start(body: Vec<u8>, body_v2: Vec<u8>, delay_per_chunk_ms: u64) -> Arc<Self> {
         Self::start_with(
             body,

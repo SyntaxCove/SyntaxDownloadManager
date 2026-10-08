@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DownloadJob } from "@unidm/contracts";
+import type { DownloadJob, QueueDirection } from "@unidm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
 /**
@@ -34,6 +34,14 @@ interface DownloadsState {
   replaceUrl: (id: string, url: string) => Promise<void>;
   /** Phase 7: requeue a failed/canceled/paused job (re-probe + gap-fill on the next run). */
   retry: (id: string) => Promise<void>;
+  /** Phase 8: reorder a queued job within the download queue. */
+  queueMove: (id: string, direction: QueueDirection) => Promise<void>;
+  /** Phase 8: resume every paused job; returns the count. */
+  startAll: () => Promise<number>;
+  /** Phase 8: pause every queued/probing/downloading job; returns the count. */
+  pauseAll: () => Promise<number>;
+  /** Phase 8: per-job bandwidth cap in KiB/s (0 = unlimited). */
+  setSpeedLimit: (id: string, kbps: number) => Promise<void>;
 }
 
 export const useDownloadsStore = create<DownloadsState>((set, get) => ({
@@ -100,6 +108,24 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
     const { job } = await rpc("download.retry", { id });
     get().upsertJob(job);
   },
+  queueMove: async (id, direction) => {
+    const { job } = await rpc("download.queueMove", { id, direction });
+    get().upsertJob(job);
+  },
+  startAll: async () => {
+    const { started } = await rpc("download.startAll", {});
+    await get().load();
+    return started;
+  },
+  pauseAll: async () => {
+    const { paused } = await rpc("download.pauseAll", {});
+    await get().load();
+    return paused;
+  },
+  setSpeedLimit: async (id, kbps) => {
+    const { job } = await rpc("download.setSpeedLimit", { id, kbps });
+    get().upsertJob(job);
+  },
 }));
 
 /** Wired once from main.tsx. */
@@ -107,4 +133,25 @@ export function subscribeDownloadEvents(): void {
   onEvent("download.updated", ({ job }) => useDownloadsStore.getState().upsertJob(job));
   onEvent("download.progress", (p) => useDownloadsStore.getState().patchProgress(p));
   onEvent("core.state", ({ status }) => useDownloadsStore.getState().setCore(status));
+}
+
+/**
+ * Phase 8 display order (stable within a group): active runs first (store order),
+ * then the waiting queue in slot order (ties by creation time), then everything else.
+ */
+export function compareQueueDisplay(a: DownloadJob, b: DownloadJob): number {
+  const rank = (j: DownloadJob): 0 | 1 | 2 => {
+    if (j.status === "probing" || j.status === "downloading") return 0;
+    if (j.status === "queued") return 1;
+    return 2;
+  };
+  const ra = rank(a);
+  const rb = rank(b);
+  if (ra !== rb) return ra - rb;
+  if (ra === 1) {
+    const pa = a.queuePosition ?? Number.MAX_SAFE_INTEGER;
+    const pb = b.queuePosition ?? Number.MAX_SAFE_INTEGER;
+    return pa - pb || a.createdAt - b.createdAt;
+  }
+  return 0;
 }

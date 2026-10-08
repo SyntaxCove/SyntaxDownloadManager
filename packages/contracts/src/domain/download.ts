@@ -4,8 +4,9 @@ import { Ulid } from "../ids.js";
 /**
  * Download domain — contract v1.1 adds the Phase 6 segmented engine: per-segment journal,
  * connections-per-download and integrity checksums. v1.2 (Phase 7) adds the recovery engine:
- * source re-acquisition, multi-signal revalidation, rebind and gap-fill. All new fields are
- * additive (nullable / optional) so v1 payloads remain valid.
+ * source re-acquisition, multi-signal revalidation, rebind and gap-fill. v1.3 (Phase 8) adds
+ * queue management (queuePosition, queueMove/startAll/pauseAll) and bandwidth policy
+ * (setSpeedLimit, setPolicy). All new fields are additive so v1 payloads remain valid.
  */
 
 export const DownloadStatus = z.enum([
@@ -94,6 +95,11 @@ export const DownloadJob = z.object({
   recoveryCount: z.number().int().min(0).nullable(),
   /** Epoch ms of the most recent rebind; null = never rebound. */
   reboundAt: z.number().int().nonnegative().nullable(),
+  // ---- v1.3 (Phase 8): queue + bandwidth ----
+  /** 0-based queue slot while `queued` (pump order); null once the job leaves the queue. */
+  queuePosition: z.number().int().nonnegative().nullable(),
+  /** Per-job bandwidth cap in KiB/s; omitted = unlimited (0 also means unlimited). */
+  speedLimitKBps: z.number().int().min(0).nullish(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });
@@ -152,6 +158,50 @@ export type DownloadReplaceUrlResult = z.infer<typeof DownloadReplaceUrlResult>;
 export const DownloadRetryParams = z.object({ id: Ulid });
 export const DownloadRetryResult = z.object({ job: DownloadJob });
 export type DownloadRetryResult = z.infer<typeof DownloadRetryResult>;
+
+// ---- v1.3 (Phase 8): queue management + bandwidth policy ----
+
+export const QueueDirection = z.enum(["top", "up", "down", "bottom"]);
+export type QueueDirection = z.infer<typeof QueueDirection>;
+
+/** Reorder a `queued` job within the download queue (only queued jobs are orderable). */
+export const DownloadQueueMoveParams = z.object({ id: Ulid, direction: QueueDirection });
+export const DownloadQueueMoveResult = z.object({ job: DownloadJob });
+export type DownloadQueueMoveResult = z.infer<typeof DownloadQueueMoveResult>;
+
+/** Resume every `paused` job (failed/canceled jobs keep their recover/retry semantics). */
+export const DownloadStartAllParams = z.object({});
+export const DownloadStartAllResult = z.object({ started: z.number().int().nonnegative() });
+
+/** Pause every `queued`/`probing`/`downloading` job. */
+export const DownloadPauseAllParams = z.object({});
+export const DownloadPauseAllResult = z.object({ paused: z.number().int().nonnegative() });
+
+/** Set a per-job bandwidth cap (KiB/s); 0 = unlimited. Applies live and persists. */
+export const DownloadSetSpeedLimitParams = z.object({
+  id: Ulid,
+  kbps: z.number().int().min(0),
+});
+export const DownloadSetSpeedLimitResult = z.object({ job: DownloadJob });
+export type DownloadSetSpeedLimitResult = z.infer<typeof DownloadSetSpeedLimitResult>;
+
+/** Engine operating policy, pushed by main at startup / on settings changes / every 10 min. */
+export const ScheduleMode = z.enum(["always", "window"]);
+export type ScheduleMode = z.infer<typeof ScheduleMode>;
+export const DownloadSetPolicyParams = z.object({
+  /** false: `download.create` parks new jobs as `paused` instead of queueing them. */
+  autoStartNew: z.boolean(),
+  scheduleMode: ScheduleMode,
+  /** Local minutes-of-day window bounds (0..1439); wrap-over windows are supported. */
+  windowStartMinute: z.number().int().min(0).max(1439),
+  windowEndMinute: z.number().int().min(0).max(1439),
+  /** Global bandwidth cap in KiB/s; 0 = unlimited. */
+  speedLimitKBps: z.number().int().min(0),
+  /** Local-UTC offset in minutes (e.g. +210 for UTC+03:30) for window evaluation. */
+  tzOffsetMinutes: z.number().int().min(-840).max(840),
+});
+export type DownloadSetPolicyParams = z.infer<typeof DownloadSetPolicyParams>;
+export const DownloadSetPolicyResult = z.object({ applied: z.literal(true) });
 
 /** Throttled progress event payload (see events.ts). */
 export const DownloadProgress = z.object({

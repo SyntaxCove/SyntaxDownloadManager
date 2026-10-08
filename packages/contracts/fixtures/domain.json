@@ -19,7 +19,8 @@
     "createdAt": 1735689600000,
     "updatedAt": 1735689900000,
     "recoveryCount": null,
-    "reboundAt": null
+    "reboundAt": null,
+    "queuePosition": null
   },
   "downloadProgress": {
     "jobId": "01JD8W3G5XQ9V4M2K7PZ6N8S0T",
@@ -113,7 +114,8 @@
     "createdAt": 1735689600000,
     "updatedAt": 1735689900000,
     "recoveryCount": null,
-    "reboundAt": null
+    "reboundAt": null,
+    "queuePosition": null
   },
   "downloadJobRecovered": {
     "id": "01JD8W3G5XQ9V4M2K7PZ6N8S10",
@@ -137,6 +139,31 @@
     "createdAt": 1735689600000,
     "updatedAt": 1735689900000,
     "recoveryCount": 2,
-    "reboundAt": 1735689960000
+    "reboundAt": 1735689960000,
+    "queuePosition": null
+  },
+  "downloadJobQueued": {
+    "id": "01JD8W3G5XQ9V4M2K7PZ6N8S11",
+    "url": "https://example.com/files/update.zip",
+    "destinationDir": "/home/user/Downloads",
+    "destinationPath": null,
+    "status": "queued",
+    "totalBytes": 209715200,
+    "receivedBytes": 0,
+    "etag": null,
+    "lastModified": null,
+    "contentType": "application/zip",
+    "speedBps": null,
+    "etaSeconds": null,
+    "errorCode": null,
+    "segmentCount": null,
+    "checksumActual": null,
+    "checksumVerified": null,
+    "recoveryCount": null,
+    "reboundAt": null,
+    "queuePosition": 2,
+    "speedLimitKBps": 512,
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000001000
   }
 }

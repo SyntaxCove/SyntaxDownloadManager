@@ -1,26 +1,98 @@
-//! JobManager — owns the engine, per-job tasks and the active-jobs queue.
+//! JobManager — owns the engine, per-job tasks, the queue and the operating policy.
 //!
-//! Concurrency policy: at most `max_concurrent` tasks run at once (main pushes the user's
-//! parallel-downloads setting); queued jobs are pumped automatically when a slot frees.
-//! Resume: paused/canceled/failed jobs flip to `queued` and the pump starts them when a
-//! slot is available — the engine then continues from the persisted `.part` byte count.
+//! Queue (Phase 8): queued jobs carry a persisted `queue_position`; the pump starts them
+//! in position order (ties broken by creation time) while free slots exist. User-initiated
+//! paths (resume/retry/recover/replaceUrl/startAll) re-enqueue at the END of the queue and
+//! mark the run as **manual**. Reorder (`queue_move`) only touches queued jobs.
+//!
+//! Scheduler policy: `auto_start_new` parks freshly created jobs as `paused`; an optional
+//! daily local-time window gates auto-started runs — on window close the queue pauses
+//! **auto-started runs only** (explicit user intent is never interrupted); on window open
+//! the pump resumes. Manual runs, once stopped by the user or terminal, stay put.
+//!
+//! Bandwidth: a global token bucket (settings `speedLimitKBps`) and per-job buckets
+//! (`download.setSpeedLimit`) live in the engine; the manager only forwards the values.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use dc_protocol::job::DownloadJob;
 use dc_protocol::{ContractError, ErrorCode};
 use dc_storage::JobStore;
+use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::{now_ms, CreateJobParams, Engine, EventsTx, JobCommand};
 
+/// How often the queue re-evaluates the schedule window (transition detection).
+const POLICY_TICK_SECS: u64 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleMode {
+    Always,
+    Window,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QueueDirection {
+    Top,
+    Up,
+    Down,
+    Bottom,
+}
+
+/// Engine operating policy delivered by main (`download.setPolicy`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueuePolicy {
+    pub auto_start_new: bool,
+    pub schedule_mode: ScheduleMode,
+    /// Local minutes-of-day window bounds (0..=1439); equal bounds mean the whole day.
+    pub window_start_minute: u32,
+    pub window_end_minute: u32,
+    /// Local-UTC offset in minutes used to evaluate the window.
+    pub tz_offset_minutes: i32,
+}
+
+impl Default for QueuePolicy {
+    fn default() -> Self {
+        Self {
+            auto_start_new: true,
+            schedule_mode: ScheduleMode::Always,
+            window_start_minute: 0,
+            window_end_minute: 0,
+            tz_offset_minutes: 0,
+        }
+    }
+}
+
+/// `download.setPolicy` wire shape (camelCase, mirrors the zod schema).
+#[derive(Debug, Deserialize)]
+pub struct SetPolicyParams {
+    #[serde(rename = "autoStartNew")]
+    pub auto_start_new: bool,
+    #[serde(rename = "scheduleMode")]
+    pub schedule_mode: String,
+    #[serde(rename = "windowStartMinute")]
+    pub window_start_minute: u32,
+    #[serde(rename = "windowEndMinute")]
+    pub window_end_minute: u32,
+    #[serde(rename = "speedLimitKBps")]
+    pub speed_limit_kbps: u64,
+    #[serde(rename = "tzOffsetMinutes")]
+    pub tz_offset_minutes: i32,
+}
+
 struct JobHandle {
     cmd_tx: mpsc::Sender<JobCommand>,
     stop: CancellationToken,
+    /// Started by the user (resume/retry/recover/replaceUrl/startAll) — exempt from
+    /// schedule-window pauses.
+    manual: bool,
 }
 
 pub struct JobManager {
@@ -28,16 +100,52 @@ pub struct JobManager {
     engine: Arc<Engine>,
     jobs: Mutex<HashMap<String, JobHandle>>,
     max_concurrent: AtomicUsize,
+    policy: Mutex<QueuePolicy>,
+    /// Jobs whose next run was explicitly started by the user (consumed by the pump).
+    manual_ids: Mutex<HashSet<String>>,
+    /// Last observed in-window state (transition detection). Initialized to `true` so
+    /// the first tick ESTABLISHES the baseline instead of acting: queued jobs are never
+    /// implicitly started by core startup — they start on user action or a real
+    /// window-open transition (false→true) later on.
+    last_in_window: AtomicBool,
 }
+
+/// Is `minute` inside the daily `[start, end)` window? Wrap-over windows (start > end)
+/// span midnight; equal bounds mean the whole day.
+pub fn in_window_minute(minute: u32, start: u32, end: u32) -> bool {
+    if start == end {
+        return true;
+    }
+    if start < end {
+        minute >= start && minute < end
+    } else {
+        minute >= start || minute < end
+    }
+}
+
+/// Current local minute-of-day for a local-UTC offset in minutes.
+pub fn local_minute_of_day(tz_offset_minutes: i32) -> u32 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    ((now / 60 + tz_offset_minutes as i64).rem_euclid(1440)) as u32
+}
+
 impl JobManager {
     pub fn new(store: Arc<JobStore>, events: EventsTx) -> Arc<Self> {
         let engine = Arc::new(Engine::new(store.clone(), events));
-        Arc::new(Self {
+        let manager = Arc::new(Self {
             store,
             engine,
             jobs: Mutex::new(HashMap::new()),
             max_concurrent: AtomicUsize::new(3),
-        })
+            policy: Mutex::new(QueuePolicy::default()),
+            manual_ids: Mutex::new(HashSet::new()),
+            last_in_window: AtomicBool::new(true),
+        });
+        manager.spawn_policy_tick();
+        manager
     }
 
     pub fn set_max_concurrent(self: &Arc<Self>, max: usize) {
@@ -50,13 +158,171 @@ impl JobManager {
         self.engine.set_max_connections(max);
     }
 
+    /// Phase 8: apply the operating policy (queue + schedule + global bandwidth).
+    /// Evaluates the window immediately so the effect is not delayed by up to one tick.
+    pub async fn set_policy(self: &Arc<Self>, params: SetPolicyParams) {
+        let schedule_mode = match params.schedule_mode.as_str() {
+            "window" => ScheduleMode::Window,
+            _ => ScheduleMode::Always,
+        };
+        *self.policy.lock().expect("policy mutex poisoned") = QueuePolicy {
+            auto_start_new: params.auto_start_new,
+            schedule_mode,
+            window_start_minute: params.window_start_minute.min(1439),
+            window_end_minute: params.window_end_minute.min(1439),
+            tz_offset_minutes: params.tz_offset_minutes.clamp(-840, 840),
+        };
+        self.engine.set_global_speed_kbps(params.speed_limit_kbps);
+        self.evaluate_schedule().await;
+    }
+
+    /// Phase 8: per-job bandwidth cap — persists on the row and applies live.
+    pub fn set_speed_limit(
+        self: &Arc<Self>,
+        id: &str,
+        kbps: u64,
+    ) -> Result<DownloadJob, ContractError> {
+        let mut job = self
+            .store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::InvalidState, "job not found"))?;
+        job.speed_limit_kbps = if kbps == 0 { None } else { Some(kbps) };
+        job.updated_at = now_ms();
+        self.store.update_job(&job)?;
+        self.engine.set_job_speed_kbps(id, kbps);
+        self.engine.emit_job(&job);
+        self.store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
+    }
+
+    /// Phase 8: reorder a queued job within the queue (top/up/down/bottom).
+    pub fn queue_move(
+        self: &Arc<Self>,
+        id: &str,
+        direction: QueueDirection,
+    ) -> Result<DownloadJob, ContractError> {
+        let all = self.store.list_jobs()?;
+        let mut queued: Vec<DownloadJob> =
+            all.into_iter().filter(|j| j.status == "queued").collect();
+        queued.sort_by_key(|j| (j.queue_position.unwrap_or(u64::MAX), j.created_at));
+        let idx = queued
+            .iter()
+            .position(|j| j.id.as_str() == id)
+            .ok_or_else(|| {
+                ContractError::new(ErrorCode::InvalidState, "job is not in the queue")
+            })?;
+        let last = queued.len() - 1;
+        let new_idx = match direction {
+            QueueDirection::Top => 0,
+            QueueDirection::Up => idx.saturating_sub(1),
+            QueueDirection::Down => (idx + 1).min(last),
+            QueueDirection::Bottom => last,
+        };
+        if new_idx != idx {
+            let job = queued.remove(idx);
+            queued.insert(new_idx, job);
+            for (pos, mut job) in queued.into_iter().enumerate() {
+                job.queue_position = Some(pos as u64);
+                job.updated_at = now_ms();
+                self.store.update_job(&job)?;
+                self.engine.emit_job(&job);
+            }
+        }
+        self.store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
+    }
+
+    /// Phase 8: resume every `paused` job (user intent; failed/canceled keep their
+    /// dedicated recover/retry semantics). Returns how many jobs were requeued.
+    pub async fn start_all(self: &Arc<Self>) -> Result<usize, ContractError> {
+        let all = self.store.list_jobs()?;
+        let mut started = 0usize;
+        for mut job in all {
+            if job.status != "paused" {
+                continue;
+            }
+            self.manual_ids
+                .lock()
+                .expect("manual_ids mutex poisoned")
+                .insert(job.id.as_str().to_string());
+            job.status = "queued".into();
+            job.error_code = None;
+            job.queue_position = Some(self.next_position()?);
+            job.updated_at = now_ms();
+            self.store.update_job(&job)?;
+            self.engine.emit_job(&job);
+            started += 1;
+        }
+        if started > 0 {
+            self.pump();
+        }
+        Ok(started)
+    }
+
+    /// Phase 8: pause every `queued`/`probing`/`downloading` job. Returns the count.
+    pub async fn pause_all(self: &Arc<Self>) -> Result<usize, ContractError> {
+        let all = self.store.list_jobs()?;
+        let mut paused = 0usize;
+        for job in all {
+            if !matches!(job.status.as_str(), "queued" | "probing" | "downloading") {
+                continue;
+            }
+            let handle = {
+                let jobs = self.jobs.lock().expect("jobs mutex poisoned");
+                jobs.get(job.id.as_str()).map(|h| h.cmd_tx.clone())
+            };
+            match handle {
+                Some(cmd_tx) => {
+                    let _ = cmd_tx.send(JobCommand::Pause).await;
+                }
+                None => {
+                    // Task not running (queued or pump-pending): flip status directly.
+                    let mut job = job;
+                    job.status = "paused".into();
+                    job.queue_position = None;
+                    job.speed_bps = None;
+                    job.eta_seconds = None;
+                    job.updated_at = now_ms();
+                    self.store.update_job(&job)?;
+                    self.engine.emit_job(&job);
+                    self.manual_ids
+                        .lock()
+                        .expect("manual_ids mutex poisoned")
+                        .remove(job.id.as_str());
+                }
+            }
+            paused += 1;
+        }
+        Ok(paused)
+    }
+
     pub async fn create(
         self: &Arc<Self>,
         params: CreateJobParams,
     ) -> Result<DownloadJob, ContractError> {
-        let job = self.engine.create_job(params).await?;
-        self.pump();
-        Ok(job)
+        let mut job = self.engine.create_job(params).await?;
+        let auto_start = self
+            .policy
+            .lock()
+            .expect("policy mutex poisoned")
+            .auto_start_new;
+        if auto_start {
+            job.queue_position = Some(self.next_position()?);
+        } else {
+            // Queue policy: new downloads are parked until the user starts them.
+            job.status = "paused".into();
+        }
+        job.updated_at = now_ms();
+        self.store.update_job(&job)?;
+        self.engine.emit_job(&job);
+        if auto_start {
+            self.pump();
+        }
+        self.store
+            .get_job(job.id.as_str())?
+            .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
     }
 
     pub fn list(&self) -> Result<Vec<DownloadJob>, ContractError> {
@@ -87,9 +353,11 @@ impl JobManager {
         }
         job.status = "queued".into();
         job.error_code = None;
+        job.queue_position = Some(self.next_position()?);
         job.updated_at = now_ms();
         self.store.update_job(&job)?;
         self.engine.emit_job(&job);
+        self.mark_manual(id);
         self.pump();
         self.store
             .get_job(id)?
@@ -114,6 +382,16 @@ impl JobManager {
             .recover(&mut job)
             .await
             .map_err(|e| e.to_contract())?;
+        // Re-enqueue at the end of the queue (the engine reset the status to `queued`
+        // without a position); a user-initiated recovery run is manual.
+        job = self.store.get_job(id)?.unwrap_or(job);
+        if job.queue_position.is_none() {
+            job.queue_position = Some(self.next_position()?);
+            job.updated_at = now_ms();
+            self.store.update_job(&job)?;
+            self.engine.emit_job(&job);
+        }
+        self.mark_manual(id);
         self.pump();
         self.store
             .get_job(id)?
@@ -165,9 +443,13 @@ impl JobManager {
         job.rebound_at = Some(now_ms());
         job.speed_bps = None;
         job.eta_seconds = None;
+        if job.queue_position.is_none() {
+            job.queue_position = Some(self.next_position()?);
+        }
         job.updated_at = now_ms();
         self.store.update_job(&job)?;
         self.engine.emit_job(&job);
+        self.mark_manual(id);
         self.pump();
         self.store
             .get_job(id)?
@@ -266,9 +548,17 @@ impl JobManager {
                     JobCommand::Pause => "paused".to_string(),
                     JobCommand::Cancel => "canceled".to_string(),
                 };
+                // Leaving the queue releases the slot and the user-start marker.
+                job.queue_position = None;
+                job.speed_bps = None;
+                job.eta_seconds = None;
                 job.updated_at = now_ms();
                 self.store.update_job(&job)?;
                 self.engine.emit_job(&job);
+                self.manual_ids
+                    .lock()
+                    .expect("manual_ids mutex poisoned")
+                    .remove(id);
             }
         }
         self.store
@@ -276,7 +566,7 @@ impl JobManager {
             .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
     }
 
-    /// Start queued jobs while free slots exist; prune finished tasks.
+    /// Start queued jobs (in queue order) while free slots exist; prune finished tasks.
     fn pump(self: &Arc<Self>) {
         let max = self.max_concurrent.load(Ordering::SeqCst);
         let running = {
@@ -290,27 +580,34 @@ impl JobManager {
         let Ok(all) = self.store.list_jobs() else {
             return;
         };
+        let mut queued: Vec<DownloadJob> =
+            all.into_iter().filter(|j| j.status == "queued").collect();
+        queued.sort_by_key(|j| (j.queue_position.unwrap_or(u64::MAX), j.created_at));
         let mut slots = max - running;
-        for job in all {
+        for job in queued {
             if slots == 0 {
                 break;
             }
-            if job.status == "queued" {
-                let already = self
-                    .jobs
+            let already = self
+                .jobs
+                .lock()
+                .expect("jobs mutex poisoned")
+                .contains_key(job.id.as_str());
+            if !already {
+                // Consuming the marker returns true when the user started this job.
+                let manual = self
+                    .manual_ids
                     .lock()
-                    .expect("jobs mutex poisoned")
-                    .contains_key(job.id.as_str());
-                if !already {
-                    self.spawn_task(job);
-                    slots -= 1;
-                }
+                    .expect("manual_ids mutex poisoned")
+                    .remove(job.id.as_str());
+                self.spawn_task(job, manual);
+                slots -= 1;
             }
         }
     }
 
     /// Spawn the engine task; on completion the task removes itself and pumps the queue.
-    fn spawn_task(self: &Arc<Self>, job: DownloadJob) {
+    fn spawn_task(self: &Arc<Self>, job: DownloadJob, manual: bool) {
         let id = job.id.as_str().to_string();
         let (cmd_tx, cmd_rx) = mpsc::channel::<JobCommand>(8);
         let stop = CancellationToken::new();
@@ -322,6 +619,7 @@ impl JobManager {
             JobHandle {
                 cmd_tx,
                 stop: stop.clone(),
+                manual,
             },
         );
 
@@ -334,6 +632,75 @@ impl JobManager {
                 .remove(&id);
             manager.pump();
         });
+    }
+
+    fn mark_manual(&self, id: &str) {
+        self.manual_ids
+            .lock()
+            .expect("manual_ids mutex poisoned")
+            .insert(id.to_string());
+    }
+
+    /// Next free queue slot (end of the queue).
+    fn next_position(&self) -> Result<u64, ContractError> {
+        let max = self
+            .store
+            .list_jobs()?
+            .iter()
+            .filter_map(|j| j.queue_position)
+            .max();
+        Ok(max.map_or(0, |m| m + 1))
+    }
+
+    fn spawn_policy_tick(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(POLICY_TICK_SECS));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                let Some(manager) = weak.upgrade() else { break };
+                manager.evaluate_schedule().await;
+            }
+        });
+    }
+
+    /// Window transition detection: on outside→inside pump, on inside→outside pause the
+    /// auto-started runs (manual runs are never interrupted).
+    async fn evaluate_schedule(self: &Arc<Self>) {
+        let now_in = self.in_window();
+        let prev = self.last_in_window.swap(now_in, Ordering::SeqCst);
+        if now_in && !prev {
+            self.pump();
+        } else if !now_in && prev {
+            self.pause_auto_runs().await;
+        }
+    }
+
+    fn in_window(&self) -> bool {
+        let policy = *self.policy.lock().expect("policy mutex poisoned");
+        match policy.schedule_mode {
+            ScheduleMode::Always => true,
+            ScheduleMode::Window => in_window_minute(
+                local_minute_of_day(policy.tz_offset_minutes),
+                policy.window_start_minute,
+                policy.window_end_minute,
+            ),
+        }
+    }
+
+    /// Pause every running job whose run was started by the pump (not by the user).
+    async fn pause_auto_runs(&self) {
+        let handles: Vec<mpsc::Sender<JobCommand>> = {
+            let jobs = self.jobs.lock().expect("jobs mutex poisoned");
+            jobs.values()
+                .filter(|h| !h.manual)
+                .map(|h| h.cmd_tx.clone())
+                .collect()
+        };
+        for cmd_tx in handles {
+            let _ = cmd_tx.send(JobCommand::Pause).await;
+        }
     }
 }
 

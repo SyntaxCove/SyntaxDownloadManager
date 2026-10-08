@@ -8,6 +8,7 @@ import { resolveAppPaths } from "./paths.js";
 import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
 import { registerDownloadDomain } from "./domains/download.js";
+import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
 
 /**
@@ -80,13 +81,31 @@ if (!gotLock) {
         })
         .catch(() => undefined); // core not ready yet — env defaults already cover it
     };
+
+    // Phase 8: engine operating policy — auto-start, daily download window, global
+    // bandwidth. Re-applied on settings changes AND every 10 minutes so the core's
+    // clock stays aligned with the user's local time (DST / travel drift guard).
+    const applyCorePolicy = (): void => {
+      void supervisor
+        .request("download.setPolicy", buildSetPolicyPayload(settingsStore.settings))
+        .catch(() => undefined); // core not ready yet — retried by the timer
+    };
+
     supervisor
       .whenReady()
-      .then(applyCoreLimits)
+      .then(() => {
+        applyCoreLimits();
+        applyCorePolicy();
+      })
       .catch(() => undefined);
     router.onEvent((name) => {
-      if (name === "settings.changed") applyCoreLimits();
+      if (name === "settings.changed") {
+        applyCoreLimits();
+        applyCorePolicy();
+      }
     });
+    const policyTimer = setInterval(applyCorePolicy, 10 * 60 * 1000);
+    app.on("before-quit", () => clearInterval(policyTimer));
 
     app.on("before-quit", () => {
       tabManager.destroyAll();

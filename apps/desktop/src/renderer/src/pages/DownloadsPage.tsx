@@ -19,6 +19,8 @@ import {
 import {
   ArrowClockwiseRegular,
   ArrowRepeatAllRegular,
+  CaretUpRegular,
+  CaretDownRegular,
   DeleteRegular,
   PauseRegular,
   PlayRegular,
@@ -28,10 +30,11 @@ import {
   PlugConnectedRegular,
   ShieldCheckmarkRegular,
   ShieldErrorRegular,
+  TopSpeedRegular,
 } from "@fluentui/react-icons";
-import { useDownloadsStore, type CoreStatus } from "../stores/downloads.js";
+import { useDownloadsStore, compareQueueDisplay, type CoreStatus } from "../stores/downloads.js";
 import { useSettingsStore } from "../stores/settings.js";
-import type { DownloadJob } from "@unidm/contracts";
+import type { DownloadJob, QueueDirection } from "@unidm/contracts";
 
 /** Downloads page: create-by-URL, live progress, and lifecycle controls per job. */
 
@@ -111,6 +114,10 @@ export function DownloadsPage(): ReactNode {
   const recover = useDownloadsStore((s) => s.recover);
   const replaceUrl = useDownloadsStore((s) => s.replaceUrl);
   const retry = useDownloadsStore((s) => s.retry);
+  const queueMove = useDownloadsStore((s) => s.queueMove);
+  const startAll = useDownloadsStore((s) => s.startAll);
+  const pauseAll = useDownloadsStore((s) => s.pauseAll);
+  const setSpeedLimit = useDownloadsStore((s) => s.setSpeedLimit);
 
   const downloadDir = useSettingsStore((s) => s.settings?.downloadDir ?? "~/Downloads");
   const [url, setUrl] = useState("");
@@ -127,6 +134,12 @@ export function DownloadsPage(): ReactNode {
     create(trimmed, downloadDir).catch((e) => setError(String(e?.message ?? e)));
     setUrl("");
   };
+
+  // Display order (stable): queued jobs follow their queue slots; everything else
+  // keeps the store order (newest first).
+  const ordered = [...jobs].sort(compareQueueDisplay);
+  const hasPausable = jobs.some((j) => ["queued", "probing", "downloading"].includes(j.status));
+  const hasPaused = jobs.some((j) => j.status === "paused");
 
   return (
     <div className={styles.page}>
@@ -156,9 +169,33 @@ export function DownloadsPage(): ReactNode {
           <MessageBarBody>{error}</MessageBarBody>
         </MessageBar>
       ) : null}
-      <Text className={styles.meta}>Saving to {downloadDir}</Text>
+      <div className={styles.row}>
+        <Text className={styles.meta}>Saving to {downloadDir}</Text>
+        <div className={styles.actions}>
+          <Button
+            appearance="subtle"
+            size="small"
+            icon={<PlayRegular />}
+            disabled={!hasPaused}
+            onClick={() => startAll().catch((e) => setError(String(e?.message ?? e)))}
+            aria-label="Start all paused downloads"
+          >
+            Start all
+          </Button>
+          <Button
+            appearance="subtle"
+            size="small"
+            icon={<PauseRegular />}
+            disabled={!hasPausable}
+            onClick={() => pauseAll().catch((e) => setError(String(e?.message ?? e)))}
+            aria-label="Pause all downloads"
+          >
+            Pause all
+          </Button>
+        </div>
+      </div>
 
-      {jobs.map((job) => (
+      {ordered.map((job) => (
         <JobCard
           key={job.id}
           job={job}
@@ -174,6 +211,12 @@ export function DownloadsPage(): ReactNode {
           }
           onReplaceUrl={(next) =>
             replaceUrl(job.id, next).catch((e) => setError(String(e?.message ?? e)))
+          }
+          onQueueMove={(dir) =>
+            queueMove(job.id, dir).catch((e) => setError(String(e?.message ?? e)))
+          }
+          onSetSpeedLimit={(kbps) =>
+            setSpeedLimit(job.id, kbps).catch((e) => setError(String(e?.message ?? e)))
           }
         />
       ))}
@@ -195,6 +238,8 @@ function JobCard(props: {
   onRecover: () => void;
   onRetry: () => void;
   onReplaceUrl: (url: string) => void;
+  onQueueMove: (direction: QueueDirection) => void;
+  onSetSpeedLimit: (kbps: number) => void;
 }): ReactNode {
   const styles = useStyles();
   const { job } = props;
@@ -203,8 +248,11 @@ function JobCard(props: {
   const progress = job.totalBytes ? Math.min(1, job.receivedBytes / job.totalBytes) : undefined;
   const failedOrStopped = job.status === "failed" || job.status === "canceled";
   const hint = job.status === "failed" ? RECOVERY_HINT[job.errorCode ?? ""] : undefined;
+  const inQueue = job.status === "queued";
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replacementUrl, setReplacementUrl] = useState("");
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [limitKbps, setLimitKbps] = useState(String(job.speedLimitKBps ?? 0));
 
   const submitReplace = (): void => {
     const trimmed = replacementUrl.trim();
@@ -214,6 +262,12 @@ function JobCard(props: {
     props.onReplaceUrl(trimmed);
   };
 
+  const submitLimit = (): void => {
+    const n = Number.parseInt(limitKbps, 10);
+    setLimitOpen(false);
+    props.onSetSpeedLimit(Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+  };
+
   return (
     <div className={styles.job}>
       <div className={styles.row}>
@@ -221,7 +275,18 @@ function JobCard(props: {
           {job.destinationPath?.split(/[\\/]/).pop() ?? job.url}
         </Text>
         <Text className={styles.meta}>{STATUS_LABEL[job.status] ?? job.status}</Text>
+        {inQueue && job.queuePosition !== null ? (
+          <Text className={styles.meta} title="Position in the download queue">
+            #{(job.queuePosition ?? 0) + 1}
+          </Text>
+        ) : null}
         <div className={styles.actions}>
+          {inQueue ? (
+            <>
+              <Button appearance="subtle" size="small" icon={<CaretUpRegular />} onClick={() => props.onQueueMove("up")} aria-label="Move up in queue" title="Move up" />
+              <Button appearance="subtle" size="small" icon={<CaretDownRegular />} onClick={() => props.onQueueMove("down")} aria-label="Move down in queue" title="Move down" />
+            </>
+          ) : null}
           {active ? (
             <Button appearance="subtle" size="small" icon={<PauseRegular />} onClick={props.onPause} aria-label="Pause" />
           ) : null}
@@ -257,6 +322,19 @@ function JobCard(props: {
           {finished || failedOrStopped ? (
             <Button appearance="subtle" size="small" icon={<DeleteRegular />} onClick={props.onRemove} aria-label="Remove" />
           ) : null}
+          {!finished ? (
+            <Button
+              appearance="subtle"
+              size="small"
+              icon={<TopSpeedRegular />}
+              onClick={() => {
+                setLimitKbps(String(job.speedLimitKBps ?? 0));
+                setLimitOpen(true);
+              }}
+              aria-label="Speed limit"
+              title="Cap this download's bandwidth (0 = unlimited)"
+            />
+          ) : null}
         </div>
       </div>
       <ProgressBar value={progress} shape="rounded" />
@@ -290,6 +368,11 @@ function JobCard(props: {
             · <ShieldErrorRegular style={{ verticalAlign: -2, color: tokens.colorPaletteRedForeground1 }} /> checksum mismatch
           </Text>
         ) : null}
+        {job.speedLimitKBps ? (
+          <Text className={styles.meta} title="Per-job bandwidth cap">
+            · <TopSpeedRegular style={{ verticalAlign: -2 }} /> capped at {job.speedLimitKBps} KiB/s
+          </Text>
+        ) : null}
         {job.errorCode ? <Text className={styles.meta}>· error: {job.errorCode}</Text> : null}
       </div>
       {hint ? <Text className={styles.meta}>{hint}</Text> : null}
@@ -319,6 +402,33 @@ function JobCard(props: {
               <Button appearance="primary" disabled={!replacementUrl.trim()} onClick={submitReplace}>
                 Rebind
               </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+
+      <Dialog open={limitOpen} onOpenChange={(_, d) => setLimitOpen(d.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Speed limit</DialogTitle>
+            <DialogContent>
+              <Text className={styles.meta} block>
+                Cap this download's bandwidth in KiB/s. Enter 0 for unlimited.
+              </Text>
+              <Input
+                value={limitKbps}
+                onChange={(_, data) => setLimitKbps(data.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitLimit();
+                }}
+                inputMode="numeric"
+                style={{ width: "160px", marginTop: "8px" }}
+                aria-label="Speed limit in KiB per second"
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setLimitOpen(false)}>Cancel</Button>
+              <Button appearance="primary" onClick={submitLimit}>Apply</Button>
             </DialogActions>
           </DialogBody>
         </DialogSurface>

@@ -16,7 +16,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 
 use crate::engine::{ChecksumSpec, CreateJobParams};
-use crate::manager::JobManager;
+use crate::manager::{JobManager, QueueDirection, SetPolicyParams};
 use crate::segments::normalize_expected;
 use dc_protocol::ChecksumAlgorithm;
 
@@ -61,6 +61,18 @@ struct SetConcurrencyParams {
     max: usize,
     #[serde(rename = "maxConnectionsPerDownload")]
     max_connections_per_download: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct QueueMoveParams {
+    id: String,
+    direction: QueueDirection,
+}
+
+#[derive(Deserialize)]
+struct SetSpeedLimitParams {
+    id: String,
+    kbps: u64,
 }
 
 pub type OutboundTx = mpsc::UnboundedSender<String>;
@@ -222,6 +234,30 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             let p: JobIdParams = parse(&params)?;
             let job = manager.retry(&p.id).await?;
             job_json(job)
+        }
+        // ---- Phase 8: queue management + bandwidth/scheduler policy ----
+        "download.queueMove" => {
+            let p: QueueMoveParams = parse(&params)?;
+            let job = manager.queue_move(&p.id, p.direction)?;
+            job_json(job)
+        }
+        "download.startAll" => {
+            let started = manager.start_all().await?;
+            Ok(serde_json::json!({ "started": started }))
+        }
+        "download.pauseAll" => {
+            let paused = manager.pause_all().await?;
+            Ok(serde_json::json!({ "paused": paused }))
+        }
+        "download.setSpeedLimit" => {
+            let p: SetSpeedLimitParams = parse(&params)?;
+            let job = manager.set_speed_limit(&p.id, p.kbps)?;
+            job_json(job)
+        }
+        "download.setPolicy" => {
+            let p: SetPolicyParams = parse(&params)?;
+            manager.set_policy(p).await;
+            Ok(serde_json::json!({ "applied": true }))
         }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;

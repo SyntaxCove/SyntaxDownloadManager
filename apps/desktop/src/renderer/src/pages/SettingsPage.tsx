@@ -5,6 +5,7 @@ import {
   Slider,
   Radio,
   RadioGroup,
+  Switch,
   Field,
   Spinner,
   MessageBar,
@@ -136,6 +137,51 @@ export function SettingsPage(): ReactNode {
             }}
           />
         </Field>
+        <Field
+          label="Start new downloads automatically"
+          hint="When off, new downloads wait as Paused until you start them"
+        >
+          <Switch
+            checked={settings.autoStartNewDownloads}
+            onChange={(_, data) => void update({ autoStartNewDownloads: data.checked })}
+          />
+        </Field>
+        <Field
+          label="Scheduled download window"
+          hint="Outside the window, auto-started runs pause; downloads you start manually keep running"
+        >
+          <Switch
+            checked={settings.scheduleEnabled}
+            onChange={(_, data) => void update({ scheduleEnabled: data.checked })}
+          />
+        </Field>
+        {settings.scheduleEnabled ? (
+          <Field label="Daily window (local time, 24h)" hint="Wrap-over windows (e.g. 22:00 → 06:00) are supported">
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <Input
+                type="time"
+                value={settings.scheduleStart}
+                onChange={(_, data) => {
+                  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(data.value)) {
+                    void update({ scheduleStart: data.value });
+                  }
+                }}
+                aria-label="Window start"
+              />
+              <Text className={styles.hint}>to</Text>
+              <Input
+                type="time"
+                value={settings.scheduleEnd}
+                onChange={(_, data) => {
+                  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(data.value)) {
+                    void update({ scheduleEnd: data.value });
+                  }
+                }}
+                aria-label="Window end"
+              />
+            </div>
+          </Field>
+        ) : null}
         <Text className={styles.hint}>
           Changes apply immediately and persist to the application profile.
         </Text>

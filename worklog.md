@@ -112,3 +112,39 @@ Stage Summary:
   Failed jobs carry actionable codes; recover/replaceUrl rebind onto live sources and the
   engine gap-fills only the missing ranges, with checksum arbitration guarding every
   unproven splice. Next: Phase 8 (queue, scheduler policies, concurrency/bandwidth).
+
+---
+Task ID: 8
+Agent: main
+Task: Phase 8 — queue, scheduler policies, concurrency and bandwidth management
+
+Work Log:
+- Baseline repair first: sandbox reset had wiped the Rust toolchain + contracts dist
+  (file-mode-only diffs). Reinstalled rustup 1.99.0, rebuilt contracts, verified the
+  Phase 0-7 gate green (cargo 74 / vitest 65 / typecheck / build) before planning.
+- Plan: docs/phase-8-plan.md — queue order model, scheduler policy surface, token-bucket
+  bandwidth design, contracts v1.3.0 additive set, test plan, verification gate.
+- Implemented: contracts v1.3.0 (DownloadJob.queuePosition always-serialized +
+  speedLimitKBps nullish; 5 new core methods queueMove/startAll/pauseAll/setSpeedLimit/
+  setPolicy; settings autoStartNewDownloads + schedule window HH:MM; new queued-job
+  fixture); dc-storage migration v4 (+2 columns); dc-protocol mirror fields;
+  download-core rate_limit.rs (cancellation-aware token bucket, incremental grants),
+  manager.rs (queue positions + pump order, manual-run markers, policy + 30s tick,
+  startAll/pauseAll/queueMove/setSpeedLimit), engine.rs (per-run job bucket + global
+  bucket gates before each segment write, queue slot released at probe), server.rs
+  dispatch arms; Electron main policy.ts translation + setPolicy apply at ready /
+  settings.changed / 10-min drift guard; renderer store + DownloadsPage (queue badges,
+  move controls, Start/Pause all, speed-limit dialog) + SettingsPage (auto-start,
+  schedule window, wired speed limit).
+- Fixed during Test/Fix: rate-limiter deadlock when the request exceeded bucket
+  capacity (incremental grants + regression test); display comparator regrouped to
+  active -> queue -> rest; fmt pass on manager.rs.
+- Verification gate: cargo fmt/clippy clean, cargo test 93 passed (was 74),
+  vitest 84 passed (was 65), typecheck + vite build pass.
+
+Stage Summary:
+- The download queue is now a first-class managed object: persisted ordering with
+  reorder, start/pause-all, auto-start parking, an optional daily download window that
+  pauses auto-started runs (never user-started ones), and global + per-job token-bucket
+  bandwidth caps applied live in the Rust core. Contracts v1.3.0, storage v4.
+- Next: Phase 9 (proxy engine — profiles, per-tab / per-job routing) per docs/PHASES.md.

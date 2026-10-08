@@ -53,6 +53,9 @@ const MIGRATIONS: &[&str] = &[
     // v3 (Phase 7): recovery engine audit trail (rebind count + last rebind timestamp).
     "ALTER TABLE jobs ADD COLUMN recovery_count INTEGER;
      ALTER TABLE jobs ADD COLUMN rebound_at INTEGER;",
+    // v4 (Phase 8): queue management + per-job bandwidth cap.
+    "ALTER TABLE jobs ADD COLUMN queue_position INTEGER;
+     ALTER TABLE jobs ADD COLUMN speed_limit_kbps INTEGER;",
 ];
 
 /// One journal row of the per-segment download state (Phase 6).
@@ -155,9 +158,10 @@ impl JobStore {
                                total_bytes, received_bytes, etag, last_modified, content_type,
                                speed_bps, eta_seconds, error_code, headers_json, created_at, updated_at,
                                checksum_algorithm, checksum_expected, checksum_actual, checksum_verified,
-                               segment_count, recovery_count, rebound_at)
+                               segment_count, recovery_count, rebound_at,
+                               queue_position, speed_limit_kbps)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 job.id.as_str(),
                 job.url,
@@ -183,6 +187,8 @@ impl JobStore {
                 job.segment_count.map(|v| v as i64),
                 job.recovery_count.map(|v| v as i64),
                 job.rebound_at,
+                job.queue_position.map(|v| v as i64),
+                job.speed_limit_kbps.map(|v| v as i64),
             ],
         )
         .map_err(wrap_sqlite("insert job"))?;
@@ -222,7 +228,8 @@ impl JobStore {
                         headers_json=?15, updated_at=?16,
                         checksum_algorithm=?17, checksum_expected=?18, checksum_actual=?19,
                         checksum_verified=?20, segment_count=?21,
-                        recovery_count=?22, rebound_at=?23
+                        recovery_count=?22, rebound_at=?23,
+                        queue_position=?24, speed_limit_kbps=?25
                  WHERE id=?1",
                 params![
                     job.id.as_str(),
@@ -248,6 +255,8 @@ impl JobStore {
                     job.segment_count.map(|v| v as i64),
                     job.recovery_count.map(|v| v as i64),
                     job.rebound_at,
+                    job.queue_position.map(|v| v as i64),
+                    job.speed_limit_kbps.map(|v| v as i64),
                 ],
             )
             .map_err(wrap_sqlite("update job"))?;
@@ -416,6 +425,16 @@ fn job_from_row(row: &Row<'_>) -> rusqlite::Result<DownloadJob> {
             .flatten()
             .map(|v| v.max(0) as u64),
         rebound_at: row.get::<_, Option<i64>>("rebound_at").ok().flatten(),
+        queue_position: row
+            .get::<_, Option<i64>>("queue_position")
+            .ok()
+            .flatten()
+            .map(|v| v.max(0) as u64),
+        speed_limit_kbps: row
+            .get::<_, Option<i64>>("speed_limit_kbps")
+            .ok()
+            .flatten()
+            .map(|v| v.max(0) as u64),
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })

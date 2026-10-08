@@ -103,6 +103,14 @@ pub struct DownloadJob {
     /// Epoch ms of the most recent rebind (always serialized).
     #[serde(rename = "reboundAt")]
     pub rebound_at: Option<i64>,
+    // ---- v1.3 (Phase 8): queue + bandwidth ----
+    /// 0-based queue slot while `queued` (pump order); null once the job leaves the
+    /// queue (always serialized).
+    #[serde(rename = "queuePosition")]
+    pub queue_position: Option<u64>,
+    /// Per-job bandwidth cap in KiB/s; omitted when unset (0 = unlimited).
+    #[serde(rename = "speedLimitKBps", skip_serializing_if = "Option::is_none")]
+    pub speed_limit_kbps: Option<u64>,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]

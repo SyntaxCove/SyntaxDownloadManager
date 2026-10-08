@@ -3,6 +3,7 @@ import { z } from "zod";
 /**
  * Application settings — persisted by the Electron main process (userData/settings.json).
  * Contract v1 covers the Phase 3 foundation set; later phases extend additively with defaults.
+ * v1.3 (Phase 8) adds the queue/scheduler policy set (auto-start + daily download window).
  */
 
 export const ThemeMode = z.enum(["system", "light", "dark"]);
@@ -22,6 +23,22 @@ export const AppSettings = z.object({
   maxConnectionsPerDownload: z.number().int().min(1).max(16).optional().default(4),
   /** Global speed limit in KiB/s; 0 = unlimited. */
   speedLimitKBps: z.number().int().min(0).optional().default(0),
+  // ---- v1.3 (Phase 8): queue + scheduler policy ----
+  /** false: new downloads are parked as `paused` instead of entering the queue. */
+  autoStartNewDownloads: z.boolean().optional().default(true),
+  /** true: downloads auto-run only inside the daily [scheduleStart, scheduleEnd) window. */
+  scheduleEnabled: z.boolean().optional().default(false),
+  /** Daily window bounds, local time `HH:MM` (24h). Wrap-over windows are supported. */
+  scheduleStart: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d/, "must be HH:MM (24h)")
+    .optional()
+    .default("00:00"),
+  scheduleEnd: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d/, "must be HH:MM (24h)")
+    .optional()
+    .default("00:00"),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -33,6 +50,10 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   concurrentDownloads: 3,
   maxConnectionsPerDownload: 4,
   speedLimitKBps: 0,
+  autoStartNewDownloads: true,
+  scheduleEnabled: false,
+  scheduleStart: "00:00",
+  scheduleEnd: "00:00",
 });
 
 export const SettingsGetParams = z.object({});

@@ -40,6 +40,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::rate_limit::Bucket;
 use crate::recover::{classify_source_failure, revalidate, RevalidateVerdict, SourceSignals};
 use crate::segments::{
     journal_from_plan, journal_matches_plan, normalize_expected, plan_windows, to_hex, Window,
@@ -183,6 +184,10 @@ pub struct Engine {
     pub client: reqwest::Client,
     pub events: EventsTx,
     max_connections: Arc<AtomicU64>,
+    /// Global bandwidth bucket shared by every segment of every job (0 = unlimited).
+    global_bucket: Arc<Bucket>,
+    /// Per-job bandwidth buckets, live while a run is active (0 = unlimited).
+    job_buckets: Mutex<HashMap<String, Arc<Bucket>>>,
 }
 
 impl Engine {
@@ -197,6 +202,8 @@ impl Engine {
             client,
             events,
             max_connections: Arc::new(AtomicU64::new(4)),
+            global_bucket: Bucket::new(0),
+            job_buckets: Mutex::new(HashMap::new()),
         }
     }
 
@@ -204,6 +211,40 @@ impl Engine {
     pub fn set_max_connections(&self, max: usize) {
         self.max_connections
             .store(max.clamp(1, MAX_CONNECTIONS_CAP) as u64, Ordering::SeqCst);
+    }
+
+    /// Global bandwidth cap in KiB/s (0 = unlimited). Applies live to running runs.
+    pub fn set_global_speed_kbps(&self, kbps: u64) {
+        self.global_bucket.set_limit(kbps.saturating_mul(1024));
+    }
+
+    /// Live per-job cap; creates the bucket when the job has no active run yet.
+    pub fn set_job_speed_kbps(&self, id: &str, kbps: u64) {
+        let bps = kbps.saturating_mul(1024);
+        let mut buckets = self.job_buckets.lock().expect("job_buckets mutex poisoned");
+        match buckets.get(id) {
+            Some(bucket) => bucket.set_limit(bps),
+            None => {
+                buckets.insert(id.to_string(), Bucket::new(bps));
+            }
+        }
+    }
+
+    /// The per-job bucket for a run, seeded from the persisted row (used at run start).
+    fn job_bucket(&self, id: &str, seed_kbps: Option<u64>) -> Arc<Bucket> {
+        let mut buckets = self.job_buckets.lock().expect("job_buckets mutex poisoned");
+        buckets
+            .entry(id.to_string())
+            .or_insert_with(|| Bucket::new(seed_kbps.unwrap_or(0).saturating_mul(1024)))
+            .clone()
+    }
+
+    /// Drop the per-job bucket when the run ends (memory hygiene; the row persists the cap).
+    fn remove_job_bucket(&self, id: &str) {
+        self.job_buckets
+            .lock()
+            .expect("job_buckets mutex poisoned")
+            .remove(id);
     }
 
     pub fn emit_job(&self, job: &DownloadJob) {
@@ -268,6 +309,8 @@ impl Engine {
             checksum_verified: None,
             recovery_count: None,
             rebound_at: None,
+            queue_position: None,
+            speed_limit_kbps: None,
             created_at: ts,
             updated_at: ts,
         };
@@ -282,7 +325,11 @@ impl Engine {
         mut cmd_rx: mpsc::Receiver<JobCommand>,
         stop: CancellationToken,
     ) {
-        match self.drive(&mut job, &mut cmd_rx, &stop).await {
+        // Per-job bandwidth bucket for the lifetime of the run (seeded from the row).
+        let job_bucket = self.job_bucket(job.id.as_str(), job.speed_limit_kbps);
+        let result = self.drive(&mut job, &mut cmd_rx, &stop, &job_bucket).await;
+        self.remove_job_bucket(job.id.as_str());
+        match result {
             Ok(()) => {}
             Err(err) => {
                 if !stop.is_cancelled() {
@@ -302,6 +349,7 @@ impl Engine {
         job: &mut DownloadJob,
         cmd_rx: &mut mpsc::Receiver<JobCommand>,
         stop: &CancellationToken,
+        job_bucket: &Arc<Bucket>,
     ) -> Result<(), EngineError> {
         // Resume safety: If-Range must carry the validators of the SOURCE THE PART CAME FROM
         // (persisted before this run), never the freshly probed ones — otherwise a changed
@@ -315,6 +363,8 @@ impl Engine {
 
         // ---- probing ----
         job.status = "probing".into();
+        // Leaving the queue: the slot is consumed, the position is released.
+        job.queue_position = None;
         touch(job);
         self.store.update_job(job)?;
         self.emit_job(job);
@@ -526,6 +576,8 @@ impl Engine {
                     if_range.clone(),
                     state.clone(),
                     stop.clone(),
+                    self.global_bucket.clone(),
+                    job_bucket.clone(),
                 ));
             }
 
@@ -973,6 +1025,8 @@ impl Engine {
         if_range: Option<String>,
         state: Arc<RunState>,
         stop: CancellationToken,
+        global_bucket: Arc<Bucket>,
+        job_bucket: Arc<Bucket>,
     ) -> Result<SegmentOutcome, EngineError> {
         let mut written = row.written_bytes;
         let mut attempts = 0usize;
@@ -1146,6 +1200,21 @@ impl Engine {
                 match next {
                     Some(Ok(bytes)) => {
                         let take = (bytes.len() as u64).min(left) as usize;
+                        // Bandwidth gates (Phase 8): both the global and the per-job
+                        // bucket must grant the chunk before it touches the disk.
+                        // Cancellation-aware — a stop during the wait unwinds cleanly.
+                        let granted = tokio::select! {
+                            _ = stop.cancelled() => false,
+                            g = global_bucket.acquire(take as u64, &stop) => g,
+                        } && tokio::select! {
+                            _ = stop.cancelled() => false,
+                            g = job_bucket.acquire(take as u64, &stop) => g,
+                        };
+                        if !granted {
+                            drop(file);
+                            flush_segment_cursor(&store, &job, seg_index, written);
+                            return Ok(SegmentOutcome::Stopped);
+                        }
                         file.write_all(&bytes[..take])
                             .await
                             .map_err(EngineError::Io)?;

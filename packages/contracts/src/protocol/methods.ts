@@ -4,6 +4,10 @@ import {
   JobIdParams, JobByIdResult, DownloadRemoveParams, DownloadRemoveResult,
   DownloadRecoverParams, DownloadRecoverResult, DownloadReplaceUrlParams,
   DownloadReplaceUrlResult, DownloadRetryParams, DownloadRetryResult,
+  DownloadQueueMoveParams, DownloadQueueMoveResult, DownloadStartAllParams,
+  DownloadStartAllResult, DownloadPauseAllParams, DownloadPauseAllResult,
+  DownloadSetSpeedLimitParams, DownloadSetSpeedLimitResult, DownloadSetPolicyParams,
+  DownloadSetPolicyResult,
 } from "../domain/download.js";
 import {
   TabCreateParams, TabCreateResult, TabIdParams, TabResult, TabNavigateParams,
@@ -57,6 +61,13 @@ export const METHODS = {
   "download.recover": { server: "core", params: DownloadRecoverParams, result: DownloadRecoverResult },
   "download.replaceUrl": { server: "core", params: DownloadReplaceUrlParams, result: DownloadReplaceUrlResult },
   "download.retry": { server: "core", params: DownloadRetryParams, result: DownloadRetryResult },
+  // ---- core (v1.3, Phase 8): queue management + bandwidth/scheduler policy ----
+  "download.queueMove": { server: "core", params: DownloadQueueMoveParams, result: DownloadQueueMoveResult },
+  "download.startAll": { server: "core", params: DownloadStartAllParams, result: DownloadStartAllResult },
+  "download.pauseAll": { server: "core", params: DownloadPauseAllParams, result: DownloadPauseAllResult },
+  "download.setSpeedLimit": { server: "core", params: DownloadSetSpeedLimitParams, result: DownloadSetSpeedLimitResult },
+  /** Applied by main at startup, on settings changes and every 10 min (tz drift guard). */
+  "download.setPolicy": { server: "core", params: DownloadSetPolicyParams, result: DownloadSetPolicyResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },

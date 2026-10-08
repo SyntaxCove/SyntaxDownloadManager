@@ -211,3 +211,81 @@ describe("v1.2 recovery engine (Phase 7)", () => {
     expect(ErrorCodes).toContain("source_changed");
   });
 });
+
+describe("v1.3 queue + bandwidth policy (Phase 8)", () => {
+  it("parses the queued job fixture (queuePosition set, speedLimitKBps present)", () => {
+    const job = DownloadJob.parse(domainFixture.downloadJobQueued);
+    expect(job.status).toBe("queued");
+    expect(job.queuePosition).toBe(2);
+    expect(job.speedLimitKBps).toBe(512);
+  });
+
+  it("parses legacy fixtures with a null queuePosition (always serialized)", () => {
+    for (const key of ["downloadJob", "downloadJobSegmented", "downloadJobRecovered"] as const) {
+      const job = DownloadJob.parse(domainFixture[key]);
+      expect(job.queuePosition).toBeNull();
+      expect(job.speedLimitKBps).toBeUndefined();
+    }
+  });
+
+  it("rejects negative or non-integer queuePosition / speedLimitKBps", () => {
+    expect(
+      DownloadJob.safeParse({ ...domainFixture.downloadJob, queuePosition: -1 }).success,
+    ).toBe(false);
+    expect(
+      DownloadJob.safeParse({ ...domainFixture.downloadJob, speedLimitKBps: -5 }).success,
+    ).toBe(false);
+  });
+
+  it("registers the queue/bandwidth methods with validated params", () => {
+    const move = METHODS["download.queueMove"];
+    expect(move.server).toBe("core");
+    expect(move.params.parse({ id: domainFixture.downloadJob.id, direction: "top" })).toBeTruthy();
+    expect(move.params.safeParse({ id: domainFixture.downloadJob.id, direction: "sideways" }).success).toBe(false);
+
+    const limit = METHODS["download.setSpeedLimit"];
+    expect(limit.server).toBe("core");
+    expect(limit.params.parse({ id: domainFixture.downloadJob.id, kbps: 0 })).toBeTruthy();
+    expect(limit.params.safeParse({ id: domainFixture.downloadJob.id, kbps: -1 }).success).toBe(false);
+
+    const startAll = METHODS["download.startAll"];
+    const pauseAll = METHODS["download.pauseAll"];
+    expect(startAll.server).toBe("core");
+    expect(pauseAll.server).toBe("core");
+    expect(startAll.params.parse({})).toEqual({});
+  });
+
+  it("download.setPolicy validates the full payload envelope", () => {
+    const policy = METHODS["download.setPolicy"];
+    expect(policy.server).toBe("core");
+    const valid = {
+      autoStartNew: true,
+      scheduleMode: "window",
+      windowStartMinute: 1320,
+      windowEndMinute: 360,
+      speedLimitKBps: 512,
+      tzOffsetMinutes: 210,
+    };
+    expect(policy.params.parse(valid)).toBeTruthy();
+    expect(policy.params.safeParse({ ...valid, scheduleMode: "sometimes" }).success).toBe(false);
+    expect(policy.params.safeParse({ ...valid, windowStartMinute: 1440 }).success).toBe(false);
+    expect(policy.params.safeParse({ ...valid, tzOffsetMinutes: 900 }).success).toBe(false);
+  });
+
+  it("appSettings gains the queue/scheduler fields with behavior-preserving defaults", () => {
+    const parsed = AppSettings.parse({});
+    expect(parsed.speedLimitKBps).toBe(0);
+    expect(parsed.autoStartNewDownloads).toBe(true);
+    expect(parsed.scheduleEnabled).toBe(false);
+    expect(parsed.scheduleStart).toBe("00:00");
+    expect(parsed.scheduleEnd).toBe("00:00");
+    // HH:MM validation (24h)
+    expect(AppSettings.safeParse({ scheduleStart: "7:30" }).success).toBe(false);
+    expect(AppSettings.safeParse({ scheduleStart: "24:00" }).success).toBe(false);
+    expect(AppSettings.safeParse({ scheduleEnd: "06:00" }).success).toBe(true);
+  });
+
+  it("contract version advanced to 1.3.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.3.0");
+  });
+});

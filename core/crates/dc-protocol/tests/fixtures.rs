@@ -71,8 +71,9 @@ fn parses_and_round_trips_segmented_job_fixture() {
 
 #[test]
 fn legacy_job_with_new_fields_serializes_nulls_not_omissions() {
-    // The TS contract requires segmentCount / checksumActual / checksumVerified to be
-    // PRESENT (nullable) on the wire; nullish checksum provenance stays absent.
+    // The TS contract requires segmentCount / checksumActual / checksumVerified /
+    // recoveryCount / reboundAt / queuePosition to be PRESENT (nullable) on the wire;
+    // nullish fields (checksum provenance, per-job speed limit) stay absent.
     let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let job: DownloadJob = serde_json::from_value(doc["downloadJob"].clone()).unwrap();
@@ -80,6 +81,27 @@ fn legacy_job_with_new_fields_serializes_nulls_not_omissions() {
     assert!(out.get("segmentCount").is_some());
     assert!(out.get("checksumActual").is_some());
     assert!(out.get("checksumVerified").is_some());
+    assert!(out.get("recoveryCount").is_some());
+    assert!(out.get("reboundAt").is_some());
+    assert!(out.get("queuePosition").is_some());
     assert!(out.get("checksumAlgorithm").is_none());
     assert!(out.get("checksumExpected").is_none());
+    assert!(out.get("speedLimitKBps").is_none());
+}
+
+#[test]
+fn parses_and_round_trips_queued_job_fixture() {
+    // v1.3 (Phase 8): queuePosition is always serialized; speedLimitKBps is nullish.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: DownloadJob = serde_json::from_value(doc["downloadJobQueued"].clone()).unwrap();
+    assert_eq!(job.status, "queued");
+    assert_eq!(job.queue_position, Some(2));
+    assert_eq!(job.speed_limit_kbps, Some(512));
+    assert_eq!(job.checksum_verified, None);
+    let out: serde_json::Value = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        out, doc["downloadJobQueued"],
+        "wire format divergence between TS and Rust (queued job)"
+    );
 }
