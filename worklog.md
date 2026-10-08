@@ -78,3 +78,37 @@ Stage Summary:
 - Commit 4b5db7c; phase report docs/phase-6-report.md; PHASES.md #6 delivered.
 - Next: Phase 7 (recovery engine v2 — source re-acquisition, multi-signal revalidation,
   rebind, gap-fill) per docs/PHASES.md.
+
+---
+Task ID: 7
+Agent: main
+Task: Phase 7 — recovery engine v2 (source re-acquisition, multi-signal revalidation, rebind, gap-fill)
+
+Work Log:
+- Baseline repair first: sandbox reset had wiped the Rust toolchain + contracts dist.
+  Reinstalled rustup 1.99.0 (+rustfmt/clippy), rebuilt contracts, verified Phase 0-6 gate
+  green (cargo 49 / vitest 60 / typecheck) before planning.
+- Plan: docs/phase-7-plan.md — revalidation matrix, classification, recover/replaceUrl/retry
+  surface, storage v3, UI wiring, test plan, verification gate.
+- Implemented: recover.rs (SourceSignals/RevalidateVerdict/revalidate + classify_source_failure,
+  12 unit cases); engine drive-loop pre-flight revalidation (part provenance = validators + size
+  + content type; Identical -> If-Range resume, ChecksumArbitrated -> journal kept + no If-Range,
+  Restart -> bounded pre-flight wipe); probe classification (404/410 -> source_gone,
+  401/403 -> source_forbidden); restart exhaustion -> source_changed; Engine::recover + rebind
+  (recoveryCount/reboundAt, wiped-clears-checksum-artifacts, known-bad checksum forces restart);
+  manager recover/replace_url/retry; server dispatch arms; storage migration v3; contracts v1.2.0
+  (3 error codes, 2 job fields, 3 methods, HttpUrl protocol pin); Electron domain + store +
+  DownloadsPage Recover/Replace-URL-dialog/retry/recovered-badge + per-code hints.
+- Fixed during Test/Fix: two Phase 6 source-change tests updated to the stronger Phase 7
+  invariant (stale validator never presented — revalidation is pre-flight); arbitration test
+  split into honest vs lying-server after review; closure-lifetime fix in etag_eq;
+  zod z.url() tightened to http(s) via protocol regex (matches core rule); dead-code allows
+  for per-binary test helpers; storage migration test pinned to >= 3.
+- Verification gate: cargo fmt/clippy clean, cargo test 74 passed (was 49), vitest 65 passed
+  (was 60), typecheck + vite build pass. Commit: phase(7). Report: docs/phase-7-report.md.
+
+Stage Summary:
+- The product promise holds end-to-end: an expired URL never destroys the job or the bytes.
+  Failed jobs carry actionable codes; recover/replaceUrl rebind onto live sources and the
+  engine gap-fills only the missing ranges, with checksum arbitration guarding every
+  unproven splice. Next: Phase 8 (queue, scheduler policies, concurrency/bandwidth).

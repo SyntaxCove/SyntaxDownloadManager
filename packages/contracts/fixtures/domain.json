@@ -17,7 +17,9 @@
     "checksumActual": null,
     "checksumVerified": null,
     "createdAt": 1735689600000,
-    "updatedAt": 1735689900000
+    "updatedAt": 1735689900000,
+    "recoveryCount": null,
+    "reboundAt": null
   },
   "downloadProgress": {
     "jobId": "01JD8W3G5XQ9V4M2K7PZ6N8S0T",
@@ -109,6 +111,32 @@
     "checksumActual": null,
     "checksumVerified": null,
     "createdAt": 1735689600000,
-    "updatedAt": 1735689900000
+    "updatedAt": 1735689900000,
+    "recoveryCount": null,
+    "reboundAt": null
+  },
+  "downloadJobRecovered": {
+    "id": "01JD8W3G5XQ9V4M2K7PZ6N8S10",
+    "url": "https://example.com/files/setup.zip",
+    "destinationDir": "/home/user/Downloads",
+    "destinationPath": "/home/user/Downloads/setup.zip",
+    "status": "paused",
+    "totalBytes": 104857600,
+    "receivedBytes": 26214400,
+    "etag": "\"abc123\"",
+    "lastModified": "Tue, 15 Nov 2094 12:45:26 GMT",
+    "contentType": "application/zip",
+    "speedBps": 2097152,
+    "etaSeconds": 25,
+    "errorCode": null,
+    "segmentCount": 4,
+    "checksumAlgorithm": "sha256",
+    "checksumExpected": "abababababababababababababababababababababababababababababababab",
+    "checksumActual": null,
+    "checksumVerified": null,
+    "createdAt": 1735689600000,
+    "updatedAt": 1735689900000,
+    "recoveryCount": 2,
+    "reboundAt": 1735689960000
   }
 }

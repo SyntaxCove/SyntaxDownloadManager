@@ -28,6 +28,12 @@ interface DownloadsState {
   resume: (id: string) => Promise<void>;
   cancel: (id: string) => Promise<void>;
   remove: (id: string, deletePartialFile: boolean) => Promise<void>;
+  /** Phase 7: re-acquire the source, revalidate the part, rebind and requeue. */
+  recover: (id: string) => Promise<void>;
+  /** Phase 7: rebind a dead/expired source to a new URL (bytes and journal kept). */
+  replaceUrl: (id: string, url: string) => Promise<void>;
+  /** Phase 7: requeue a failed/canceled/paused job (re-probe + gap-fill on the next run). */
+  retry: (id: string) => Promise<void>;
 }
 
 export const useDownloadsStore = create<DownloadsState>((set, get) => ({
@@ -80,6 +86,19 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
   remove: async (id, deletePartialFile) => {
     await rpc("download.remove", { id, deletePartialFile });
     set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) }));
+  },
+  recover: async (id) => {
+    // The outcome (success or classified failure) is carried by the job, not an error.
+    const { job } = await rpc("download.recover", { id });
+    get().upsertJob(job);
+  },
+  replaceUrl: async (id, url) => {
+    const { job } = await rpc("download.replaceUrl", { id, url });
+    get().upsertJob(job);
+  },
+  retry: async (id) => {
+    const { job } = await rpc("download.retry", { id });
+    get().upsertJob(job);
   },
 }));
 

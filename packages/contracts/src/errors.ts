@@ -29,6 +29,10 @@ export const ErrorCodes = [
   "canceled",
   "invalid_state",
   "checksum_mismatch",
+  // recovery (v1.2, Phase 7) — classified re-acquisition outcomes; append-only
+  "source_gone",
+  "source_forbidden",
+  "source_changed",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

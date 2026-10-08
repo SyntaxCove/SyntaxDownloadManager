@@ -35,10 +35,18 @@ development). No AI features. Data integrity first.
 - **Rust owns persistence**: the renderer and the Electron main process never open the database.
   The core is a supervised subprocess: crash → exponential-backoff restart; healthy > 60 s resets
   the backoff; 8 consecutive failures surface `core_unavailable` to the UI.
-- **Resumability**: every job persists `received_bytes`, `etag`, `last_modified`, `content_type`,
-  `total_bytes`. Resume issues `Range: bytes=N-` with `If-Range: <etag>`; if the server responds
-  `200` (source changed), the engine restarts from zero rather than corrupting the file — data
-  integrity outranks speed. The `.part` sidecar carries the job state between app runs.
+- **Resumability + recovery**: every job persists `received_bytes`, `etag`, `last_modified`,
+  `content_type`, `total_bytes`. Resume issues `Range: bytes=N-` with `If-Range: <etag>`; if the
+  server responds `200` (source changed), the engine restarts from zero rather than corrupting
+  the file — data integrity outranks speed. The `.part` sidecar carries the job state between
+  app runs. Recovery engine v2 (Phase 7): an expired URL never destroys the job or the bytes —
+  resume revalidates the part's provenance against the fresh source with multiple signals
+  (ETag / Last-Modified / Content-Length / Content-Type); proven identity resumes with
+  If-Range, an equal-size change with an expected checksum runs a checksum-arbitrated gap-fill,
+  anything else wipes the part and restarts clean (bounded). `download.recover` re-acquires the
+  source, `download.replaceUrl` rebinds it to a fresh/mirror URL — the journal + part survive
+  and only the missing ranges are fetched. Dead/forbidden sources fail with classified,
+  actionable codes (`source_gone` / `source_forbidden` / `source_changed`).
 - **Security**: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, strict
   permission handlers, CSP for the renderer, zod runtime validation on every IPC boundary.
 - **Versioning**: protocol envelopes carry `v`; contract mismatches fail fast at startup.

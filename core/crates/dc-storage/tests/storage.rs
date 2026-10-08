@@ -27,6 +27,8 @@ fn sample_job(id: &str, status: &str) -> DownloadJob {
         checksum_expected: None,
         checksum_actual: None,
         checksum_verified: None,
+        recovery_count: None,
+        rebound_at: None,
         created_at: 1735689600000,
         updated_at: 1735689600000,
     }
@@ -44,8 +46,8 @@ fn applies_migrations_once_and_reports_version() {
     let db = dir.join("jobs.db");
     let store = JobStore::open(&db).unwrap();
     assert!(
-        store.schema_version().unwrap() >= 2,
-        "v2 (segments) applied"
+        store.schema_version().unwrap() >= 3,
+        "v3 (recovery audit columns) applied"
     );
     drop(store);
     let store2 = JobStore::open(&db).unwrap();

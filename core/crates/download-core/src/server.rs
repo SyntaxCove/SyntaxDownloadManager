@@ -26,6 +26,12 @@ struct JobIdParams {
 }
 
 #[derive(Deserialize)]
+struct ReplaceUrlParams {
+    id: String,
+    url: String,
+}
+
+#[derive(Deserialize)]
 struct RemoveParams {
     id: String,
     #[serde(default)]
@@ -199,6 +205,22 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
         "download.resume" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.resume(&p.id).await?;
+            job_json(job)
+        }
+        // ---- Phase 7: recovery engine ----
+        "download.recover" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.recover(&p.id).await?;
+            job_json(job)
+        }
+        "download.replaceUrl" => {
+            let p: ReplaceUrlParams = parse(&params)?;
+            let job = manager.replace_url(&p.id, p.url).await?;
+            job_json(job)
+        }
+        "download.retry" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.retry(&p.id).await?;
             job_json(job)
         }
         "download.cancel" => {

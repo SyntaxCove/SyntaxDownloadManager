@@ -33,6 +33,9 @@ pub struct TestServer {
     active_version: Arc<AtomicU64>,
     requests: Arc<AtomicU64>,
     toggles: ServerToggles,
+    /// Runtime "source expired" toggle: when non-zero, every request answers with that
+    /// HTTP status (Phase 7 fault injection). 0 = alive.
+    failure_status: Arc<AtomicU64>,
 }
 
 impl TestServer {
@@ -41,6 +44,26 @@ impl TestServer {
         self.active_version.store(2, Ordering::SeqCst);
     }
 
+    /// Phase 7: simulate the URL expiring/dying (404 for every request) and, later,
+    /// the outage clearing (the same source serving again).
+    #[allow(dead_code)] // used by the recover.rs test binary only
+    pub fn set_dead(&self, dead: bool) {
+        self.failure_status
+            .store(if dead { 404 } else { 0 }, Ordering::SeqCst);
+    }
+
+    /// Serve a specific failure status for every request (e.g. 401/403/410).
+    #[allow(dead_code)] // used by the recover.rs test binary only
+    pub fn set_failure_status(&self, status: u16) {
+        self.failure_status.store(status as u64, Ordering::SeqCst);
+    }
+
+    #[allow(dead_code)] // used by the recover.rs test binary only
+    pub fn is_dead(&self) -> bool {
+        self.failure_status.load(Ordering::SeqCst) != 0
+    }
+
+    #[allow(dead_code)] // used by the engine.rs test binary only
     pub fn etag_of_v1(&self) -> &'static str {
         self.etag
     }
@@ -49,6 +72,7 @@ impl TestServer {
         self.range_starts.lock().unwrap().clone()
     }
 
+    #[allow(dead_code)] // used by the engine.rs test binary only
     pub fn request_count(&self) -> u64 {
         self.requests.load(Ordering::SeqCst)
     }
@@ -93,6 +117,7 @@ impl TestServer {
             active_version: Arc::new(AtomicU64::new(1)),
             requests: Arc::new(AtomicU64::new(0)),
             toggles,
+            failure_status: Arc::new(AtomicU64::new(0)),
         });
         let etag_v2 = etag_v2.to_string();
         let server_state = state.clone();
@@ -111,6 +136,7 @@ impl TestServer {
         state
     }
 
+    #[allow(dead_code)] // used by the engine.rs test binary only
     pub fn last_range_start(&self) -> Option<u64> {
         let v = self.last_range.load(Ordering::SeqCst);
         if v == u64::MAX {
@@ -171,6 +197,17 @@ async fn handle(server: Arc<TestServer>, mut socket: TcpStream, etag_v2: String)
         server.range_starts.lock().unwrap().push(s);
     }
     server.requests.fetch_add(1, Ordering::SeqCst);
+
+    // Phase 7 fault injection: an expired/dead URL. The error page is deliberately
+    // text/html — the classic trap where a dead link serves a login page instead.
+    let failure = server.failure_status.load(Ordering::SeqCst) as u16;
+    if failure != 0 {
+        let head = format!(
+            "HTTP/1.1 {failure} Failure\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        socket.write_all(head.as_bytes()).await.ok();
+        return;
+    }
 
     // Active-version model: fresh requests always return the *current* source version.
     // If-Range lets the engine prove which version its part came from; a mismatch is the

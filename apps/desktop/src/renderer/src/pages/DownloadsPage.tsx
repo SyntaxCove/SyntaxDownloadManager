@@ -1,6 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   Input,
   MessageBar,
   MessageBarBody,
@@ -12,11 +18,13 @@ import {
 } from "@fluentui/react-components";
 import {
   ArrowClockwiseRegular,
+  ArrowRepeatAllRegular,
   DeleteRegular,
   PauseRegular,
   PlayRegular,
   StopRegular,
   AddRegular,
+  LinkEditRegular,
   PlugConnectedRegular,
   ShieldCheckmarkRegular,
   ShieldErrorRegular,
@@ -80,6 +88,15 @@ const CORE_BANNER: Partial<Record<CoreStatus, string>> = {
   unavailable: "Download engine is unavailable (it failed to start repeatedly). Check logs and restart the app.",
 };
 
+/** Failure codes the recovery engine can act on (Phase 7). */
+const RECOVERY_HINT: Partial<Record<string, string>> = {
+  source_gone: "Source expired or gone — try Recover, or paste a fresh/mirror URL.",
+  source_forbidden: "Source requires fresh credentials — Recover, or replace with an authorized URL.",
+  source_changed: "Source changed repeatedly — Recover, or replace the URL.",
+  network_error: "Network failure — Recover once the connection is back.",
+  http_error: "Server error — Recover to re-acquire the source.",
+};
+
 export function DownloadsPage(): ReactNode {
   const styles = useStyles();
   const jobs = useDownloadsStore((s) => s.jobs);
@@ -91,6 +108,9 @@ export function DownloadsPage(): ReactNode {
   const resume = useDownloadsStore((s) => s.resume);
   const cancel = useDownloadsStore((s) => s.cancel);
   const remove = useDownloadsStore((s) => s.remove);
+  const recover = useDownloadsStore((s) => s.recover);
+  const replaceUrl = useDownloadsStore((s) => s.replaceUrl);
+  const retry = useDownloadsStore((s) => s.retry);
 
   const downloadDir = useSettingsStore((s) => s.settings?.downloadDir ?? "~/Downloads");
   const [url, setUrl] = useState("");
@@ -146,6 +166,15 @@ export function DownloadsPage(): ReactNode {
           onResume={() => void resume(job.id)}
           onCancel={() => void cancel(job.id)}
           onRemove={() => void remove(job.id, false)}
+          onRecover={() =>
+            recover(job.id).catch((e) => setError(String(e?.message ?? e)))
+          }
+          onRetry={() =>
+            retry(job.id).catch((e) => setError(String(e?.message ?? e)))
+          }
+          onReplaceUrl={(next) =>
+            replaceUrl(job.id, next).catch((e) => setError(String(e?.message ?? e)))
+          }
         />
       ))}
       {jobs.length === 0 && loaded ? (
@@ -163,12 +192,27 @@ function JobCard(props: {
   onResume: () => void;
   onCancel: () => void;
   onRemove: () => void;
+  onRecover: () => void;
+  onRetry: () => void;
+  onReplaceUrl: (url: string) => void;
 }): ReactNode {
   const styles = useStyles();
   const { job } = props;
   const active = job.status === "downloading" || job.status === "probing" || job.status === "queued";
   const finished = job.status === "completed";
   const progress = job.totalBytes ? Math.min(1, job.receivedBytes / job.totalBytes) : undefined;
+  const failedOrStopped = job.status === "failed" || job.status === "canceled";
+  const hint = job.status === "failed" ? RECOVERY_HINT[job.errorCode ?? ""] : undefined;
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replacementUrl, setReplacementUrl] = useState("");
+
+  const submitReplace = (): void => {
+    const trimmed = replacementUrl.trim();
+    if (!trimmed) return;
+    setReplaceOpen(false);
+    setReplacementUrl("");
+    props.onReplaceUrl(trimmed);
+  };
 
   return (
     <div className={styles.job}>
@@ -181,17 +225,37 @@ function JobCard(props: {
           {active ? (
             <Button appearance="subtle" size="small" icon={<PauseRegular />} onClick={props.onPause} aria-label="Pause" />
           ) : null}
-          {job.status === "paused" || job.status === "failed" || job.status === "canceled" ? (
+          {job.status === "paused" ? (
             <Button appearance="subtle" size="small" icon={<PlayRegular />} onClick={props.onResume} aria-label="Resume" />
           ) : null}
           {active ? (
             <Button appearance="subtle" size="small" icon={<StopRegular />} onClick={props.onCancel} aria-label="Cancel" />
           ) : null}
-          {finished || job.status === "failed" || job.status === "canceled" ? (
-            <>
-              <Button appearance="subtle" size="small" icon={<ArrowClockwiseRegular />} onClick={props.onResume} aria-label="Restart" />
-              <Button appearance="subtle" size="small" icon={<DeleteRegular />} onClick={props.onRemove} aria-label="Remove" />
-            </>
+          {failedOrStopped ? (
+            <Button appearance="subtle" size="small" icon={<ArrowClockwiseRegular />} onClick={props.onRetry} aria-label="Retry" />
+          ) : null}
+          {failedOrStopped || job.status === "paused" ? (
+            <Button
+              appearance="subtle"
+              size="small"
+              icon={<ArrowRepeatAllRegular />}
+              onClick={props.onRecover}
+              aria-label="Recover"
+              title="Re-acquire the source and keep the downloaded bytes"
+            />
+          ) : null}
+          {failedOrStopped || job.status === "paused" ? (
+            <Button
+              appearance="subtle"
+              size="small"
+              icon={<LinkEditRegular />}
+              onClick={() => setReplaceOpen(true)}
+              aria-label="Replace URL"
+              title="Rebind this download to a new URL (keeps the bytes)"
+            />
+          ) : null}
+          {finished || failedOrStopped ? (
+            <Button appearance="subtle" size="small" icon={<DeleteRegular />} onClick={props.onRemove} aria-label="Remove" />
           ) : null}
         </div>
       </div>
@@ -211,6 +275,11 @@ function JobCard(props: {
             · <PlugConnectedRegular style={{ verticalAlign: -2 }} /> {job.segmentCount} connections
           </Text>
         ) : null}
+        {job.recoveryCount && job.recoveryCount > 0 ? (
+          <Text className={styles.meta} title="Times this job was rebound to a (re-)acquired source">
+            · <ArrowRepeatAllRegular style={{ verticalAlign: -2 }} /> recovered ×{job.recoveryCount}
+          </Text>
+        ) : null}
         {job.checksumVerified === true ? (
           <Text className={styles.meta} title={`SHA-256 ${job.checksumActual ?? ""}`}>
             · <ShieldCheckmarkRegular style={{ verticalAlign: -2, color: tokens.colorPaletteGreenForeground1 }} /> checksum verified
@@ -223,6 +292,37 @@ function JobCard(props: {
         ) : null}
         {job.errorCode ? <Text className={styles.meta}>· error: {job.errorCode}</Text> : null}
       </div>
+      {hint ? <Text className={styles.meta}>{hint}</Text> : null}
+
+      <Dialog open={replaceOpen} onOpenChange={(_, d) => setReplaceOpen(d.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Replace URL</DialogTitle>
+            <DialogContent>
+              <Text className={styles.meta} block>
+                Rebind this download to a new source. Downloaded bytes are kept and only the
+                missing ranges are fetched from the new URL.
+              </Text>
+              <Input
+                value={replacementUrl}
+                onChange={(_, data) => setReplacementUrl(data.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitReplace();
+                }}
+                placeholder="https://…"
+                style={{ width: "100%", marginTop: "8px" }}
+                aria-label="New source URL"
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setReplaceOpen(false)}>Cancel</Button>
+              <Button appearance="primary" disabled={!replacementUrl.trim()} onClick={submitReplace}>
+                Rebind
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
   );
 }

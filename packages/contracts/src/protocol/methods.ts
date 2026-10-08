@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   DownloadCreateParams, DownloadCreateResult, DownloadListParams, DownloadListResult,
   JobIdParams, JobByIdResult, DownloadRemoveParams, DownloadRemoveResult,
+  DownloadRecoverParams, DownloadRecoverResult, DownloadReplaceUrlParams,
+  DownloadReplaceUrlResult, DownloadRetryParams, DownloadRetryResult,
 } from "../domain/download.js";
 import {
   TabCreateParams, TabCreateResult, TabIdParams, TabResult, TabNavigateParams,
@@ -51,6 +53,10 @@ export const METHODS = {
     }),
     result: z.object({ applied: z.literal(true) }),
   },
+  // ---- core (v1.2, Phase 7): recovery engine ----
+  "download.recover": { server: "core", params: DownloadRecoverParams, result: DownloadRecoverResult },
+  "download.replaceUrl": { server: "core", params: DownloadReplaceUrlParams, result: DownloadReplaceUrlResult },
+  "download.retry": { server: "core", params: DownloadRetryParams, result: DownloadRetryResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },

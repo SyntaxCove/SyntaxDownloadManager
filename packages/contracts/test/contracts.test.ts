@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   DownloadJob, DownloadProgress, DownloadCreateParams, BrowserTab, AppSettings, MediaManifest,
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
-  METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION,
+  METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION, ErrorCodes,
   newUlid, ulidTime, normalizeUlid, Ulid, makeRequest, makeSuccess, makeError, makeEvent,
 } from "../src/index.js";
 
@@ -160,5 +160,54 @@ describe("v1.1 segmented engine + integrity (Phase 6)", () => {
     expect(AppSettings.safeParse({ maxConnectionsPerDownload: 0 }).success).toBe(false);
     expect(AppSettings.safeParse({ maxConnectionsPerDownload: 17 }).success).toBe(false);
     expect(AppSettings.parse(domainFixture.appSettings).maxConnectionsPerDownload).toBe(4);
+  });
+});
+
+describe("v1.2 recovery engine (Phase 7)", () => {
+  it("parses the recovered job fixture (recoveryCount + reboundAt set)", () => {
+    const job = DownloadJob.parse(domainFixture.downloadJobRecovered);
+    expect(job.recoveryCount).toBe(2);
+    expect(job.reboundAt).toBe(1735689960000);
+    expect(job.status).toBe("paused");
+  });
+
+  it("parses legacy fixtures with null recovery fields (always serialized)", () => {
+    for (const key of ["downloadJob", "downloadJobSegmented"] as const) {
+      const job = DownloadJob.parse(domainFixture[key]);
+      expect(job.recoveryCount).toBeNull();
+      expect(job.reboundAt).toBeNull();
+    }
+  });
+
+  it("rejects negative or non-integer recoveryCount", () => {
+    expect(
+      DownloadJob.safeParse({ ...domainFixture.downloadJob, recoveryCount: -1 }).success,
+    ).toBe(false);
+    expect(
+      DownloadJob.safeParse({ ...domainFixture.downloadJob, recoveryCount: 1.5 }).success,
+    ).toBe(false);
+  });
+
+  it("registers the recovery methods with validated params", () => {
+    for (const method of ["download.recover", "download.retry"] as const) {
+      const entry = METHODS[method];
+      expect(entry.server).toBe("core");
+      expect(entry.params.parse({ id: domainFixture.downloadJob.id })).toBeTruthy();
+      expect(entry.params.safeParse({ id: "nope" }).success).toBe(false);
+    }
+    const replace = METHODS["download.replaceUrl"];
+    expect(replace.server).toBe("core");
+    expect(
+      replace.params.parse({ id: domainFixture.downloadJob.id, url: "https://mirror.example.com/f.zip" }),
+    ).toBeTruthy();
+    expect(
+      replace.params.safeParse({ id: domainFixture.downloadJob.id, url: "ftp://x/f.zip" }).success,
+    ).toBe(false);
+  });
+
+  it("error code registry includes the recovery codes (append-only)", () => {
+    expect(ErrorCodes).toContain("source_gone");
+    expect(ErrorCodes).toContain("source_forbidden");
+    expect(ErrorCodes).toContain("source_changed");
   });
 });

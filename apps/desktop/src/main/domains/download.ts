@@ -15,7 +15,10 @@ export function registerDownloadDomain(router: IpcRouter, supervisor: CoreSuperv
     | "download.pause"
     | "download.resume"
     | "download.cancel"
-    | "download.remove";
+    | "download.remove"
+    | "download.recover"
+    | "download.replaceUrl"
+    | "download.retry";
 
   for (const method of [
     "download.create",
@@ -25,6 +28,9 @@ export function registerDownloadDomain(router: IpcRouter, supervisor: CoreSuperv
     "download.resume",
     "download.cancel",
     "download.remove",
+    "download.recover",
+    "download.replaceUrl",
+    "download.retry",
   ] as const satisfies readonly DownloadMethod[]) {
     const entry = METHODS[method];
     router.handle(method, {

@@ -96,6 +96,13 @@ pub struct DownloadJob {
     /// Expected-vs-actual verdict; null = never compared (always serialized).
     #[serde(rename = "checksumVerified")]
     pub checksum_verified: Option<bool>,
+    // ---- v1.2 (Phase 7): recovery audit trail ----
+    /// How many times the job was rebound to a (re-)acquired source (always serialized).
+    #[serde(rename = "recoveryCount")]
+    pub recovery_count: Option<u64>,
+    /// Epoch ms of the most recent rebind (always serialized).
+    #[serde(rename = "reboundAt")]
+    pub rebound_at: Option<i64>,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]

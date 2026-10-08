@@ -34,7 +34,7 @@
 | 4 | Browser engine — `WebContentsView` tab manager, `browser.*` IPC, tab strip UI | delivered (this session) |
 | 5 | Rust core v1 — stdio JSONL RPC, SQLite storage, supervised lifecycle, resumable HTTP engine, Downloads UI | delivered (this session) |
 | 6 | Segmented multi-connection engine, per-segment journal, integrity (checksums) | delivered (2026-10-07) |
-| 7 | Recovery engine v2 — source re-acquisition, multi-signal revalidation, rebind, gap-fill | pending |
+| 7 | Recovery engine v2 — source re-acquisition, multi-signal revalidation, rebind, gap-fill | delivered (2026-10-08) |
 | 8 | Queue, scheduler policies, concurrency and bandwidth management | pending |
 | 9 | Proxy engine — profiles, per-tab / per-job routing | pending |
 | 10 | Bundled media toolkit — pinned FFmpeg / yt-dlp / Deno fetch + version manifest | pending |

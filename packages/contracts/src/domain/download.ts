@@ -3,8 +3,9 @@ import { Ulid } from "../ids.js";
 
 /**
  * Download domain — contract v1.1 adds the Phase 6 segmented engine: per-segment journal,
- * connections-per-download and integrity checksums. All new fields are additive (nullable /
- * optional) so v1 payloads remain valid.
+ * connections-per-download and integrity checksums. v1.2 (Phase 7) adds the recovery engine:
+ * source re-acquisition, multi-signal revalidation, rebind and gap-fill. All new fields are
+ * additive (nullable / optional) so v1 payloads remain valid.
  */
 
 export const DownloadStatus = z.enum([
@@ -32,6 +33,13 @@ export const CHECKSUM_HEX_LENGTH: Record<ChecksumAlgorithm, number> = {
   md5: 32,
 };
 
+/**
+ * Download sources are http(s) only (the core enforces the same rule; a non-http(s) URL
+ * is rejected with `url_invalid`). Pinned here so every boundary rejects early.
+ */
+export const HttpUrl = z.url({ protocol: /^https?$/ });
+export type HttpUrl = z.infer<typeof HttpUrl>;
+
 export const Checksum = z
   .object({
     algorithm: ChecksumAlgorithm,
@@ -51,7 +59,7 @@ export type Checksum = z.infer<typeof Checksum>;
 export const DownloadJob = z.object({
   id: Ulid,
   /** Source URL at creation time. Re-binding to new sources happens in the recovery phases. */
-  url: z.url(),
+  url: HttpUrl,
   /** Absolute save directory (known at creation). */
   destinationDir: z.string().min(1),
   /** Absolute final path; null until the probe resolves the filename. */
@@ -81,13 +89,18 @@ export const DownloadJob = z.object({
   checksumActual: z.string().regex(/^[0-9a-fA-F]+$/).nullable(),
   /** Result of the expected-vs-actual comparison; null = never compared (no expected). */
   checksumVerified: z.boolean().nullable(),
+  // ---- v1.2 (Phase 7): recovery audit trail ----
+  /** How many times the job was rebound to a (re-)acquired source; null = never rebound. */
+  recoveryCount: z.number().int().min(0).nullable(),
+  /** Epoch ms of the most recent rebind; null = never rebound. */
+  reboundAt: z.number().int().nonnegative().nullable(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });
 export type DownloadJob = z.infer<typeof DownloadJob>;
 
 export const DownloadCreateParams = z.object({
-  url: z.url(),
+  url: HttpUrl,
   /** Absolute directory the file will be saved into (must exist; core creates it if missing). */
   destinationDir: z.string().min(1),
   /** Optional explicit filename; otherwise derived from the URL/Content-Disposition (probe). */
@@ -118,6 +131,27 @@ export const DownloadRemoveParams = z.object({
   deletePartialFile: z.boolean().optional().default(false),
 });
 export const DownloadRemoveResult = z.object({ removed: z.literal(true) });
+
+// ---- v1.2 (Phase 7): recovery engine ----
+
+/** Re-acquire the current source, revalidate the part with multiple signals, rebind, queue. */
+export const DownloadRecoverParams = z.object({ id: Ulid });
+export const DownloadRecoverResult = z.object({ job: DownloadJob });
+export type DownloadRecoverResult = z.infer<typeof DownloadRecoverResult>;
+
+/** Rebind a dead/expired source to a new URL; bytes and journal are kept. */
+export const DownloadReplaceUrlParams = z.object({
+  id: Ulid,
+  /** Replacement source URL (http/https). */
+  url: HttpUrl,
+});
+export const DownloadReplaceUrlResult = z.object({ job: DownloadJob });
+export type DownloadReplaceUrlResult = z.infer<typeof DownloadReplaceUrlResult>;
+
+/** Requeue a failed/canceled/paused job (re-probe + gap-fill on the next run). */
+export const DownloadRetryParams = z.object({ id: Ulid });
+export const DownloadRetryResult = z.object({ job: DownloadJob });
+export type DownloadRetryResult = z.infer<typeof DownloadRetryResult>;
 
 /** Throttled progress event payload (see events.ts). */
 export const DownloadProgress = z.object({

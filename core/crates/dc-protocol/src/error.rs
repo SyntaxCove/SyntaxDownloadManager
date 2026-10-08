@@ -29,6 +29,10 @@ pub enum ErrorCode {
     Canceled,
     InvalidState,
     ChecksumMismatch,
+    // recovery (v1.2, Phase 7) — classified re-acquisition outcomes; append-only
+    SourceGone,
+    SourceForbidden,
+    SourceChanged,
 }
 
 impl ErrorCode {
@@ -52,6 +56,9 @@ impl ErrorCode {
             ErrorCode::Canceled => "canceled",
             ErrorCode::InvalidState => "invalid_state",
             ErrorCode::ChecksumMismatch => "checksum_mismatch",
+            ErrorCode::SourceGone => "source_gone",
+            ErrorCode::SourceForbidden => "source_forbidden",
+            ErrorCode::SourceChanged => "source_changed",
         }
     }
 }

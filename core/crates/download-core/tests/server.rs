@@ -133,6 +133,116 @@ async fn create_and_fail_against_dead_url_is_observable() {
     assert!(failed, "job against a dead URL must surface network_error");
 }
 
+/// Phase 7: the recovery methods over the JSONL surface — a failed job (dead URL) can be
+/// probed via `download.recover` (staying failed with the classified code), rebound to a
+/// live mirror via `download.replaceUrl` (completing with recoveryCount stamped), while
+/// `download.retry`/`download.recover` reject jobs in non-eligible states.
+#[tokio::test]
+async fn recovery_methods_over_rpc() {
+    // 64 KiB body → single window; fast local server for the mirror leg.
+    let body: Vec<u8> = (0..64_000u32).map(|i| (i % 253) as u8).collect();
+    let mirror = common_test_server::ShaServer::start(body.clone()).await;
+
+    let (mut w, mut r) = spawn_serve().await;
+    let create = serde_json::json!({
+        "v": 1, "id": "c1", "method": "download.create",
+        "params": {
+            "url": "http://127.0.0.1:9/expired.zip",
+            "destinationDir": std::env::temp_dir().join("dc-server-test").display().to_string()
+        }
+    });
+    let response = request(&mut w, &mut r, &create.to_string()).await;
+    assert_eq!(response["ok"], true, "create must succeed: {response}");
+    let job_id = response["result"]["job"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Wait for the dead-URL failure (network_error — connect refused, not 404).
+    let mut failed = false;
+    for _ in 0..100 {
+        let get = request(&mut w, &mut r, &get_req("g1", &job_id)).await;
+        if get["result"]["job"]["status"] == "failed" {
+            failed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(failed, "job against a dead URL must fail first");
+
+    // recover() probes the still-dead URL: the call succeeds, the job stays failed.
+    let response = request(
+        &mut w,
+        &mut r,
+        &serde_json::json!({"v":1,"id":"rec1","method":"download.recover","params":{"id":job_id}})
+            .to_string(),
+    )
+    .await;
+    assert_eq!(
+        response["ok"], true,
+        "recover is a query over the world: {response}"
+    );
+    assert_eq!(response["result"]["job"]["status"], "failed");
+    assert_eq!(
+        response["result"]["job"]["recoveryCount"],
+        serde_json::Value::Null
+    );
+
+    // replaceUrl to the live mirror rebinds and the pump completes the job.
+    let response = request(
+        &mut w,
+        &mut r,
+        &serde_json::json!({"v":1,"id":"ru1","method":"download.replaceUrl",
+            "params":{"id":job_id,"url":mirror.base_url()}})
+        .to_string(),
+    )
+    .await;
+    assert_eq!(response["ok"], true, "replaceUrl must succeed: {response}");
+    assert_eq!(response["result"]["job"]["recoveryCount"], 1);
+    assert!(response["result"]["job"]["reboundAt"].is_i64());
+
+    let mut completed = false;
+    for _ in 0..200 {
+        let get = request(&mut w, &mut r, &get_req("g2", &job_id)).await;
+        let job = &get["result"]["job"];
+        if job["status"] == "completed" {
+            assert_eq!(job["recoveryCount"], 1);
+            assert_eq!(job["url"], mirror.base_url());
+            completed = true;
+            break;
+        }
+        assert_ne!(job["status"], "failed", "mirror run must not fail: {job}");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(completed, "rebound job must complete through the pump");
+
+    // Terminal jobs reject recovery verbs with invalid_state.
+    for method in ["download.recover", "download.retry"] {
+        let response = request(
+            &mut w,
+            &mut r,
+            &serde_json::json!({"v":1,"id":"bad","method":method,"params":{"id":job_id}})
+                .to_string(),
+        )
+        .await;
+        assert_eq!(response["ok"], false, "{method} must reject completed jobs");
+        assert_eq!(response["error"]["code"], "invalid_state");
+    }
+
+    let _ = request(
+        &mut w,
+        &mut r,
+        &serde_json::json!({"v":1,"id":"rm","method":"download.remove",
+            "params":{"id":job_id,"deletePartialFile":true}})
+        .to_string(),
+    )
+    .await;
+}
+
+fn get_req(id: &str, job_id: &str) -> String {
+    serde_json::json!({"v":1,"id":id,"method":"download.get","params":{"id":job_id}}).to_string()
+}
+
 /// The real binary end-to-end: spawn it, expect `core.ready` on stdout, then a pong.
 #[test]
 fn spawned_binary_end_to_end() {

@@ -11,6 +11,12 @@
 //!    when the job carries an expected checksum — refuses to declare success on mismatch;
 //!  - the final rename happens only after fsync.
 //!
+//! Phase 7 (recovery engine): an expired URL never destroys the job or the bytes. When a
+//! run resumes bytes from a previous run, the part's provenance is revalidated against the
+//! fresh source with multiple signals (`recover::revalidate`): proven identity resumes with
+//! If-Range; equal-size changes with an expected checksum run a checksum-arbitrated
+//! gap-fill (no If-Range); anything else wipes the part and restarts clean (bounded).
+//!
 //! Jobs whose source does not support ranges (or whose size is unknown) run as a single
 //! append-mode window; the model is identical, only the window is open-ended. A v1-era part
 //! (bytes on disk, validators persisted, no journal rows) is migrated forward instead of
@@ -34,6 +40,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::recover::{classify_source_failure, revalidate, RevalidateVerdict, SourceSignals};
 use crate::segments::{
     journal_from_plan, journal_matches_plan, normalize_expected, plan_windows, to_hex, Window,
     MAX_CONNECTIONS_CAP, MIN_SEGMENT_BYTES,
@@ -98,7 +105,7 @@ pub enum EngineError {
 }
 
 impl EngineError {
-    fn to_contract(&self) -> ContractError {
+    pub fn to_contract(&self) -> ContractError {
         match self {
             EngineError::Contract(c) => c.clone(),
             EngineError::Http(e) => {
@@ -259,6 +266,8 @@ impl Engine {
             checksum_expected: checksum.as_ref().map(|(_, v)| v.clone()),
             checksum_actual: None,
             checksum_verified: None,
+            recovery_count: None,
+            rebound_at: None,
             created_at: ts,
             updated_at: ts,
         };
@@ -298,8 +307,11 @@ impl Engine {
         // (persisted before this run), never the freshly probed ones — otherwise a changed
         // source would answer 206 against the new validator and the part would be spliced
         // with foreign bytes. Captured BEFORE the probe overwrites job.etag/last_modified.
+        // Phase 7 adds the full multi-signal provenance (size + content type) for revalidation.
         let mut part_etag = job.etag.clone();
         let mut part_last_modified = job.last_modified.clone();
+        let mut part_total = job.total_bytes;
+        let mut part_content_type = job.content_type.clone();
 
         // ---- probing ----
         job.status = "probing".into();
@@ -364,16 +376,71 @@ impl Engine {
                     .replace_segments(job.id.as_str(), &journal)
                     .map_err(EngineError::Contract)?;
             }
-            // A part with bytes but no validators cannot be proven to match the source:
-            // integrity policy discards it rather than risking a hybrid file.
+            // A part with bytes but no provable identity is now decided by multi-signal
+            // revalidation (Phase 7) instead of an unconditional discard: an expected
+            // checksum may arbitrate an equal-size change; without proof the part is wiped.
             let part_validators = part_etag.clone().or_else(|| part_last_modified.clone());
             let has_written = journal.iter().any(|s| s.written_bytes > 0);
-            if has_written && part_validators.is_none() {
-                tracing::warn!(job = %job.id, "unprovable part (no validators) — discarding");
-                journal = journal_from_plan(&windows);
-                self.store
-                    .replace_segments(job.id.as_str(), &journal)
-                    .map_err(EngineError::Contract)?;
+            let mut checksum_arbitrated = false;
+            if has_written {
+                let part_signals = SourceSignals::new(
+                    part_total,
+                    part_etag.clone(),
+                    part_last_modified.clone(),
+                    part_content_type.clone(),
+                );
+                let fresh_signals = SourceSignals::new(
+                    job.total_bytes,
+                    job.etag.clone(),
+                    job.last_modified.clone(),
+                    job.content_type.clone(),
+                );
+                match revalidate(
+                    &part_signals,
+                    &fresh_signals,
+                    job.checksum_expected.is_some(),
+                ) {
+                    RevalidateVerdict::Identical => {}
+                    RevalidateVerdict::ChecksumArbitrated => {
+                        checksum_arbitrated = true;
+                        tracing::info!(
+                            job = %job.id,
+                            "revalidation: gap-fill with checksum arbitration — part kept, no If-Range"
+                        );
+                    }
+                    RevalidateVerdict::Restart => {
+                        if restarts_used >= MAX_SOURCE_RESTARTS {
+                            return Err(EngineError::Contract(ContractError::new(
+                                ErrorCode::SourceChanged,
+                                "source revalidation failed repeatedly — recover or replace the URL",
+                            )));
+                        }
+                        restarts_used += 1;
+                        tracing::info!(
+                            job = %job.id,
+                            restart = restarts_used,
+                            "revalidation: representation changed — clean restart"
+                        );
+
+                        // Wipe the journal and the part BEFORE anything can re-migrate the
+                        // stale bytes, then loop with the already-probed fresh signals.
+                        self.store.delete_segments(job.id.as_str())?;
+                        let file = OpenOptions::new()
+                            .create(true)
+                            .truncate(false)
+                            .write(true)
+                            .open(&part_path)
+                            .await
+                            .map_err(EngineError::Io)?;
+                        file.set_len(0).await.map_err(EngineError::Io)?;
+                        drop(file);
+                        part_etag = None;
+                        part_last_modified = None;
+                        part_total = None;
+                        part_content_type = None;
+                        continue;
+                    }
+                }
             }
 
             let offset_mode = windows.iter().all(|w| w.end.is_some());
@@ -407,8 +474,13 @@ impl Engine {
             }
 
             // The If-Range validator for every request of this run: the PART's validators
-            // when resuming written data, otherwise the freshly probed ones.
-            let if_range = if has_written {
+            // when resuming written data, otherwise the freshly probed ones. A
+            // checksum-arbitrated recovery run sends NO If-Range (the part's validators
+            // differ from the fresh source by definition); integrity is arbitrated by the
+            // expected checksum at completion plus the 206 Content-Range gates.
+            let if_range = if has_written && checksum_arbitrated {
+                None
+            } else if has_written {
                 part_validators.clone()
             } else {
                 job.etag.clone().or_else(|| job.last_modified.clone())
@@ -537,8 +609,8 @@ impl Engine {
             if source_changed {
                 if restarts_used >= MAX_SOURCE_RESTARTS {
                     return Err(EngineError::Contract(ContractError::new(
-                        ErrorCode::HttpError,
-                        "source changed repeatedly — giving up after clean restarts",
+                        ErrorCode::SourceChanged,
+                        "source changed repeatedly — recover or replace the URL",
                     )));
                 }
                 restarts_used += 1;
@@ -558,6 +630,8 @@ impl Engine {
                 file.set_len(0).await.map_err(EngineError::Io)?;
                 part_etag = None;
                 part_last_modified = None;
+                part_total = None;
+                part_content_type = None;
 
                 job.status = "probing".into();
                 touch(job);
@@ -640,6 +714,119 @@ impl Engine {
             .replace_segments(job.id.as_str(), &rows)
             .map_err(EngineError::Contract)?;
         Ok(rows)
+    }
+
+    /// Phase 7 recovery cycle for a failed/paused/canceled job: re-acquire the current
+    /// source, revalidate the part's provenance with multiple signals, rebind the job to
+    /// the source, and requeue it so the next run fills only the missing ranges.
+    ///
+    /// All probe/revalidation outcomes are persisted and emitted; the method returns Ok(())
+    /// even when the source is still dead (the job then carries the classified error code —
+    /// `source_gone` / `source_forbidden` / `network_error` / `http_error` — for the UI to
+    /// act on). Only storage/IO faults propagate as Err.
+    pub async fn recover(&self, job: &mut DownloadJob) -> Result<(), EngineError> {
+        job.status = "probing".into();
+        job.speed_bps = None;
+        job.eta_seconds = None;
+        touch(job);
+        self.store.update_job(job)?;
+        self.emit_job(job);
+
+        let probe = match self.probe(job).await {
+            Ok(probe) => probe,
+            Err(err) => {
+                let cerr = err.to_contract();
+                tracing::warn!(job = %job.id, error = %cerr, "recovery probe failed");
+                set_error(job, &cerr);
+                let _ = self.store.update_job(job);
+                self.emit_job(job);
+                return Ok(());
+            }
+        };
+
+        // The part's provenance is the persisted job row (Phase 6 discipline: validators
+        // are persisted before segments start, so the row describes what is on disk).
+        let part_signals = SourceSignals::new(
+            job.total_bytes,
+            job.etag.clone(),
+            job.last_modified.clone(),
+            job.content_type.clone(),
+        );
+        let fresh_signals = SourceSignals::new(
+            probe.total_bytes,
+            probe.etag.clone(),
+            probe.last_modified.clone(),
+            probe.content_type.clone(),
+        );
+        // A previously failed checksum verdict means the on-disk bytes are KNOWN bad:
+        // no signal can rehabilitate them, so force the clean-restart path.
+        let bytes_known_bad =
+            job.error_code.as_deref() == Some(ErrorCode::ChecksumMismatch.as_str());
+        let verdict = if bytes_known_bad {
+            RevalidateVerdict::Restart
+        } else {
+            revalidate(
+                &part_signals,
+                &fresh_signals,
+                job.checksum_expected.is_some(),
+            )
+        };
+        tracing::info!(job = %job.id, verdict = ?verdict, "recovery revalidation");
+
+        match verdict {
+            RevalidateVerdict::Identical | RevalidateVerdict::ChecksumArbitrated => {
+                self.rebind(job, probe, false).await?;
+            }
+            RevalidateVerdict::Restart => {
+                // The representation changed (or the bytes are known bad): wipe journal +
+                // part, then rebind onto the fresh source so the next run starts clean.
+                self.store.delete_segments(job.id.as_str())?;
+                if let Some(path) = job.destination_path.clone() {
+                    let part = PathBuf::from(format!("{path}.part"));
+                    let file = OpenOptions::new()
+                        .create(true)
+                        .truncate(false)
+                        .write(true)
+                        .open(&part)
+                        .await
+                        .map_err(EngineError::Io)?;
+                    file.set_len(0).await.map_err(EngineError::Io)?;
+                    drop(file);
+                }
+                job.received_bytes = 0;
+                self.rebind(job, probe, true).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Rebind the job onto a freshly probed source: persist the new signals, stamp the
+    /// recovery audit trail, clear the error and requeue. `wiped` additionally clears the
+    /// completion-checksum artifacts of a discarded part.
+    async fn rebind(
+        &self,
+        job: &mut DownloadJob,
+        probe: Probe,
+        wiped: bool,
+    ) -> Result<(), EngineError> {
+        job.total_bytes = probe.total_bytes;
+        job.etag = probe.etag;
+        job.last_modified = probe.last_modified;
+        job.content_type = probe.content_type;
+        job.recovery_count = Some(job.recovery_count.unwrap_or(0) + 1);
+        job.rebound_at = Some(now_ms());
+        job.status = "queued".into();
+        job.error_code = None;
+        job.speed_bps = None;
+        job.eta_seconds = None;
+        if wiped {
+            job.checksum_actual = None;
+            job.checksum_verified = None;
+        }
+        touch(job);
+        self.store.update_job(job)?;
+        self.emit_job(job);
+        Ok(())
     }
 
     /// Spawn the throttled progress ticker for one run; returns its join handle.
@@ -1089,7 +1276,9 @@ impl Engine {
                     if status.as_u16() == 416 {
                         ErrorCode::RangeNotSatisfiable
                     } else {
-                        ErrorCode::HttpError
+                        // Phase 7: dead/expired or unauthorized sources classify into
+                        // recoverable, actionable codes instead of a generic http_error.
+                        classify_source_failure(status.as_u16())
                     },
                     format!("probe failed with HTTP {status}"),
                 )

@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "dc-protocol"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -259,7 +259,7 @@ dependencies = [
 
 [[package]]
 name = "dc-storage"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "dc-protocol",
  "rusqlite",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "download-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "dc-protocol",
  "dc-storage",

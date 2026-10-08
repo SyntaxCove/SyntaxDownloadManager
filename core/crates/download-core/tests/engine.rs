@@ -152,14 +152,16 @@ async fn source_change_discards_stale_part_and_restarts() {
 
     let finished = store.list_jobs().unwrap().remove(0);
     assert_eq!(finished.status, "completed");
-    // The engine sent Range+If-Range(old v1 etag); the changed server answered 200 → the
-    // engine must have truncated and restarted from zero (RFC 7233 If-Range guard).
+    // Phase 7: multi-signal revalidation compares the part's provenance (50 000 bytes)
+    // against the fresh probe (60 000) BEFORE any transfer — the size mismatch verdict
+    // wipes the part pre-flight, so the stale v1 validator is never presented to the
+    // server and no v1 bytes can ever be spliced.
     assert!(
-        server
+        !server
             .if_range_seen()
             .iter()
             .any(|ir| ir == server.etag_of_v1()),
-        "the resume request must carry the PART's validator, not the freshly probed one"
+        "the stale part validator must never be presented (pre-flight revalidation)"
     );
     assert_eq!(finished.received_bytes, body_v2.len() as u64);
     let on_disk = tokio::fs::read(finished.destination_path.unwrap())
@@ -460,13 +462,16 @@ async fn source_change_restarts_segmented_run_from_zero() {
 
     let finished = store.get_job(job.id.as_str()).unwrap().unwrap();
     assert_eq!(finished.status, "completed");
-    // The resume must have carried the PART's validator (v1) and then restarted clean.
+    // Phase 7: the part's provenance (v1 validators, no size recorded) fails to revalidate
+    // against the fresh probe (v2 validators) — identity is unprovable and no checksum can
+    // arbitrate, so the journal + part are wiped pre-flight. The stale validator must
+    // never reach the server.
     assert!(
-        server
+        !server
             .if_range_seen()
             .iter()
             .any(|ir| ir == server.etag_of_v1()),
-        "resume must present the part's validator"
+        "resume must not present the stale part validator (pre-flight revalidation)"
     );
     let on_disk = tokio::fs::read(finished.destination_path.unwrap())
         .await

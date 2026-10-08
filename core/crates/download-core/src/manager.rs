@@ -96,6 +96,90 @@ impl JobManager {
             .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
     }
 
+    /// Phase 7 recovery cycle: re-acquire the source, revalidate the part with multiple
+    /// signals, rebind and requeue. The outcome (success or classified failure) is carried
+    /// by the returned job, not by an RPC error.
+    pub async fn recover(self: &Arc<Self>, id: &str) -> Result<DownloadJob, ContractError> {
+        let mut job = self
+            .store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::InvalidState, "job not found"))?;
+        if !matches!(job.status.as_str(), "paused" | "failed" | "canceled") {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                format!("cannot recover a job in status {}", job.status),
+            ));
+        }
+        self.engine
+            .recover(&mut job)
+            .await
+            .map_err(|e| e.to_contract())?;
+        self.pump();
+        self.store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
+    }
+
+    /// Phase 7: rebind a dead/expired source to a new URL. Bytes and journal are kept;
+    /// the next run revalidates and gap-fills against the new source.
+    pub async fn replace_url(
+        self: &Arc<Self>,
+        id: &str,
+        url: String,
+    ) -> Result<DownloadJob, ContractError> {
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(ContractError::new(
+                ErrorCode::UrlInvalid,
+                "only http(s) URLs are supported",
+            ));
+        }
+        let mut job = self
+            .store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::InvalidState, "job not found"))?;
+        if !matches!(
+            job.status.as_str(),
+            "queued" | "paused" | "failed" | "canceled"
+        ) {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                format!("cannot replace the URL of a job in status {}", job.status),
+            ));
+        }
+        // The row may still say `queued` while the pump has already spawned the task.
+        if self
+            .jobs
+            .lock()
+            .expect("jobs mutex poisoned")
+            .contains_key(id)
+        {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "job task is active",
+            ));
+        }
+        job.url = url;
+        job.status = "queued".into();
+        job.error_code = None;
+        job.recovery_count = Some(job.recovery_count.unwrap_or(0) + 1);
+        job.rebound_at = Some(now_ms());
+        job.speed_bps = None;
+        job.eta_seconds = None;
+        job.updated_at = now_ms();
+        self.store.update_job(&job)?;
+        self.engine.emit_job(&job);
+        self.pump();
+        self.store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
+    }
+
+    /// Distinct UI verb for re-acquiring a failed/canceled/paused job; the engine re-probes
+    /// on the next run and gap-fills (Phase 7 revalidation) when the source serves again.
+    pub async fn retry(self: &Arc<Self>, id: &str) -> Result<DownloadJob, ContractError> {
+        self.resume(id).await
+    }
+
     pub async fn cancel(self: &Arc<Self>, id: &str) -> Result<DownloadJob, ContractError> {
         self.send_command(id, JobCommand::Cancel, |status| {
             matches!(status, "queued" | "probing" | "downloading")
