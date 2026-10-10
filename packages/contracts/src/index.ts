@@ -7,6 +7,7 @@ export * from "./domain/browser.js";
 export * from "./domain/settings.js";
 export * from "./domain/media.js";
 export * from "./domain/proxy.js";
+export * from "./domain/toolkit.js";
 export * from "./domain/torrent.js";
 export * from "./domain/scheduler.js";
 

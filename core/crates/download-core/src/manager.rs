@@ -203,6 +203,14 @@ impl JobManager {
         self.engine.set_runtime_proxies(profiles);
     }
 
+    /// Phase 10: full replace of the toolkit path map (main pushes only verified tools).
+    pub fn set_toolkit_paths(
+        &self,
+        tools: Vec<dc_protocol::ToolkitPathEntry>,
+    ) -> Result<(), ContractError> {
+        self.engine.set_toolkit_paths(tools)
+    }
+
     /// Phase 9: change the proxy profile a job routes through (None = direct).
     /// Refused while a run is active — mutating the route mid-run would splice bytes
     /// from two different network identities into one file.

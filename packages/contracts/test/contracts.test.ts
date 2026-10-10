@@ -9,6 +9,7 @@ import {
   newUlid, ulidTime, normalizeUlid, Ulid, makeRequest, makeSuccess, makeError, makeEvent,
   ProxyProfileInput, ProxyProfilePublic, ProxyEndpoint, ProxyTestResult, DownloadSetProxyParams,
   TabSetProxyParams,
+  ToolkitManifest, ToolkitStatusResult, ToolkitSetPathsParams, ToolkitToolStatus,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -287,8 +288,10 @@ describe("v1.3 queue + bandwidth policy (Phase 8)", () => {
     expect(AppSettings.safeParse({ scheduleEnd: "06:00" }).success).toBe(true);
   });
 
-  it("contract version advanced to 1.4.0 (Phase 9 proxy routing is additive)", () => {
-    expect(CONTRACT_VERSION).toBe("1.4.0");
+  it("contract version is at least 1.4.0 (Phase 9 proxy routing is additive)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(4);
+    else expect(maj).toBeGreaterThan(1);
   });
 });
 
@@ -355,5 +358,101 @@ describe("v1.4 proxy routing (Phase 9)", () => {
     expect(ErrorCodes).toContain("proxy_keychain_unavailable");
     expect(ErrorCodes).toContain("proxy_profile_not_found");
     expect(ErrorCodes).toContain("proxy_in_use");
+  });
+});
+
+describe("v1.5 bundled media toolkit (Phase 10)", () => {
+  it("parses the manifest fixture and normalizes platform keys", () => {
+    const manifest = ToolkitManifest.parse(domainFixture.toolkitManifest);
+    expect(manifest.manifestVersion).toBe(1);
+    expect(manifest.tools[0].id).toBe("yt-dlp");
+    expect(manifest.tools[0].platforms["win32-x64"].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.tools[0].platforms["linux-x64"].archiveType).toBe("none");
+  });
+
+  it("rejects insecure (http) artifact URLs and non-hex sha256", () => {
+    const http = structuredClone(domainFixture.toolkitManifest);
+    http.tools[0].platforms["win32-x64"].url = "http://example.com/yt-dlp.exe";
+    expect(ToolkitManifest.safeParse(http).success).toBe(false);
+    const badHash = structuredClone(domainFixture.toolkitManifest);
+    badHash.tools[0].platforms["linux-x64"].sha256 = "ZZ".repeat(32);
+    expect(ToolkitManifest.safeParse(badHash).success).toBe(false);
+    const shortHash = structuredClone(domainFixture.toolkitManifest);
+    shortHash.tools[0].platforms["linux-x64"].sha256 = "ab".repeat(16);
+    expect(ToolkitManifest.safeParse(shortHash).success).toBe(false);
+  });
+
+  it("rejects path traversal in execPath / extraExecs", () => {
+    const evil = structuredClone(domainFixture.toolkitManifest);
+    evil.tools[0].platforms["win32-x64"].execPath = "../yt-dlp.exe";
+    expect(ToolkitManifest.safeParse(evil).success).toBe(false);
+    const absolute = structuredClone(domainFixture.toolkitManifest);
+    absolute.tools[0].platforms["win32-x64"].execPath = "C:\\Windows\\yt-dlp.exe";
+    expect(ToolkitManifest.safeParse(absolute).success).toBe(false);
+  });
+
+  it("parses the status fixture with ready + failed states", () => {
+    const status = ToolkitStatusResult.parse(domainFixture.toolkitStatus);
+    expect(status.platform).toBe("linux-x64");
+    expect(status.tools[0].state).toBe("ready");
+    expect(status.tools[0].path).toContain("yt-dlp");
+    expect(status.tools[1].state).toBe("failed");
+    expect(status.tools[1].errorCode).toBe("toolkit_checksum_mismatch");
+    expect(status.tools[1].path).toBeNull();
+  });
+
+  it("rejects unknown tool ids and unknown states", () => {
+    expect(
+      ToolkitToolStatus.safeParse({
+        ...domainFixture.toolkitStatus.tools[0],
+        id: "winrar",
+      }).success,
+    ).toBe(false);
+    expect(
+      ToolkitToolStatus.safeParse({
+        ...domainFixture.toolkitStatus.tools[0],
+        state: "downloading-to-the-moon",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("toolkit.setPaths validates id/version/path entries", () => {
+    const parsed = ToolkitSetPathsParams.parse(domainFixture.toolkitPaths);
+    expect(parsed.tools).toHaveLength(3);
+    expect(parsed.tools[0].id).toBe("yt-dlp");
+    expect(
+      ToolkitSetPathsParams.safeParse({
+        tools: [{ id: "deno", version: "2.1.5", path: "" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      ToolkitSetPathsParams.safeParse({
+        tools: [{ id: "bash", version: "5", path: "/bin/bash" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("registers the Phase 10 methods on the correct servers", () => {
+    for (const m of ["toolkit.getStatus", "toolkit.ensureAll", "toolkit.ensure", "toolkit.cancel"]) {
+      expect(METHODS[m as keyof typeof METHODS].server).toBe("main");
+    }
+    expect(METHODS["toolkit.setPaths"].server).toBe("core");
+  });
+
+  it("appSettings gains mediaToolsAutoFetch defaulting to true", () => {
+    expect(AppSettings.parse({}).mediaToolsAutoFetch).toBe(true);
+    expect(AppSettings.safeParse({ mediaToolsAutoFetch: "yes" }).success).toBe(false);
+  });
+
+  it("error codes stay append-only and gained the toolkit codes", () => {
+    expect(ErrorCodes).toContain("toolkit_unsupported_platform");
+    expect(ErrorCodes).toContain("toolkit_manifest_invalid");
+    expect(ErrorCodes).toContain("toolkit_fetch_failed");
+    expect(ErrorCodes).toContain("toolkit_extract_failed");
+    expect(ErrorCodes).toContain("toolkit_checksum_mismatch");
+  });
+
+  it("contract version advanced to 1.5.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.5.0");
   });
 });

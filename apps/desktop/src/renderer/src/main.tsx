@@ -5,6 +5,7 @@ import { AppShell } from "./app/AppShell.js";
 import { subscribeSettingsChanged } from "./stores/settings.js";
 import { subscribeBrowserEvents, createTab, closeTab, useBrowserStore } from "./stores/browser.js";
 import { subscribeDownloadEvents } from "./stores/downloads.js";
+import { subscribeToolkitProgress } from "./stores/toolkit.js";
 
 /**
  * Renderer bootstrap: the settings store must be loaded before first paint so the shell
@@ -16,6 +17,7 @@ async function boot(): Promise<void> {
   subscribeSettingsChanged();
   subscribeBrowserEvents();
   subscribeDownloadEvents();
+  subscribeToolkitProgress();
   const root = createRoot(document.getElementById("app") ?? document.body);
   root.render(
     <StrictMode>

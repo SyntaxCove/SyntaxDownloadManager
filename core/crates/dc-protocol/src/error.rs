@@ -37,6 +37,12 @@ pub enum ErrorCode {
     ProxyKeychainUnavailable,
     ProxyProfileNotFound,
     ProxyInUse,
+    // toolkit (v1.5, Phase 10) — append-only
+    ToolkitUnsupportedPlatform,
+    ToolkitManifestInvalid,
+    ToolkitFetchFailed,
+    ToolkitExtractFailed,
+    ToolkitChecksumMismatch,
 }
 
 impl ErrorCode {
@@ -66,6 +72,11 @@ impl ErrorCode {
             ErrorCode::ProxyKeychainUnavailable => "proxy_keychain_unavailable",
             ErrorCode::ProxyProfileNotFound => "proxy_profile_not_found",
             ErrorCode::ProxyInUse => "proxy_in_use",
+            ErrorCode::ToolkitUnsupportedPlatform => "toolkit_unsupported_platform",
+            ErrorCode::ToolkitManifestInvalid => "toolkit_manifest_invalid",
+            ErrorCode::ToolkitFetchFailed => "toolkit_fetch_failed",
+            ErrorCode::ToolkitExtractFailed => "toolkit_extract_failed",
+            ErrorCode::ToolkitChecksumMismatch => "toolkit_checksum_mismatch",
         }
     }
 }

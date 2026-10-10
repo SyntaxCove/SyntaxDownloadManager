@@ -9,5 +9,6 @@ pub mod rate_limit;
 pub mod recover;
 pub mod segments;
 pub mod server;
+pub mod toolkit;
 
 pub use manager::JobManager;

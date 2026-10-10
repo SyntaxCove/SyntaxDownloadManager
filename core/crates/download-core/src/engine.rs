@@ -47,6 +47,7 @@ use crate::segments::{
     journal_from_plan, journal_matches_plan, normalize_expected, plan_windows, to_hex, Window,
     MAX_CONNECTIONS_CAP, MIN_SEGMENT_BYTES,
 };
+use crate::toolkit::ToolkitMap;
 
 pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 /// Journal flush cadence per segment (the durable cursor trails in-memory by at most ~1 MiB).
@@ -193,6 +194,8 @@ pub struct Engine {
     job_buckets: Mutex<HashMap<String, Arc<Bucket>>>,
     /// Runtime proxy endpoints pushed by main (v1.4); secrets stay in memory only.
     proxies: ProxyMap,
+    /// Bundled media tool executables pushed by main (v1.5); only checksum-proven paths.
+    toolkit: ToolkitMap,
 }
 
 impl Engine {
@@ -210,12 +213,21 @@ impl Engine {
             global_bucket: Bucket::new(0),
             job_buckets: Mutex::new(HashMap::new()),
             proxies: ProxyMap::new(),
+            toolkit: ToolkitMap::new(),
         }
     }
 
     /// Full replace of the runtime proxy map (main is the single source of truth).
     pub fn set_runtime_proxies(&self, profiles: Vec<RuntimeProxy>) {
         self.proxies.replace(profiles);
+    }
+
+    /// Full replace of the toolkit path map (Phase 10; main pushes only verified tools).
+    pub fn set_toolkit_paths(
+        &self,
+        tools: Vec<dc_protocol::ToolkitPathEntry>,
+    ) -> Result<(), dc_protocol::ContractError> {
+        self.toolkit.replace(tools)
     }
 
     /// Connections per download (segmentation ceiling); clamped to the contract range.

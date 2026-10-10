@@ -201,3 +201,50 @@ Stage Summary:
   deletion guarded by live job usage. Contracts v1.4.0, storage v5.
 - Next: Phase 10 (bundled media toolkit — pinned FFmpeg/yt-dlp/Deno fetch + version
   manifest) per docs/PHASES.md.
+
+---
+Task ID: 10
+Agent: main
+Task: Phase 10 — bundled media toolkit (pinned FFmpeg / yt-dlp / Deno fetch + version manifest)
+
+Work Log:
+- Baseline repair first: sandbox reset had wiped the Rust toolchain a third time
+  (rustup 1.99.0 + rustfmt/clippy reinstalled); verified the Phase 0-9 gate green
+  (cargo 107 / vitest 94+ / typecheck x4 / build) before planning.
+- Plan: docs/phase-10-plan.md — manifest pinning model, fetch-verify-extract-activate
+  pipeline, fail-closed core push, contracts v1.5.0 additive set, test plan + gate.
+- Contracts v1.5.0: new toolkit domain (ToolId/PlatformKey/ToolkitArtifact/ToolkitManifest/
+  ToolkitToolStatus), 4 main methods (getStatus/ensureAll/ensure/cancel) + core method
+  toolkit.setPaths + toolkit.progress event; 5 append-only error codes; settings
+  mediaToolsAutoFetch (default true); z.partialRecord for per-platform subsets; fixtures
+  toolkitManifest/toolkitStatus/toolkitPaths consumed by vitest AND cargo.
+- Main: src/main/toolkit/{manifest,fetcher,verify,extract,manager}.ts + domains/toolkit.ts
+  (IPC registration + shared core push), paths.ts toolchainsManifest, main.ts wiring
+  (load, auto-fetch per settings, re-push after every core restart); renderer toolkit
+  store + Settings "Media toolkit" section (state badges, progress bar, Install/Cancel,
+  auto-fetch toggle).
+- Core: dc-protocol/src/toolkit.rs wire types + error codes + CONTRACT_VERSION 1.5.0;
+  download-core/src/toolkit.rs ToolkitMap (staged-validate-then-swap replace); engine field,
+  manager forward, server dispatch arm; fixture parity + manager integration tests.
+- Pin tooling: scripts/pin-toolchains.mjs (GitHub atom-feed discovery — REST API is
+  rate-limited; expanded_assets for asset names; upstream SHA2-256SUMS cross-check for
+  yt-dlp). Authored apps/desktop/resources/toolchains.json LIVE: yt-dlp@2026.08.19
+  (PyInstaller standalones: yt-dlp.exe / yt-dlp_linux — no host Python), deno@2.9.7,
+  ffmpeg@N-127259-gb91a82d6dd (BtbN dated autobuild, permanent assets); both yt-dlp hashes
+  MATCH upstream sums. Live opt-in E2E (toolkit-live.test.ts, RUN_LIVE_TOOLKIT=1) installed
+  all three production tools from the real URLs in 47s — hashes byte-exact end-to-end.
+- Fixed during Test/Fix: zip entries without explicit directory records need parent mkdir
+  (ENOENT on yazl archives); platform key must come from INJECTED platform/arch;
+  ToolkitMap.replace partial-apply bug caught by its own fail-closed test; tar-stream v3
+  entry( header, buffer, cb ) overload; import.meta banned in CJS-compiled tests.
+- Verification gate: cargo fmt/clippy clean, cargo test 115 passed (was 107), vitest
+  94 passed + 1 opt-in live (was 84), typecheck x4 clean, vite build green.
+  Commit: phase(10). Report: docs/phase-10-report.md.
+
+Stage Summary:
+- The media toolkit is first-class: a checksum-pinned, per-platform manifest ships with the
+  app; main fetches/verifies/extracts/activates with zip-slip + size-cap + quarantine
+  guards; only verified executables ever reach the Rust core (toolkit.setPaths, re-pushed
+  on restart). The end user never installs FFmpeg/yt-dlp/Deno.
+- Next: Phase 11 (media inspector/extractor — media.inspect, manifests) on top of the
+  verified tool paths.

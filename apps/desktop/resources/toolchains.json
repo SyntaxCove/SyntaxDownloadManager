@@ -1,0 +1,71 @@
+{
+  "manifestVersion": 1,
+  "tools": [
+    {
+      "id": "yt-dlp",
+      "version": "2026.08.19",
+      "platforms": {
+        "win32-x64": {
+          "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
+          "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+          "sizeBytes": 17840399,
+          "archiveType": "none",
+          "execPath": "yt-dlp.exe"
+        },
+        "linux-x64": {
+          "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux",
+          "sha256": "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a",
+          "sizeBytes": 40446224,
+          "archiveType": "none",
+          "execPath": "yt-dlp_linux"
+        }
+      }
+    },
+    {
+      "id": "deno",
+      "version": "2.9.7",
+      "platforms": {
+        "win32-x64": {
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip",
+          "sha256": "a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238",
+          "sizeBytes": 42630221,
+          "archiveType": "zip",
+          "execPath": "deno.exe"
+        },
+        "linux-x64": {
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-unknown-linux-gnu.zip",
+          "sha256": "c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490",
+          "sizeBytes": 41596794,
+          "archiveType": "zip",
+          "execPath": "deno"
+        }
+      }
+    },
+    {
+      "id": "ffmpeg",
+      "version": "N-127259-gb91a82d6dd",
+      "platforms": {
+        "win32-x64": {
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-09-14-16/ffmpeg-N-127259-gb91a82d6dd-win64-gpl.zip",
+          "sha256": "9bcf8b949efb0e746bb85d840d0c08918e8b6b7d55c641f4065f4aedeffd9a12",
+          "sizeBytes": 200234231,
+          "archiveType": "zip",
+          "execPath": "ffmpeg-N-127259-gb91a82d6dd-win64-gpl/bin/ffmpeg.exe",
+          "extraExecs": [
+            "ffmpeg-N-127259-gb91a82d6dd-win64-gpl/bin/ffprobe.exe"
+          ]
+        },
+        "linux-x64": {
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-09-14-16/ffmpeg-N-127259-gb91a82d6dd-linux64-gpl.tar.xz",
+          "sha256": "4da64940158f95459f144c50f344a45bf8f996c399a626105d319b3119040164",
+          "sizeBytes": 156185880,
+          "archiveType": "tar.xz",
+          "execPath": "ffmpeg-N-127259-gb91a82d6dd-linux64-gpl/bin/ffmpeg",
+          "extraExecs": [
+            "ffmpeg-N-127259-gb91a82d6dd-linux64-gpl/bin/ffprobe"
+          ]
+        }
+      }
+    }
+  ]
+}

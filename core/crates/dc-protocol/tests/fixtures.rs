@@ -126,3 +126,20 @@ fn parses_and_round_trips_proxied_job_fixture() {
         "wire format divergence between TS and Rust (proxied job)"
     );
 }
+
+#[test]
+fn parses_and_round_trips_toolkit_paths_fixture() {
+    // v1.5 (Phase 10): `toolkit.setPaths` params — the only core-facing toolkit wire shape.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let params: dc_protocol::ToolkitSetPathsParams =
+        serde_json::from_value(doc["toolkitPaths"].clone()).unwrap();
+    assert_eq!(params.tools.len(), 3);
+    assert_eq!(params.tools[0].id, "yt-dlp");
+    assert_eq!(params.tools[2].id, "deno");
+    let out: serde_json::Value = serde_json::to_value(&params).unwrap();
+    assert_eq!(
+        out, doc["toolkitPaths"],
+        "wire format divergence between TS and Rust (toolkit paths)"
+    );
+}

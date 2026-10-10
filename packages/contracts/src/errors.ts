@@ -37,6 +37,12 @@ export const ErrorCodes = [
   "proxy_keychain_unavailable",
   "proxy_profile_not_found",
   "proxy_in_use",
+  // toolkit (v1.5, Phase 10) — append-only
+  "toolkit_unsupported_platform",
+  "toolkit_manifest_invalid",
+  "toolkit_fetch_failed",
+  "toolkit_extract_failed",
+  "toolkit_checksum_mismatch",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

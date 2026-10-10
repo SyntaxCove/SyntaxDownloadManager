@@ -297,6 +297,12 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             let result = manager.test_proxy(&p.profile_id, p.url).await?;
             Ok(result)
         }
+        // ---- Phase 10: bundled media toolkit paths ----
+        "toolkit.setPaths" => {
+            let p: dc_protocol::ToolkitSetPathsParams = parse(&params)?;
+            manager.set_toolkit_paths(p.tools)?;
+            Ok(serde_json::json!({ "applied": true }))
+        }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.cancel(&p.id).await?;

@@ -9,6 +9,8 @@ import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
 import { registerDownloadDomain } from "./domains/download.js";
 import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
+import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
+import { ToolkitManager } from "./toolkit/manager.js";
 import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
 
@@ -72,6 +74,18 @@ if (!gotLock) {
       log: (msg) => console.log(msg),
     });
 
+    // Phase 10: bundled media toolkit — pinned FFmpeg / yt-dlp / Deno, fetched + verified
+    // into the user profile, then pushed to the core as executable paths.
+    const toolkitManager = new ToolkitManager({
+      manifestPath: paths.toolchainsManifest,
+      toolsRoot: join(app.getPath("userData"), "tools"),
+      statePath: join(app.getPath("userData"), "toolkit-state.json"),
+      onStatus: (status) =>
+        router.emit("toolkit.progress", EVENTS["toolkit.progress"].payload, status),
+      onReadyToolsChanged: (tools) => pushToolkitPaths(supervisor, tools),
+    });
+    await toolkitManager.load().catch(() => undefined); // classified failures surface via toolkit.getStatus
+
     // Phase 9: push the full resolved runtime proxy set to the core. Secrets cross this
     // single boundary (main → core memory) and are re-pushed after core restarts.
     const pushRuntimeProxies = (): void => {
@@ -84,11 +98,15 @@ if (!gotLock) {
     supervisor.on("state", (status: string) => {
       // Broadcast lifecycle to every renderer (downloads page shows a banner).
       router.emit("core.state", EVENTS["core.state"].payload, { status });
-      // A (re)started core starts with an empty runtime proxy map — re-push after ready.
-      if (status === "ready") pushRuntimeProxies();
+      // A (re)started core starts with empty runtime maps — re-push after ready.
+      if (status === "ready") {
+        pushRuntimeProxies();
+        pushToolkitPaths(supervisor, toolkitManager.readyToolPaths());
+      }
     });
     registerDownloadDomain(router, supervisor);
     registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies);
+    registerToolkitDomain(router, toolkitManager, supervisor);
     supervisor.start();
 
     // Push the concurrency settings to the core at startup and re-apply whenever the
@@ -126,6 +144,11 @@ if (!gotLock) {
         applyCorePolicy();
       }
     });
+
+    // Phase 10: fetch missing media tools at startup when the user allows it.
+    if (settingsStore.settings.mediaToolsAutoFetch) {
+      toolkitManager.ensureAll();
+    }
     const policyTimer = setInterval(applyCorePolicy, 10 * 60 * 1000);
     app.on("before-quit", () => clearInterval(policyTimer));
 

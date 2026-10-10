@@ -8,6 +8,8 @@ export interface AppPaths {
   readonly rendererIndex: string;
   readonly preloadScript: string;
   readonly devServerUrl: string | null;
+  /** Pinned media-tool manifest (Phase 10): dev = apps/desktop/resources, packaged = resourcesPath. */
+  readonly toolchainsManifest: string;
 }
 
 /**
@@ -21,18 +23,23 @@ export function resolveAppPaths(opts: {
   isPackaged: boolean;
   envDevServerUrl?: string;
 }): AppPaths {
+  const toolchainsManifest = opts.isPackaged
+    ? resolve(opts.appRoot, "toolchains.json")
+    : resolve(opts.appRoot, "resources/toolchains.json");
   const devServerUrl = opts.envDevServerUrl?.trim() ? opts.envDevServerUrl.trim() : null;
   if (devServerUrl) {
     return {
       rendererIndex: "",
       preloadScript: resolve(opts.appRoot, "dist/preload/preload.cjs"),
       devServerUrl,
+      toolchainsManifest,
     };
   }
   return {
     rendererIndex: resolve(opts.appRoot, "dist/renderer/index.html"),
     preloadScript: resolve(opts.appRoot, "dist/preload/preload.cjs"),
     devServerUrl: null,
+    toolchainsManifest,
   };
 }
 

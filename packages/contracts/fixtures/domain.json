@@ -203,6 +203,79 @@
     "port": 3128,
     "username": "user",
     "password": null,
-    "bypassList": [".internal.example.com", "<local>"]
+    "bypassList": [
+      ".internal.example.com",
+      "<local>"
+    ]
+  },
+  "toolkitManifest": {
+    "manifestVersion": 1,
+    "tools": [
+      {
+        "id": "yt-dlp",
+        "version": "2025.09.26",
+        "platforms": {
+          "win32-x64": {
+            "url": "https://example.com/yt-dlp.exe",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sizeBytes": 19333120,
+            "archiveType": "none",
+            "execPath": "yt-dlp.exe"
+          },
+          "linux-x64": {
+            "url": "https://example.com/yt-dlp",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sizeBytes": 20642440,
+            "archiveType": "none",
+            "execPath": "yt-dlp"
+          }
+        }
+      }
+    ]
+  },
+  "toolkitStatus": {
+    "manifestVersion": 1,
+    "platform": "linux-x64",
+    "tools": [
+      {
+        "id": "yt-dlp",
+        "version": "2025.09.26",
+        "state": "ready",
+        "path": "/home/u/.config/unidm/tools/yt-dlp/2025.09.26/yt-dlp",
+        "bytesFetched": 20642440,
+        "totalBytes": 20642440,
+        "errorCode": null,
+        "message": null
+      },
+      {
+        "id": "ffmpeg",
+        "version": "8.0.1",
+        "state": "failed",
+        "path": null,
+        "bytesFetched": 1048576,
+        "totalBytes": 91392000,
+        "errorCode": "toolkit_checksum_mismatch",
+        "message": "sha256 mismatch"
+      }
+    ]
+  },
+  "toolkitPaths": {
+    "tools": [
+      {
+        "id": "yt-dlp",
+        "version": "2025.09.26",
+        "path": "/opt/unidm/tools/yt-dlp/2025.09.26/yt-dlp"
+      },
+      {
+        "id": "ffmpeg",
+        "version": "8.0.1",
+        "path": "/opt/unidm/tools/ffmpeg/8.0.1/ffmpeg"
+      },
+      {
+        "id": "deno",
+        "version": "2.1.5",
+        "path": "/opt/unidm/tools/deno/2.1.5/deno"
+      }
+    ]
   }
 }

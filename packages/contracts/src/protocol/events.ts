@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DownloadProgress, DownloadJob } from "../domain/download.js";
 import { TabUpdatedEvent, TabClosedEvent } from "../domain/browser.js";
 import { SettingsChangedEvent } from "../domain/settings.js";
+import { ToolkitToolStatus } from "../domain/toolkit.js";
 
 /**
  * Event registry: event name → payload schema. Sources: core→main over stdio, main→renderer
@@ -36,6 +37,8 @@ export const EVENTS = {
   "browser.tab.updated": { source: "main", payload: TabUpdatedEvent },
   "browser.tab.closed": { source: "main", payload: TabClosedEvent },
   "settings.changed": { source: "main", payload: SettingsChangedEvent },
+  /** v1.5 (Phase 10): toolkit fetch/verify/activate progress (throttled; state changes immediate). */
+  "toolkit.progress": { source: "main", payload: ToolkitToolStatus },
 } satisfies Record<string, EventEntry>;
 
 export type EventName = keyof typeof EVENTS;

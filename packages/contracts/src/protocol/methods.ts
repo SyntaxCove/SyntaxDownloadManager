@@ -22,6 +22,11 @@ import {
   ProxyUpdateParams, ProxyUpdateResult, ProxyRemoveParams, ProxyRemoveResult,
   ProxySetRuntimeParams, ProxySetRuntimeResult, ProxyTestParams, ProxyTestResult,
 } from "../domain/proxy.js";
+import {
+  ToolkitGetStatusParams, ToolkitGetStatusResult, ToolkitEnsureAllParams,
+  ToolkitEnsureAllResult, ToolkitEnsureParams, ToolkitEnsureResult, ToolkitCancelParams,
+  ToolkitCancelResult, ToolkitSetPathsParams, ToolkitSetPathsResult,
+} from "../domain/toolkit.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -81,6 +86,9 @@ export const METHODS = {
   "proxy.setRuntime": { server: "core", params: ProxySetRuntimeParams, result: ProxySetRuntimeResult },
   /** GET a probe URL through the profile; returns latency + exit IP or a classified error. */
   "proxy.test": { server: "core", params: ProxyTestParams, result: ProxyTestResult },
+  // ---- core (v1.5, Phase 10): bundled media toolkit paths ----
+  /** Full replace of the core's in-memory toolkit path map (main pushes only verified tools). */
+  "toolkit.setPaths": { server: "core", params: ToolkitSetPathsParams, result: ToolkitSetPathsResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },
@@ -115,6 +123,11 @@ export const METHODS = {
   "proxy.create": { server: "main", params: ProxyCreateParams, result: ProxyCreateResult },
   "proxy.update": { server: "main", params: ProxyUpdateParams, result: ProxyUpdateResult },
   "proxy.remove": { server: "main", params: ProxyRemoveParams, result: ProxyRemoveResult },
+  // ---- main (v1.5, Phase 10): bundled media toolkit management ----
+  "toolkit.getStatus": { server: "main", params: ToolkitGetStatusParams, result: ToolkitGetStatusResult },
+  "toolkit.ensureAll": { server: "main", params: ToolkitEnsureAllParams, result: ToolkitEnsureAllResult },
+  "toolkit.ensure": { server: "main", params: ToolkitEnsureParams, result: ToolkitEnsureResult },
+  "toolkit.cancel": { server: "main", params: ToolkitCancelParams, result: ToolkitCancelResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;
 
 export type MethodName = keyof typeof METHODS;

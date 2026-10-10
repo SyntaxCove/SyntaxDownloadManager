@@ -39,6 +39,9 @@ export const AppSettings = z.object({
     .regex(/^([01]\d|2[0-3]):[0-5]\d/, "must be HH:MM (24h)")
     .optional()
     .default("00:00"),
+  // ---- v1.5 (Phase 10): bundled media toolkit ----
+  /** false: missing/failed media tools are NOT fetched automatically at startup. */
+  mediaToolsAutoFetch: z.boolean().optional().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -54,6 +57,7 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   scheduleEnabled: false,
   scheduleStart: "00:00",
   scheduleEnd: "00:00",
+  mediaToolsAutoFetch: true,
 });
 
 export const SettingsGetParams = z.object({});
