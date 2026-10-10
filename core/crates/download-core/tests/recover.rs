@@ -49,6 +49,7 @@ fn params(url: String, dir: &Path, checksum: Option<ChecksumSpec>) -> CreateJobP
         overwrite: false,
         headers: None,
         checksum,
+        proxy_profile_id: None,
     }
 }
 

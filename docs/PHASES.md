@@ -36,7 +36,7 @@
 | 6 | Segmented multi-connection engine, per-segment journal, integrity (checksums) | delivered (2026-10-07) |
 | 7 | Recovery engine v2 — source re-acquisition, multi-signal revalidation, rebind, gap-fill | delivered (2026-10-08) |
 | 8 | Queue, scheduler policies, concurrency and bandwidth management | delivered (2026-10-08) |
-| 9 | Proxy engine — profiles, per-tab / per-job routing | pending |
+| 9 | Proxy engine — profiles, per-tab / per-job routing | delivered (2026-10-10) |
 | 10 | Bundled media toolkit — pinned FFmpeg / yt-dlp / Deno fetch + version manifest | pending |
 | 11 | Media inspector / extractor — `media.inspect`, manifests | pending |
 | 12 | Media download & merge pipeline (video/audio/subtitle mux) | pending |

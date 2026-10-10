@@ -148,3 +148,56 @@ Stage Summary:
   pauses auto-started runs (never user-started ones), and global + per-job token-bucket
   bandwidth caps applied live in the Rust core. Contracts v1.3.0, storage v4.
 - Next: Phase 9 (proxy engine — profiles, per-tab / per-job routing) per docs/PHASES.md.
+
+---
+Task ID: 9
+Agent: main
+Task: Phase 9 — proxy engine (profiles, per-tab / per-job routing)
+
+Work Log:
+- Baseline repair first: sandbox reset had wiped the Rust toolchain again (rustup
+  reinstalled, contracts rebuilt); verified the Phase 0-8 gate green (cargo 93 /
+  vitest 84 / typecheck / build) before planning. Also routed the workspace scripts
+  through npm (bun re-evaluates `npm run --workspaces` recursively).
+- Plan: docs/phase-9-plan.md — secret lifecycle (keychain at rest, runtime push to the
+  core, fail-closed routing), contract v1.4.0 additive set, per-profile tab partitions,
+  bypass subset semantics, test plan + gate.
+- Contracts: ProxyProfileInput/Public(redacted)/Endpoint; proxy.list/create/update/remove
+  (main) + proxy.setRuntime/proxy.test (core); download.create.proxyProfileId +
+  download.setProxy; BrowserTab/TabCreateParams.proxyProfileId + browser.tab.setProxy;
+  3 append-only error codes (proxy_keychain_unavailable / proxy_profile_not_found /
+  proxy_in_use); fixtures proxyProfile + downloadJobProxied (paused fail-closed state).
+- Core: proxy.rs (RuntimeProxy, ProxyMap full-replace, proxy_url with encoded userinfo,
+  host_matches_bypass matrix); engine client_for_job resolves the run client BEFORE any
+  I/O — missing runtime profile PAUSES the run with proxy_profile_not_found (never
+  direct-fallback), same fail-closed path in recover(); per-run reqwest client with
+  Proxy::all + basic_auth (socks feature added to pinned reqwest); manager set_runtime_
+  proxies/set_job_proxy(active-run guard)/test_proxy; server arms; storage v5
+  (jobs.proxy_profile_id only — no credential column).
+- Main: ProxyProfileStore (proxy-profiles.json atomic + quarantine; safeStorage
+  enc:v1 ciphertext at rest; keychain-unavailable refuses to save; redaction everywhere;
+  never-log) + registerProxyDomain (remove guarded by core job count -> proxy_in_use,
+  core_unavailable fail-closed); TabManager per-profile persistent partitions with
+  fixed-server rules + session login handler (typed as generic emitter — Electron typings
+  expose session 'login' only there), browser.tab.setProxy recreates the view on the
+  target partition; main.ts pushes the runtime set at ready / mutations / restarts.
+- Renderer: proxy store + Proxy page (editor dialog, test with latency/exitIP, guarded
+  delete), nav entry; DownloadsPage proxy select on create + per-job set-proxy dialog +
+  proxy badge + proxy_profile_not_found hint; BrowsePage proxied-new-tab menu + tab badge.
+- Fixed during Test/Fix: reqwest basic_auth(&str,&str) + touch(&mut) borrow errors;
+  fixture speedLimitKBps null vs nullish wire rule (removed from proxied fixture);
+  non_snake_case bypassList -> bypass_list + serde rename; clippy err_expect; Phase 8
+  downloads-store fixture missing proxyProfileId (contract parse caught it); ULID-valid
+  ids in mocks; noUncheckedIndexedAccess in tests; Menu placement prop unsupported.
+- Verification gate: cargo fmt/clippy clean, cargo test 107 passed (was 93), vitest
+  108 passed (was 84), typecheck x4 clean, vite build green. Commit: phase(9).
+  Report: docs/phase-9-report.md.
+
+Stage Summary:
+- Proxy profiles are now first-class: keychain-backed secrets that never reach the
+  renderer, disk-in-plaintext, or logs; per-download routing with fail-closed pause
+  semantics (a missing profile pauses, bytes stay, resume completes after re-push);
+  per-tab Chromium partitions with proxy-auth handling and identity-scoped cookies;
+  deletion guarded by live job usage. Contracts v1.4.0, storage v5.
+- Next: Phase 10 (bundled media toolkit — pinned FFmpeg/yt-dlp/Deno fetch + version
+  manifest) per docs/PHASES.md.

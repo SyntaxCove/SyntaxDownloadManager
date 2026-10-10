@@ -32,6 +32,7 @@ function jobFixture(overrides: Partial<DownloadJob> = {}): DownloadJob {
     recoveryCount: null,
     reboundAt: null,
     queuePosition: null,
+    proxyProfileId: null,
     createdAt: 1700000000000,
     updatedAt: 1700000000000,
     ...overrides,

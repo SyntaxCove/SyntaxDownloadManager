@@ -1,22 +1,33 @@
 import type { BrowserWindow } from "electron";
-import { EVENTS, METHODS, type BrowserTab } from "@unidm/contracts";
+import { EVENTS, METHODS, UniDmError, type BrowserTab } from "@unidm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
-import { TabManager } from "./tab-manager.js";
+import { TabManager, type ProxyResolver } from "./tab-manager.js";
 import { normalizeUrlInput } from "./url-input.js";
 
 /**
  * Browser domain registration. All tab mutations happen in the main process; the renderer
  * owns layout (it reports the viewport rect) and receives tab state exclusively through
  * browser.tab.updated / browser.tab.closed events — no polling.
+ *
+ * Phase 9: `proxyContext` validates profile ids and resolves proxy sessions. Requests
+ * naming an unknown profile are refused (fail-closed) instead of silently going direct.
  */
 export function registerBrowserDomain(
   router: IpcRouter,
   getWindow: () => BrowserWindow | undefined,
+  proxyContext?: { resolveProxy: ProxyResolver; hasProfile: (id: string) => boolean },
 ): TabManager {
+  const resolver: ProxyResolver = proxyContext?.resolveProxy ?? (async () => null);
   const manager = new TabManager(getWindow, {
     onUpdated: (tab) => router.emit("browser.tab.updated", EVENTS["browser.tab.updated"].payload, { tab }),
     onClosed: (id) => router.emit("browser.tab.closed", EVENTS["browser.tab.closed"].payload, { id }),
-  });
+  }, resolver);
+
+  const assertProfile = (id: string | null | undefined): void => {
+    if (id && !(proxyContext?.hasProfile(id) ?? false)) {
+      throw new UniDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
+    }
+  };
 
   const resultJob = (tab: BrowserTab | null) => {
     if (!tab) throw Object.assign(new Error("tab not found"), { code: "invalid_state" });
@@ -27,12 +38,13 @@ export function registerBrowserDomain(
     paramsSchema: METHODS["browser.tab.create"].params,
     resultSchema: METHODS["browser.tab.create"].result,
     handler: async (params) => {
-      const p = params as { url?: string; activate?: boolean };
+      const p = params as { url?: string; activate?: boolean; proxyProfileId?: string | null };
+      assertProfile(p.proxyProfileId);
       const requested = p.url ? normalizeUrlInput(p.url) : { url: "about:blank" as const, kind: "url" as const };
       if (p.url && requested.url === null) {
         throw Object.assign(new Error("url rejected by browser policy"), { code: "url_invalid" });
       }
-      return { tab: manager.create({ url: requested.url ?? undefined, activate: p.activate }) };
+      return { tab: await manager.create({ url: requested.url ?? undefined, activate: p.activate, proxyProfileId: p.proxyProfileId }) };
     },
   });
 
@@ -92,6 +104,17 @@ export function registerBrowserDomain(
     handler: async (params) => {
       const { id, muted } = params as { id: string; muted: boolean };
       return resultJob(manager.setMuted(id, muted));
+    },
+  });
+
+  router.handle("browser.tab.setProxy", {
+    paramsSchema: METHODS["browser.tab.setProxy"].params,
+    resultSchema: METHODS["browser.tab.setProxy"].result,
+    handler: async (params) => {
+      const { id, proxyProfileId } = params as { id: string; proxyProfileId: string | null };
+      assertProfile(proxyProfileId);
+      const tab = await manager.setProxy(id, proxyProfileId);
+      return resultJob(tab);
     },
   });
 

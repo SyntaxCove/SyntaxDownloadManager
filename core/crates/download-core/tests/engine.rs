@@ -38,6 +38,7 @@ fn params(url: String, dir: &Path, headers: Option<HashMap<String, String>>) -> 
         overwrite: false,
         headers,
         checksum: None,
+        proxy_profile_id: None,
     }
 }
 
@@ -189,6 +190,7 @@ async fn pause_stops_the_stream_and_resume_completes() {
             overwrite: false,
             headers: None,
             checksum: None,
+            proxy_profile_id: None,
         })
         .await
         .unwrap();

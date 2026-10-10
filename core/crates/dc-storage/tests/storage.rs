@@ -31,6 +31,7 @@ fn sample_job(id: &str, status: &str) -> DownloadJob {
         rebound_at: None,
         queue_position: None,
         speed_limit_kbps: None,
+        proxy_profile_id: None,
         created_at: 1735689600000,
         updated_at: 1735689600000,
     }
@@ -48,8 +49,8 @@ fn applies_migrations_once_and_reports_version() {
     let db = dir.join("jobs.db");
     let store = JobStore::open(&db).unwrap();
     assert!(
-        store.schema_version().unwrap() >= 4,
-        "v4 (queue + bandwidth columns) applied"
+        store.schema_version().unwrap() >= 5,
+        "v5 (proxy routing column) applied"
     );
     drop(store);
     let store2 = JobStore::open(&db).unwrap();
@@ -203,6 +204,31 @@ fn data_survives_reopen() {
         let job = store.get_job(&id).unwrap().unwrap();
         assert_eq!(job.status, "paused");
     }
+}
+
+#[test]
+fn proxy_profile_id_round_trips_and_stays_null_safe() {
+    // v5 (Phase 9): the routing profile id persists with the row; credentials never do.
+    let store = JobStore::open_in_memory().unwrap();
+    let id = valid_ulid(3);
+
+    let mut job = sample_job(&id, "paused");
+    job.proxy_profile_id = Some("01K33R2VQ7M4X8N6P5T9W1Z3C4".into());
+    store.insert_job(&job).unwrap();
+    let read = store.get_job(&id).unwrap().unwrap();
+    assert_eq!(
+        read.proxy_profile_id.as_deref(),
+        Some("01K33R2VQ7M4X8N6P5T9W1Z3C4")
+    );
+
+    job.proxy_profile_id = None; // direct
+    store.update_job(&job).unwrap();
+    let read = store.get_job(&id).unwrap().unwrap();
+    assert!(read.proxy_profile_id.is_none());
+
+    // The storage layer has no column for proxy credentials by design.
+    let conn_phrase = format!("{:?}", store.list_jobs().unwrap());
+    assert!(!conn_phrase.contains("password"));
 }
 
 fn tempdir() -> PathBuf {

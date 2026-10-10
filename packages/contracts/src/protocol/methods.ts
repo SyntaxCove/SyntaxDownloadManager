@@ -7,15 +7,21 @@ import {
   DownloadQueueMoveParams, DownloadQueueMoveResult, DownloadStartAllParams,
   DownloadStartAllResult, DownloadPauseAllParams, DownloadPauseAllResult,
   DownloadSetSpeedLimitParams, DownloadSetSpeedLimitResult, DownloadSetPolicyParams,
-  DownloadSetPolicyResult,
+  DownloadSetPolicyResult, DownloadSetProxyParams, DownloadSetProxyResult,
 } from "../domain/download.js";
 import {
   TabCreateParams, TabCreateResult, TabIdParams, TabResult, TabNavigateParams,
   TabMuteParams, TabCloseResult, TabListParams, TabListResult,
+  TabSetProxyParams, TabSetProxyResult,
 } from "../domain/browser.js";
 import {
   SettingsGetParams, SettingsGetResult, SettingsSetAllParams, SettingsSetAllResult,
 } from "../domain/settings.js";
+import {
+  ProxyListParams, ProxyListResult, ProxyCreateParams, ProxyCreateResult,
+  ProxyUpdateParams, ProxyUpdateResult, ProxyRemoveParams, ProxyRemoveResult,
+  ProxySetRuntimeParams, ProxySetRuntimeResult, ProxyTestParams, ProxyTestResult,
+} from "../domain/proxy.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -68,6 +74,13 @@ export const METHODS = {
   "download.setSpeedLimit": { server: "core", params: DownloadSetSpeedLimitParams, result: DownloadSetSpeedLimitResult },
   /** Applied by main at startup, on settings changes and every 10 min (tz drift guard). */
   "download.setPolicy": { server: "core", params: DownloadSetPolicyParams, result: DownloadSetPolicyResult },
+  // ---- core (v1.4, Phase 9): proxy routing ----
+  /** Change the proxy profile a job routes through (null = direct). */
+  "download.setProxy": { server: "core", params: DownloadSetProxyParams, result: DownloadSetProxyResult },
+  /** Full replace of the core's in-memory runtime proxy map (main is the source of truth). */
+  "proxy.setRuntime": { server: "core", params: ProxySetRuntimeParams, result: ProxySetRuntimeResult },
+  /** GET a probe URL through the profile; returns latency + exit IP or a classified error. */
+  "proxy.test": { server: "core", params: ProxyTestParams, result: ProxyTestResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },
@@ -77,6 +90,8 @@ export const METHODS = {
   "browser.tab.forward": { server: "main", params: TabIdParams, result: TabResult },
   "browser.tab.reload": { server: "main", params: TabIdParams, result: TabResult },
   "browser.tab.setMuted": { server: "main", params: TabMuteParams, result: TabResult },
+  /** v1.4: move a tab onto a proxy profile (or back to direct); recreates the view. */
+  "browser.tab.setProxy": { server: "main", params: TabSetProxyParams, result: TabSetProxyResult },
   "browser.tab.list": { server: "main", params: TabListParams, result: TabListResult },
   /**
    * Renderer reports the content-area rect where browser tabs render (WebContentsView is an
@@ -95,6 +110,11 @@ export const METHODS = {
   },
   "settings.get": { server: "main", params: SettingsGetParams, result: SettingsGetResult },
   "settings.setAll": { server: "main", params: SettingsSetAllParams, result: SettingsSetAllResult },
+  // ---- main (v1.4, Phase 9): proxy profile management (passwords redacted on results) ----
+  "proxy.list": { server: "main", params: ProxyListParams, result: ProxyListResult },
+  "proxy.create": { server: "main", params: ProxyCreateParams, result: ProxyCreateResult },
+  "proxy.update": { server: "main", params: ProxyUpdateParams, result: ProxyUpdateResult },
+  "proxy.remove": { server: "main", params: ProxyRemoveParams, result: ProxyRemoveResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;
 
 export type MethodName = keyof typeof METHODS;

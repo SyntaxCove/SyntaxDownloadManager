@@ -72,8 +72,8 @@ fn parses_and_round_trips_segmented_job_fixture() {
 #[test]
 fn legacy_job_with_new_fields_serializes_nulls_not_omissions() {
     // The TS contract requires segmentCount / checksumActual / checksumVerified /
-    // recoveryCount / reboundAt / queuePosition to be PRESENT (nullable) on the wire;
-    // nullish fields (checksum provenance, per-job speed limit) stay absent.
+    // recoveryCount / reboundAt / queuePosition / proxyProfileId to be PRESENT (nullable)
+    // on the wire; nullish fields (checksum provenance, per-job speed limit) stay absent.
     let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let job: DownloadJob = serde_json::from_value(doc["downloadJob"].clone()).unwrap();
@@ -84,6 +84,7 @@ fn legacy_job_with_new_fields_serializes_nulls_not_omissions() {
     assert!(out.get("recoveryCount").is_some());
     assert!(out.get("reboundAt").is_some());
     assert!(out.get("queuePosition").is_some());
+    assert!(out.get("proxyProfileId").is_some());
     assert!(out.get("checksumAlgorithm").is_none());
     assert!(out.get("checksumExpected").is_none());
     assert!(out.get("speedLimitKBps").is_none());
@@ -103,5 +104,25 @@ fn parses_and_round_trips_queued_job_fixture() {
     assert_eq!(
         out, doc["downloadJobQueued"],
         "wire format divergence between TS and Rust (queued job)"
+    );
+}
+
+#[test]
+fn parses_and_round_trips_proxied_job_fixture() {
+    // v1.4 (Phase 9): proxyProfileId is always serialized; a paused job may carry the
+    // fail-closed proxy_profile_not_found code.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: DownloadJob = serde_json::from_value(doc["downloadJobProxied"].clone()).unwrap();
+    assert_eq!(job.status, "paused");
+    assert_eq!(
+        job.proxy_profile_id.as_deref(),
+        Some("01K33R2VQ7M4X8N6P5T9W1Z3C4")
+    );
+    assert_eq!(job.error_code.as_deref(), Some("proxy_profile_not_found"));
+    let out: serde_json::Value = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        out, doc["downloadJobProxied"],
+        "wire format divergence between TS and Rust (proxied job)"
     );
 }

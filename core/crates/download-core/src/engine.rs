@@ -40,6 +40,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::proxy::{host_matches_bypass, host_of, proxy_url, ProxyMap, RuntimeProxy};
 use crate::rate_limit::Bucket;
 use crate::recover::{classify_source_failure, revalidate, RevalidateVerdict, SourceSignals};
 use crate::segments::{
@@ -76,6 +77,8 @@ pub struct CreateJobParams {
     pub overwrite: bool,
     pub headers: Option<HashMap<String, String>>,
     pub checksum: Option<ChecksumSpec>,
+    /// v1.4 (Phase 9): proxy profile this job routes through (None = direct).
+    pub proxy_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -188,6 +191,8 @@ pub struct Engine {
     global_bucket: Arc<Bucket>,
     /// Per-job bandwidth buckets, live while a run is active (0 = unlimited).
     job_buckets: Mutex<HashMap<String, Arc<Bucket>>>,
+    /// Runtime proxy endpoints pushed by main (v1.4); secrets stay in memory only.
+    proxies: ProxyMap,
 }
 
 impl Engine {
@@ -204,7 +209,13 @@ impl Engine {
             max_connections: Arc::new(AtomicU64::new(4)),
             global_bucket: Bucket::new(0),
             job_buckets: Mutex::new(HashMap::new()),
+            proxies: ProxyMap::new(),
         }
+    }
+
+    /// Full replace of the runtime proxy map (main is the single source of truth).
+    pub fn set_runtime_proxies(&self, profiles: Vec<RuntimeProxy>) {
+        self.proxies.replace(profiles);
     }
 
     /// Connections per download (segmentation ceiling); clamped to the contract range.
@@ -245,6 +256,134 @@ impl Engine {
             .lock()
             .expect("job_buckets mutex poisoned")
             .remove(id);
+    }
+
+    /// The HTTP client a job's run must use (v1.4 proxy routing).
+    ///
+    /// Resolution order: no profile → the shared direct client; profile present →
+    /// resolve in the runtime map (missing → `proxy_profile_not_found`, fail-closed);
+    /// the job URL's host in the profile's bypass list → direct; otherwise build a
+    /// per-run client with the proxy + basic auth (scheme http/https/socks5).
+    fn client_for_job(&self, job: &DownloadJob) -> Result<reqwest::Client, ContractError> {
+        let Some(profile_id) = job.proxy_profile_id.as_deref() else {
+            return Ok(self.client.clone());
+        };
+        let profile = self
+            .proxies
+            .get(profile_id)
+            .ok_or_else(|| {
+                ContractError::new(
+                    ErrorCode::ProxyProfileNotFound,
+                    format!(
+                        "proxy profile {profile_id} is not available; resume after main re-pushes the runtime set"
+                    ),
+                )
+            })?;
+        let direct = self.client.clone();
+        let Some(url_host) = host_of(&job.url) else {
+            return Ok(direct);
+        };
+        if host_matches_bypass(&url_host, 0, &profile.bypass_list) {
+            return Ok(direct);
+        }
+        let endpoint = proxy_url(&profile)?;
+        let mut proxy = reqwest::Proxy::all(&endpoint).map_err(|e| {
+            ContractError::new(ErrorCode::InvalidParams, format!("proxy endpoint: {e}"))
+        })?;
+        if profile.username.is_some() || profile.password.is_some() {
+            proxy = proxy.basic_auth(
+                profile.username.as_deref().unwrap_or_default(),
+                profile.password.as_deref().unwrap_or_default(),
+            );
+        }
+        reqwest::Client::builder()
+            .user_agent(concat!("UniDM/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(20))
+            .proxy(proxy)
+            .build()
+            .map_err(|e| ContractError::new(ErrorCode::InvalidParams, format!("proxy client: {e}")))
+    }
+
+    /// Connectivity probe through a runtime profile (v1.4 `proxy.test`).
+    pub async fn test_proxy(
+        &self,
+        profile_id: &str,
+        url_override: Option<&str>,
+    ) -> Result<serde_json::Value, ContractError> {
+        let profile = self.proxies.get(profile_id).ok_or_else(|| {
+            ContractError::new(
+                ErrorCode::ProxyProfileNotFound,
+                format!("proxy profile {profile_id} is not available"),
+            )
+        })?;
+        let probe_url = match url_override {
+            Some(u) => {
+                if !u.starts_with("http://") && !u.starts_with("https://") {
+                    return Err(ContractError::new(
+                        ErrorCode::UrlInvalid,
+                        "probe url must be http(s)",
+                    ));
+                }
+                u.to_string()
+            }
+            None => "https://api.ipify.org".to_string(),
+        };
+        let endpoint = proxy_url(&profile)?;
+        let mut proxy = reqwest::Proxy::all(&endpoint).map_err(|e| {
+            ContractError::new(ErrorCode::InvalidParams, format!("proxy endpoint: {e}"))
+        })?;
+        if profile.username.is_some() || profile.password.is_some() {
+            proxy = proxy.basic_auth(
+                profile.username.as_deref().unwrap_or_default(),
+                profile.password.as_deref().unwrap_or_default(),
+            );
+        }
+        let client = reqwest::Client::builder()
+            .user_agent(concat!("UniDM/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(12))
+            .timeout(Duration::from_secs(12))
+            .proxy(proxy)
+            .build()
+            .map_err(|e| {
+                ContractError::new(ErrorCode::InternalError, format!("proxy client: {e}"))
+            })?;
+
+        let started = std::time::Instant::now();
+        match client.get(&probe_url).send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let latency = started.elapsed().as_millis() as u64;
+                if !resp.status().is_success() {
+                    return Ok(serde_json::json!({
+                        "ok": false, "latencyMs": latency, "exitIp": null,
+                        "status": status, "errorCode": "http_error"
+                    }));
+                }
+                // Read at most 64 bytes — enough for an IP echo, bounded by contract.
+                let body: Vec<u8> = resp
+                    .bytes()
+                    .await
+                    .map(|b| b.slice(..b.len().min(64)).to_vec())
+                    .unwrap_or_default();
+                let exit_ip = String::from_utf8_lossy(&body).trim().to_string();
+                Ok(serde_json::json!({
+                    "ok": true, "latencyMs": latency,
+                    "exitIp": if exit_ip.is_empty() { None } else { Some(exit_ip) },
+                    "status": status, "errorCode": null
+                }))
+            }
+            Err(e) => {
+                let code = if e.is_timeout() || e.is_connect() {
+                    "network_error"
+                } else {
+                    "http_error"
+                };
+                Ok(serde_json::json!({
+                    "ok": false, "latencyMs": null, "exitIp": null,
+                    "status": e.status().map(|s| s.as_u16()), "errorCode": code
+                }))
+            }
+        }
     }
 
     pub fn emit_job(&self, job: &DownloadJob) {
@@ -311,6 +450,7 @@ impl Engine {
             rebound_at: None,
             queue_position: None,
             speed_limit_kbps: None,
+            proxy_profile_id: params.proxy_profile_id.clone(),
             created_at: ts,
             updated_at: ts,
         };
@@ -334,10 +474,25 @@ impl Engine {
             Err(err) => {
                 if !stop.is_cancelled() {
                     let cerr = err.to_contract();
-                    tracing::warn!(job = %job.id, error = %cerr, "job failed");
-                    set_error(&mut job, &cerr);
-                    if self.store.update_job(&job).is_ok() {
-                        self.emit_job(&job);
+                    if cerr.code == ErrorCode::ProxyProfileNotFound {
+                        // v1.4 fail-closed: the profile is gone from the runtime map — the job
+                        // PAUSES (recoverable by resume once main re-pushes), never fails and
+                        // never falls back to a direct connection (that would leak the real IP).
+                        tracing::warn!(job = %job.id, error = %cerr, "job paused: proxy unavailable");
+                        job.status = "paused".into();
+                        job.error_code = Some(cerr.code.as_str().into());
+                        job.speed_bps = None;
+                        job.eta_seconds = None;
+                        touch(&mut job);
+                        if self.store.update_job(&job).is_ok() {
+                            self.emit_job(&job);
+                        }
+                    } else {
+                        tracing::warn!(job = %job.id, error = %cerr, "job failed");
+                        set_error(&mut job, &cerr);
+                        if self.store.update_job(&job).is_ok() {
+                            self.emit_job(&job);
+                        }
                     }
                 }
             }
@@ -361,6 +516,9 @@ impl Engine {
         let mut part_total = job.total_bytes;
         let mut part_content_type = job.content_type.clone();
 
+        // ---- proxy routing (v1.4, fail-closed BEFORE any network I/O) ----
+        let client = self.client_for_job(job)?;
+
         // ---- probing ----
         job.status = "probing".into();
         // Leaving the queue: the slot is consumed, the position is released.
@@ -371,7 +529,7 @@ impl Engine {
 
         let mut probe = tokio::select! {
             _ = stop.cancelled() => return Ok(()),
-            r = self.probe(job) => r?,
+            r = self.probe(job, &client) => r?,
         };
 
         // ---- destination resolution (once; the part file is bound to this path) ----
@@ -567,7 +725,7 @@ impl Engine {
                 let row = journal[idx].clone();
                 tasks.spawn(Self::run_segment(
                     self.store.clone(),
-                    self.client.clone(),
+                    client.clone(),
                     job.clone(),
                     idx,
                     *window,
@@ -688,7 +846,7 @@ impl Engine {
                 job.status = "probing".into();
                 touch(job);
                 self.store.update_job(job)?;
-                probe = self.probe(job).await?;
+                probe = self.probe(job, &client).await?;
                 job.total_bytes = probe.total_bytes;
                 job.etag = probe.etag.clone();
                 job.last_modified = probe.last_modified.clone();
@@ -777,6 +935,24 @@ impl Engine {
     /// `source_gone` / `source_forbidden` / `network_error` / `http_error` — for the UI to
     /// act on). Only storage/IO faults propagate as Err.
     pub async fn recover(&self, job: &mut DownloadJob) -> Result<(), EngineError> {
+        // Fail-closed proxy resolution (v1.4): an unavailable profile pauses the recovery
+        // cycle with an actionable code instead of probing direct (which would leak the IP).
+        let client = match self.client_for_job(job) {
+            Ok(c) => c,
+            Err(cerr) if cerr.code == ErrorCode::ProxyProfileNotFound => {
+                tracing::warn!(job = %job.id, error = %cerr, "recovery paused: proxy unavailable");
+                job.status = "paused".into();
+                job.error_code = Some(cerr.code.as_str().into());
+                job.speed_bps = None;
+                job.eta_seconds = None;
+                touch(job);
+                let _ = self.store.update_job(job);
+                self.emit_job(job);
+                return Ok(());
+            }
+            Err(e) => return Err(EngineError::Contract(e)),
+        };
+
         job.status = "probing".into();
         job.speed_bps = None;
         job.eta_seconds = None;
@@ -784,7 +960,7 @@ impl Engine {
         self.store.update_job(job)?;
         self.emit_job(job);
 
-        let probe = match self.probe(job).await {
+        let probe = match self.probe(job, &client).await {
             Ok(probe) => probe,
             Err(err) => {
                 let cerr = err.to_contract();
@@ -1287,9 +1463,12 @@ impl Engine {
         }
     }
 
-    async fn probe(&self, job: &DownloadJob) -> Result<Probe, EngineError> {
-        let mut request = self
-            .client
+    async fn probe(
+        &self,
+        job: &DownloadJob,
+        client: &reqwest::Client,
+    ) -> Result<Probe, EngineError> {
+        let mut request = client
             .get(&job.url)
             .header(reqwest::header::RANGE, "bytes=0-0");
         if let Some(headers) = &job.headers {

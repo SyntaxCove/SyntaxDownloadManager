@@ -48,9 +48,19 @@ export function subscribeBrowserEvents(): void {
 
 // ---- actions (RPC) ----
 
-export async function createTab(url?: string): Promise<void> {
-  const { tab } = await rpc("browser.tab.create", { url, activate: true });
+export async function createTab(url?: string, proxyProfileId?: string | null): Promise<void> {
+  const { tab } = await rpc("browser.tab.create", {
+    url,
+    activate: true,
+    ...(proxyProfileId ? { proxyProfileId } : {}),
+  });
   useBrowserStore.getState().upsertTab(tab);
+}
+
+/** Phase 9: move a tab onto a proxy profile (or back to direct); main recreates the view. */
+export async function setTabProxy(id: string, proxyProfileId: string | null): Promise<void> {
+  const { tab } = await rpc("browser.tab.setProxy", { id, proxyProfileId });
+  if (tab) useBrowserStore.getState().upsertTab(tab);
 }
 
 export async function closeTab(id: string): Promise<void> {

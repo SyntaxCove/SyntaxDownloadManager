@@ -100,6 +100,9 @@ export const DownloadJob = z.object({
   queuePosition: z.number().int().nonnegative().nullable(),
   /** Per-job bandwidth cap in KiB/s; omitted = unlimited (0 also means unlimited). */
   speedLimitKBps: z.number().int().min(0).nullish(),
+  // ---- v1.4 (Phase 9): proxy routing ----
+  /** Proxy profile the job routes through; null = direct (always serialized). */
+  proxyProfileId: z.string().nullable(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });
@@ -117,6 +120,8 @@ export const DownloadCreateParams = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   /** v1.1: expected file checksum — the engine verifies the download before declaring completion. */
   checksum: Checksum.optional(),
+  /** v1.4: proxy profile to route through; omitted/null = direct. */
+  proxyProfileId: Ulid.nullish(),
 });
 export type DownloadCreateParams = z.infer<typeof DownloadCreateParams>;
 
@@ -184,6 +189,20 @@ export const DownloadSetSpeedLimitParams = z.object({
 });
 export const DownloadSetSpeedLimitResult = z.object({ job: DownloadJob });
 export type DownloadSetSpeedLimitResult = z.infer<typeof DownloadSetSpeedLimitResult>;
+
+// ---- v1.4 (Phase 9): per-job proxy routing ----
+
+/**
+ * Change the proxy profile a job routes through. Refused with `invalid_state` while the job
+ * is probing/downloading; a run whose profile is missing from the runtime map pauses with
+ * `proxy_profile_not_found` (fail-closed — never a silent direct fallback).
+ */
+export const DownloadSetProxyParams = z.object({
+  id: Ulid,
+  proxyProfileId: Ulid.nullable(),
+});
+export const DownloadSetProxyResult = z.object({ job: DownloadJob });
+export type DownloadSetProxyResult = z.infer<typeof DownloadSetProxyResult>;
 
 /** Engine operating policy, pushed by main at startup / on settings changes / every 10 min. */
 export const ScheduleMode = z.enum(["always", "window"]);

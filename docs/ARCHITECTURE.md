@@ -50,13 +50,23 @@ development). No AI features. Data integrity first.
 - **Security**: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, strict
   permission handlers, CSP for the renderer, zod runtime validation on every IPC boundary.
 - **Versioning**: protocol envelopes carry `v`; contract mismatches fail fast at startup.
+- **Proxy routing (Phase 9)**: proxy profiles persist in Electron main only — passwords are
+  safeStorage ciphertext at rest (`enc:v1:`), redacted (`null`) to the renderer and never
+  logged. Main pushes the decrypted runtime set to the core via `proxy.setRuntime` (memory
+  only; re-pushed after every core restart). Jobs persist only `proxy_profile_id` (storage
+  v5): a run whose profile is missing from the runtime map **pauses** with
+  `proxy_profile_not_found` — never a silent direct fallback (that would leak the real IP).
+  Tabs route through dedicated `persist:proxy.<profileId>` sessions with fixed-server rules
+  and a `login` handler answering proxy auth challenges; credentials are never embedded in
+  Chromium rules. Bypass lists use a documented subset (`<local>`, exact host, `.domain`,
+  `*.domain`, optional `:port`) with identical semantics on both sides.
 
 ## Directory map
 
 ```
 packages/contracts     TS contracts (zod schemas + inferred types) + fixtures
 apps/desktop
-  src/main             Electron main process (router, tab manager, supervisor, settings)
+  src/main             Electron main process (router, tab manager, supervisor, settings, proxy profiles)
   src/preload          contextBridge exposing the typed window.unidm API
   src/renderer         React app (Fluent UI v9, Zustand stores, views)
 core/                  Rust workspace

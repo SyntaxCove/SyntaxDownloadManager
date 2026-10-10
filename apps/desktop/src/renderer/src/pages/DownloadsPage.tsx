@@ -7,9 +7,11 @@ import {
   DialogContent,
   DialogSurface,
   DialogTitle,
+  Dropdown,
   Input,
   MessageBar,
   MessageBarBody,
+  Option,
   ProgressBar,
   Spinner,
   Text,
@@ -31,9 +33,11 @@ import {
   ShieldCheckmarkRegular,
   ShieldErrorRegular,
   TopSpeedRegular,
+  GlobeShieldRegular,
 } from "@fluentui/react-icons";
 import { useDownloadsStore, compareQueueDisplay, type CoreStatus } from "../stores/downloads.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useProxyStore } from "../stores/proxy.js";
 import type { DownloadJob, QueueDirection } from "@unidm/contracts";
 
 /** Downloads page: create-by-URL, live progress, and lifecycle controls per job. */
@@ -98,6 +102,7 @@ const RECOVERY_HINT: Partial<Record<string, string>> = {
   source_changed: "Source changed repeatedly — Recover, or replace the URL.",
   network_error: "Network failure — Recover once the connection is back.",
   http_error: "Server error — Recover to re-acquire the source.",
+  proxy_profile_not_found: "The proxy profile for this download is unavailable — it will resume once the profile is restored (Recover, or pick another proxy).",
 };
 
 export function DownloadsPage(): ReactNode {
@@ -118,20 +123,26 @@ export function DownloadsPage(): ReactNode {
   const startAll = useDownloadsStore((s) => s.startAll);
   const pauseAll = useDownloadsStore((s) => s.pauseAll);
   const setSpeedLimit = useDownloadsStore((s) => s.setSpeedLimit);
+  const setProxy = useDownloadsStore((s) => s.setProxy);
 
   const downloadDir = useSettingsStore((s) => s.settings?.downloadDir ?? "~/Downloads");
+  const proxyProfiles = useProxyStore((s) => s.profiles);
+  const loadProxies = useProxyStore((s) => s.load);
+  const proxyLoaded = useProxyStore((s) => s.loaded);
   const [url, setUrl] = useState("");
+  const [proxyChoice, setProxyChoice] = useState<string | null>(null); // null = direct
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loaded) void load().catch(() => undefined);
-  }, [loaded, load]);
+    if (!proxyLoaded) void loadProxies().catch(() => undefined);
+  }, [loaded, load, proxyLoaded, loadProxies]);
 
   const submit = (): void => {
     const trimmed = url.trim();
     if (!trimmed) return;
     setError(null);
-    create(trimmed, downloadDir).catch((e) => setError(String(e?.message ?? e)));
+    create(trimmed, downloadDir, proxyChoice).catch((e) => setError(String(e?.message ?? e)));
     setUrl("");
   };
 
@@ -160,6 +171,20 @@ export function DownloadsPage(): ReactNode {
           style={{ flex: 1 }}
           aria-label="Download URL"
         />
+        <Dropdown
+          value={proxyChoice ? (proxyProfiles.find((p) => p.id === proxyChoice)?.name ?? "Proxy") : "Direct"}
+          selectedOptions={proxyChoice ? [proxyChoice] : []}
+          onOptionSelect={(_, d) => setProxyChoice((d.optionValue as string) || null)}
+          style={{ minWidth: "140px" }}
+          aria-label="Proxy for this download"
+        >
+          <Option value="">Direct</Option>
+          {proxyProfiles.map((p) => (
+            <Option key={p.id} value={p.id}>
+              {p.name}
+            </Option>
+          ))}
+        </Dropdown>
         <Button appearance="primary" icon={<AddRegular />} onClick={submit} disabled={core !== "ready"}>
           Download
         </Button>
@@ -218,6 +243,9 @@ export function DownloadsPage(): ReactNode {
           onSetSpeedLimit={(kbps) =>
             setSpeedLimit(job.id, kbps).catch((e) => setError(String(e?.message ?? e)))
           }
+          onSetProxy={(pid) =>
+            setProxy(job.id, pid).catch((e) => setError(String(e?.message ?? e)))
+          }
         />
       ))}
       {jobs.length === 0 && loaded ? (
@@ -240,6 +268,7 @@ function JobCard(props: {
   onReplaceUrl: (url: string) => void;
   onQueueMove: (direction: QueueDirection) => void;
   onSetSpeedLimit: (kbps: number) => void;
+  onSetProxy: (proxyProfileId: string | null) => void;
 }): ReactNode {
   const styles = useStyles();
   const { job } = props;
@@ -247,12 +276,20 @@ function JobCard(props: {
   const finished = job.status === "completed";
   const progress = job.totalBytes ? Math.min(1, job.receivedBytes / job.totalBytes) : undefined;
   const failedOrStopped = job.status === "failed" || job.status === "canceled";
-  const hint = job.status === "failed" ? RECOVERY_HINT[job.errorCode ?? ""] : undefined;
+  const hint = job.status === "failed" || job.errorCode === "proxy_profile_not_found"
+    ? RECOVERY_HINT[job.errorCode ?? ""]
+    : undefined;
   const inQueue = job.status === "queued";
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replacementUrl, setReplacementUrl] = useState("");
   const [limitOpen, setLimitOpen] = useState(false);
   const [limitKbps, setLimitKbps] = useState(String(job.speedLimitKBps ?? 0));
+  const [proxyOpen, setProxyOpen] = useState(false);
+  const [proxyPick, setProxyPick] = useState<string | null>(job.proxyProfileId);
+  const proxyProfiles = useProxyStore((s) => s.profiles);
+  const proxyName = job.proxyProfileId
+    ? (proxyProfiles.find((p) => p.id === job.proxyProfileId)?.name ?? "unavailable")
+    : null;
 
   const submitReplace = (): void => {
     const trimmed = replacementUrl.trim();
@@ -335,6 +372,19 @@ function JobCard(props: {
               title="Cap this download's bandwidth (0 = unlimited)"
             />
           ) : null}
+          {!active ? (
+            <Button
+              appearance="subtle"
+              size="small"
+              icon={<GlobeShieldRegular />}
+              onClick={() => {
+                setProxyPick(job.proxyProfileId);
+                setProxyOpen(true);
+              }}
+              aria-label="Proxy"
+              title="Route this download through a proxy profile"
+            />
+          ) : null}
         </div>
       </div>
       <ProgressBar value={progress} shape="rounded" />
@@ -373,9 +423,54 @@ function JobCard(props: {
             · <TopSpeedRegular style={{ verticalAlign: -2 }} /> capped at {job.speedLimitKBps} KiB/s
           </Text>
         ) : null}
+        {proxyName ? (
+          <Text className={styles.meta} title="This download routes through a proxy profile">
+            · <GlobeShieldRegular style={{ verticalAlign: -2 }} /> proxy: {proxyName}
+          </Text>
+        ) : null}
         {job.errorCode ? <Text className={styles.meta}>· error: {job.errorCode}</Text> : null}
       </div>
       {hint ? <Text className={styles.meta}>{hint}</Text> : null}
+
+      <Dialog open={proxyOpen} onOpenChange={(_, d) => setProxyOpen(d.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Proxy for this download</DialogTitle>
+            <DialogContent>
+              <Text className={styles.meta} block>
+                Route this download through a proxy profile. Active downloads must be paused
+                first; changing the route keeps all downloaded bytes.
+              </Text>
+              <Dropdown
+                value={proxyPick ? (proxyProfiles.find((p) => p.id === proxyPick)?.name ?? "Proxy") : "Direct"}
+                selectedOptions={proxyPick ? [proxyPick] : []}
+                onOptionSelect={(_, d) => setProxyPick((d.optionValue as string) || null)}
+                style={{ width: "240px", marginTop: "8px" }}
+                aria-label="Proxy profile"
+              >
+                <Option value="">Direct</Option>
+                {proxyProfiles.map((p) => (
+                  <Option key={p.id} value={p.id}>
+                    {p.name}
+                  </Option>
+                ))}
+              </Dropdown>
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setProxyOpen(false)}>Cancel</Button>
+              <Button
+                appearance="primary"
+                onClick={() => {
+                  setProxyOpen(false);
+                  props.onSetProxy(proxyPick);
+                }}
+              >
+                Apply
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
 
       <Dialog open={replaceOpen} onOpenChange={(_, d) => setReplaceOpen(d.open)}>
         <DialogSurface>

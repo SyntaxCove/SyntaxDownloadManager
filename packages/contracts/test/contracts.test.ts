@@ -7,6 +7,8 @@ import {
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
   METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION, ErrorCodes,
   newUlid, ulidTime, normalizeUlid, Ulid, makeRequest, makeSuccess, makeError, makeEvent,
+  ProxyProfileInput, ProxyProfilePublic, ProxyEndpoint, ProxyTestResult, DownloadSetProxyParams,
+  TabSetProxyParams,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -285,7 +287,73 @@ describe("v1.3 queue + bandwidth policy (Phase 8)", () => {
     expect(AppSettings.safeParse({ scheduleEnd: "06:00" }).success).toBe(true);
   });
 
-  it("contract version advanced to 1.3.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.3.0");
+  it("contract version advanced to 1.4.0 (Phase 9 proxy routing is additive)", () => {
+    expect(CONTRACT_VERSION).toBe("1.4.0");
+  });
+});
+
+describe("v1.4 proxy routing (Phase 9)", () => {
+  const pid = domainFixture.proxyProfile.id;
+
+  it("parses the proxyProfile fixture and enforces redaction on the public shape", () => {
+    const pub_ = ProxyProfilePublic.parse(domainFixture.proxyProfile);
+    expect(pub_.password).toBeNull();
+    // A public profile carrying a secret is invalid — main must redact.
+    expect(ProxyProfilePublic.safeParse({ ...domainFixture.proxyProfile, password: "x" }).success)
+      .toBe(false);
+  });
+
+  it("input schema accepts secrets the public schema forbids", () => {
+    const input = { ...domainFixture.proxyProfile, password: "s3cret" };
+    expect(ProxyProfileInput.parse(input).password).toBe("s3cret");
+    delete (input as { password?: unknown }).password;
+    input.username = null;
+    input.password = null;
+    expect(ProxyProfileInput.safeParse(input).success).toBe(true);
+  });
+
+  it("parses the proxied-job fixture; existing jobs carry proxyProfileId null", () => {
+    const job = DownloadJob.parse(domainFixture.downloadJobProxied);
+    expect(job.proxyProfileId).toBe(pid);
+    expect(job.errorCode).toBe("proxy_profile_not_found");
+    expect(DownloadJob.parse(domainFixture.downloadJob).proxyProfileId).toBeNull();
+  });
+
+  it("ProxyEndpoint carries secrets for the main→core push only", () => {
+    const ep = ProxyEndpoint.parse({ ...domainFixture.proxyProfile, password: "pw" });
+    expect(ep.password).toBe("pw");
+    expect(ProxyEndpoint.safeParse({ ...domainFixture.proxyProfile, scheme: "ftp" }).success)
+      .toBe(false);
+  });
+
+  it("proxy.test result validates the latency/exitIp/status/errorCode shape", () => {
+    expect(ProxyTestResult.parse({ ok: true, latencyMs: 42, exitIp: "203.0.113.9", status: 200, errorCode: null }).ok)
+      .toBe(true);
+    expect(ProxyTestResult.parse({ ok: false, latencyMs: null, exitIp: null, status: null, errorCode: "network_error" }).ok)
+      .toBe(false);
+    expect(ProxyTestResult.safeParse({ ok: true, latencyMs: -1, exitIp: null, status: null, errorCode: null }).success)
+      .toBe(false);
+  });
+
+  it("registers the Phase 9 methods on the correct servers", () => {
+    for (const m of ["proxy.list", "proxy.create", "proxy.update", "proxy.remove", "browser.tab.setProxy"]) {
+      expect(METHODS[m as keyof typeof METHODS].server).toBe("main");
+    }
+    for (const m of ["download.setProxy", "proxy.setRuntime", "proxy.test"]) {
+      expect(METHODS[m as keyof typeof METHODS].server).toBe("core");
+    }
+  });
+
+  it("setProxy params accept null (direct) and reject junk", () => {
+    expect(DownloadSetProxyParams.safeParse({ id: newUlid(), proxyProfileId: null }).success).toBe(true);
+    expect(DownloadSetProxyParams.safeParse({ id: newUlid(), proxyProfileId: pid }).success).toBe(true);
+    expect(DownloadSetProxyParams.safeParse({ id: newUlid(), proxyProfileId: "" }).success).toBe(false);
+    expect(TabSetProxyParams.safeParse({ id: newUlid(), proxyProfileId: null }).success).toBe(true);
+  });
+
+  it("error codes stay append-only and gained the proxy codes", () => {
+    expect(ErrorCodes).toContain("proxy_keychain_unavailable");
+    expect(ErrorCodes).toContain("proxy_profile_not_found");
+    expect(ErrorCodes).toContain("proxy_in_use");
   });
 });

@@ -2,7 +2,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   Input,
+  Menu,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   Text,
+  Tooltip,
   makeStyles,
   tokens,
   Spinner,
@@ -13,8 +19,10 @@ import {
   ArrowRightRegular,
   DismissRegular,
   ArrowClockwiseRegular,
+  GlobeShieldRegular,
 } from "@fluentui/react-icons";
 import { useBrowserStore } from "../stores/browser.js";
+import { useProxyStore } from "../stores/proxy.js";
 import {
   activateTab, closeTab, createTab, goBack, goForward, navigateActiveTab,
   pushViewportBounds, reloadTab,
@@ -59,6 +67,13 @@ export function BrowsePage(): ReactNode {
   const tabs = useBrowserStore((s) => s.tabs);
   const activeTabId = useBrowserStore((s) => s.activeTabId);
   const active = tabs.find((t) => t.id === activeTabId) ?? null;
+  const proxyProfiles = useProxyStore((s) => s.profiles);
+  const proxyLoaded = useProxyStore((s) => s.loaded);
+  const loadProxies = useProxyStore((s) => s.load);
+
+  useEffect(() => {
+    if (!proxyLoaded) void loadProxies().catch(() => undefined);
+  }, [proxyLoaded, loadProxies]);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
@@ -96,36 +111,74 @@ export function BrowsePage(): ReactNode {
   return (
     <div className={styles.root}>
       <div className={styles.tabStrip} role="tablist" aria-label="Browser tabs">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            role="tab"
-            aria-selected={tab.id === activeTabId}
-            className={`${styles.tab} ${tab.id === activeTabId ? styles.tabActive : ""}`}
-            onClick={() => void activateTab(tab.id)}
-          >
-            <Text className={styles.tabTitle} title={tab.url}>
-              {tab.title || tab.url}
-              {tab.isLoading ? " …" : ""}
-            </Text>
-            <Button
-              appearance="subtle"
-              size="small"
-              icon={<DismissRegular />}
-              aria-label={`Close ${tab.title}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                void closeTab(tab.id);
-              }}
-            />
-          </div>
-        ))}
+        {tabs.map((tab) => {
+          const proxyName = tab.proxyProfileId
+            ? (proxyProfiles.find((p) => p.id === tab.proxyProfileId)?.name ?? "unavailable")
+            : null;
+          return (
+            <div
+              key={tab.id}
+              role="tab"
+              aria-selected={tab.id === activeTabId}
+              className={`${styles.tab} ${tab.id === activeTabId ? styles.tabActive : ""}`}
+              onClick={() => void activateTab(tab.id)}
+            >
+              {proxyName ? (
+                <Tooltip content={`Proxy: ${proxyName}`} relationship="label">
+                  <GlobeShieldRegular
+                    fontSize={14}
+                    style={{ color: tokens.colorPaletteBerryForeground1, flexShrink: 0 }}
+                    aria-label={`Proxied through ${proxyName}`}
+                  />
+                </Tooltip>
+              ) : null}
+              <Text className={styles.tabTitle} title={tab.url}>
+                {tab.title || tab.url}
+                {tab.isLoading ? " …" : ""}
+              </Text>
+              <Button
+                appearance="subtle"
+                size="small"
+                icon={<DismissRegular />}
+                aria-label={`Close ${tab.title}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void closeTab(tab.id);
+                }}
+              />
+            </div>
+          );
+        })}
         <Button
           appearance="subtle"
           icon={<AddRegular />}
           aria-label="New tab"
           onClick={() => void createTab()}
         />
+        {proxyProfiles.length > 0 ? (
+          <Menu>
+            <MenuTrigger disableButtonEnhancement>
+              <Button
+                appearance="subtle"
+                icon={<GlobeShieldRegular />}
+                aria-label="New proxied tab"
+                title="New tab through a proxy profile"
+              />
+            </MenuTrigger>
+            <MenuPopover>
+              <MenuList>
+                {proxyProfiles.map((p) => (
+                  <MenuItem
+                    key={p.id}
+                    onClick={() => void createTab(undefined, p.id).catch(() => undefined)}
+                  >
+                    New tab — {p.name}
+                  </MenuItem>
+                ))}
+              </MenuList>
+            </MenuPopover>
+          </Menu>
+        ) : null}
       </div>
 
       <div className={styles.navbar}>

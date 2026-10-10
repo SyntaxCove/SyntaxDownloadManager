@@ -56,6 +56,9 @@ const MIGRATIONS: &[&str] = &[
     // v4 (Phase 8): queue management + per-job bandwidth cap.
     "ALTER TABLE jobs ADD COLUMN queue_position INTEGER;
      ALTER TABLE jobs ADD COLUMN speed_limit_kbps INTEGER;",
+    // v5 (Phase 9): per-job proxy routing. Only the profile ID is persisted — credentials
+    // live in main's keychain-backed store and are pushed to the core's memory at runtime.
+    "ALTER TABLE jobs ADD COLUMN proxy_profile_id TEXT;",
 ];
 
 /// One journal row of the per-segment download state (Phase 6).
@@ -159,9 +162,9 @@ impl JobStore {
                                speed_bps, eta_seconds, error_code, headers_json, created_at, updated_at,
                                checksum_algorithm, checksum_expected, checksum_actual, checksum_verified,
                                segment_count, recovery_count, rebound_at,
-                               queue_position, speed_limit_kbps)
+                               queue_position, speed_limit_kbps, proxy_profile_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                     ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
             params![
                 job.id.as_str(),
                 job.url,
@@ -189,6 +192,7 @@ impl JobStore {
                 job.rebound_at,
                 job.queue_position.map(|v| v as i64),
                 job.speed_limit_kbps.map(|v| v as i64),
+                job.proxy_profile_id,
             ],
         )
         .map_err(wrap_sqlite("insert job"))?;
@@ -229,7 +233,7 @@ impl JobStore {
                         checksum_algorithm=?17, checksum_expected=?18, checksum_actual=?19,
                         checksum_verified=?20, segment_count=?21,
                         recovery_count=?22, rebound_at=?23,
-                        queue_position=?24, speed_limit_kbps=?25
+                        queue_position=?24, speed_limit_kbps=?25, proxy_profile_id=?26
                  WHERE id=?1",
                 params![
                     job.id.as_str(),
@@ -257,6 +261,7 @@ impl JobStore {
                     job.rebound_at,
                     job.queue_position.map(|v| v as i64),
                     job.speed_limit_kbps.map(|v| v as i64),
+                    job.proxy_profile_id,
                 ],
             )
             .map_err(wrap_sqlite("update job"))?;
@@ -435,6 +440,10 @@ fn job_from_row(row: &Row<'_>) -> rusqlite::Result<DownloadJob> {
             .ok()
             .flatten()
             .map(|v| v.max(0) as u64),
+        proxy_profile_id: row
+            .get::<_, Option<String>>("proxy_profile_id")
+            .ok()
+            .flatten(),
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })

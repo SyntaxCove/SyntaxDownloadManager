@@ -33,6 +33,10 @@ export const ErrorCodes = [
   "source_gone",
   "source_forbidden",
   "source_changed",
+  // proxy (v1.4, Phase 9) — append-only
+  "proxy_keychain_unavailable",
+  "proxy_profile_not_found",
+  "proxy_in_use",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

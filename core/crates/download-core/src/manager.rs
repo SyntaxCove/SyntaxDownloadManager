@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::{now_ms, CreateJobParams, Engine, EventsTx, JobCommand};
+use crate::proxy::RuntimeProxy;
 
 /// How often the queue re-evaluates the schedule window (transition detection).
 const POLICY_TICK_SECS: u64 = 30;
@@ -194,6 +195,49 @@ impl JobManager {
         self.store
             .get_job(id)?
             .ok_or_else(|| ContractError::new(ErrorCode::StorageError, "job vanished"))
+    }
+
+    /// Phase 9: full replace of the runtime proxy map (main is the source of truth;
+    /// credentials live in memory only and are never persisted by the core).
+    pub fn set_runtime_proxies(&self, profiles: Vec<RuntimeProxy>) {
+        self.engine.set_runtime_proxies(profiles);
+    }
+
+    /// Phase 9: change the proxy profile a job routes through (None = direct).
+    /// Refused while a run is active — mutating the route mid-run would splice bytes
+    /// from two different network identities into one file.
+    pub fn set_job_proxy(
+        &self,
+        id: &str,
+        profile_id: Option<String>,
+    ) -> Result<DownloadJob, ContractError> {
+        let mut job = self
+            .store
+            .get_job(id)?
+            .ok_or_else(|| ContractError::new(ErrorCode::InvalidState, "job not found"))?;
+        if matches!(job.status.as_str(), "probing" | "downloading") {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "cannot change the proxy of an active job",
+            ));
+        }
+        job.proxy_profile_id = profile_id;
+        job.updated_at = now_ms();
+        self.store.update_job(&job)?;
+        self.engine.emit_job(&job);
+        Ok(job)
+    }
+
+    /// Phase 9 `proxy.test`: GET a probe URL through a runtime profile; returns
+    /// latency + exit IP or a classified failure (never throws for network faults).
+    pub async fn test_proxy(
+        &self,
+        profile_id: &str,
+        url_override: Option<String>,
+    ) -> Result<serde_json::Value, ContractError> {
+        self.engine
+            .test_proxy(profile_id, url_override.as_deref())
+            .await
     }
 
     /// Phase 8: reorder a queued job within the queue (top/up/down/bottom).

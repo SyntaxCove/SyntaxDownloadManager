@@ -33,6 +33,10 @@ pub enum ErrorCode {
     SourceGone,
     SourceForbidden,
     SourceChanged,
+    // proxy (v1.4, Phase 9) — append-only
+    ProxyKeychainUnavailable,
+    ProxyProfileNotFound,
+    ProxyInUse,
 }
 
 impl ErrorCode {
@@ -59,6 +63,9 @@ impl ErrorCode {
             ErrorCode::SourceGone => "source_gone",
             ErrorCode::SourceForbidden => "source_forbidden",
             ErrorCode::SourceChanged => "source_changed",
+            ErrorCode::ProxyKeychainUnavailable => "proxy_keychain_unavailable",
+            ErrorCode::ProxyProfileNotFound => "proxy_profile_not_found",
+            ErrorCode::ProxyInUse => "proxy_in_use",
         }
     }
 }

@@ -54,6 +54,8 @@ struct CreateParams {
     overwrite: bool,
     headers: Option<std::collections::HashMap<String, String>>,
     checksum: Option<ChecksumParams>,
+    #[serde(rename = "proxyProfileId", default)]
+    proxy_profile_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +75,25 @@ struct QueueMoveParams {
 struct SetSpeedLimitParams {
     id: String,
     kbps: u64,
+}
+
+#[derive(Deserialize)]
+struct SetProxyParams {
+    id: String,
+    #[serde(rename = "proxyProfileId")]
+    proxy_profile_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SetRuntimeParams {
+    profiles: Vec<crate::proxy::RuntimeProxy>,
+}
+
+#[derive(Deserialize)]
+struct TestProxyParams {
+    #[serde(rename = "profileId")]
+    profile_id: String,
+    url: Option<String>,
 }
 
 pub type OutboundTx = mpsc::UnboundedSender<String>;
@@ -196,6 +217,7 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
                     overwrite: p.overwrite,
                     headers: p.headers,
                     checksum,
+                    proxy_profile_id: p.proxy_profile_id,
                 })
                 .await?;
             job_json(job)
@@ -258,6 +280,22 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             let p: SetPolicyParams = parse(&params)?;
             manager.set_policy(p).await;
             Ok(serde_json::json!({ "applied": true }))
+        }
+        // ---- Phase 9: proxy routing ----
+        "download.setProxy" => {
+            let p: SetProxyParams = parse(&params)?;
+            let job = manager.set_job_proxy(&p.id, p.proxy_profile_id)?;
+            job_json(job)
+        }
+        "proxy.setRuntime" => {
+            let p: SetRuntimeParams = parse(&params)?;
+            manager.set_runtime_proxies(p.profiles);
+            Ok(serde_json::json!({ "applied": true }))
+        }
+        "proxy.test" => {
+            let p: TestProxyParams = parse(&params)?;
+            let result = manager.test_proxy(&p.profile_id, p.url).await?;
+            Ok(result)
         }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;

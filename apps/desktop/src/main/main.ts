@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, safeStorage } from "electron";
 import { resolve, join } from "node:path";
 import { EVENTS } from "@unidm/contracts";
 import { IpcRouter } from "./ipc/router.js";
@@ -8,6 +8,7 @@ import { resolveAppPaths } from "./paths.js";
 import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
 import { registerDownloadDomain } from "./domains/download.js";
+import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
 import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
 
@@ -48,12 +49,19 @@ if (!gotLock) {
     await settingsStore.load();
     registerSettingsDomain(router, settingsStore);
 
+    // Phase 9: proxy profiles — keychain-backed secrets, redacted to the renderer.
+    const proxyStore = new ProxyProfileStore(app.getPath("userData"), safeStorage);
+    await proxyStore.load();
+
     bindElectronRpc(router, () => BrowserWindow.getAllWindows());
 
     createMainWindow(paths);
 
     const mainWindow = () => BrowserWindow.getAllWindows()[0];
-    const tabManager = registerBrowserDomain(router, mainWindow);
+    const tabManager = registerBrowserDomain(router, mainWindow, {
+      resolveProxy: (id) => proxyStore.resolveForTab(id),
+      hasProfile: (id) => proxyStore.has(id),
+    });
 
     // Rust download core: supervised subprocess owning the SQLite database.
     const supervisor = new CoreSupervisor({
@@ -63,11 +71,24 @@ if (!gotLock) {
       maxConnectionsPerDownload: settingsStore.settings.maxConnectionsPerDownload,
       log: (msg) => console.log(msg),
     });
+
+    // Phase 9: push the full resolved runtime proxy set to the core. Secrets cross this
+    // single boundary (main → core memory) and are re-pushed after core restarts.
+    const pushRuntimeProxies = (): void => {
+      void proxyStore
+        .runtimeEndpoints()
+        .then((profiles) => supervisor.request("proxy.setRuntime", { profiles }))
+        .catch(() => undefined); // core not ready yet — re-pushed on the ready transition
+    };
+
     supervisor.on("state", (status: string) => {
       // Broadcast lifecycle to every renderer (downloads page shows a banner).
       router.emit("core.state", EVENTS["core.state"].payload, { status });
+      // A (re)started core starts with an empty runtime proxy map — re-push after ready.
+      if (status === "ready") pushRuntimeProxies();
     });
     registerDownloadDomain(router, supervisor);
+    registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies);
     supervisor.start();
 
     // Push the concurrency settings to the core at startup and re-apply whenever the
@@ -96,6 +117,7 @@ if (!gotLock) {
       .then(() => {
         applyCoreLimits();
         applyCorePolicy();
+        pushRuntimeProxies();
       })
       .catch(() => undefined);
     router.onEvent((name) => {

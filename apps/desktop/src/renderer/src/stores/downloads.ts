@@ -23,7 +23,7 @@ interface DownloadsState {
     speedBps: number;
     etaSeconds: number | null;
   }) => void;
-  create: (url: string, destinationDir: string) => Promise<void>;
+  create: (url: string, destinationDir: string, proxyProfileId?: string | null) => Promise<void>;
   pause: (id: string) => Promise<void>;
   resume: (id: string) => Promise<void>;
   cancel: (id: string) => Promise<void>;
@@ -42,6 +42,8 @@ interface DownloadsState {
   pauseAll: () => Promise<number>;
   /** Phase 8: per-job bandwidth cap in KiB/s (0 = unlimited). */
   setSpeedLimit: (id: string, kbps: number) => Promise<void>;
+  /** Phase 9: change the proxy profile a job routes through (null = direct). */
+  setProxy: (id: string, proxyProfileId: string | null) => Promise<void>;
 }
 
 export const useDownloadsStore = create<DownloadsState>((set, get) => ({
@@ -72,8 +74,13 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
       ),
     })),
 
-  create: async (url, destinationDir) => {
-    const { job } = await rpc("download.create", { url, destinationDir, overwrite: false });
+  create: async (url, destinationDir, proxyProfileId) => {
+    const { job } = await rpc("download.create", {
+      url,
+      destinationDir,
+      overwrite: false,
+      ...(proxyProfileId ? { proxyProfileId } : {}),
+    });
     get().upsertJob(job);
   },
   pause: async (id) => {
@@ -124,6 +131,10 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
   },
   setSpeedLimit: async (id, kbps) => {
     const { job } = await rpc("download.setSpeedLimit", { id, kbps });
+    get().upsertJob(job);
+  },
+  setProxy: async (id, proxyProfileId) => {
+    const { job } = await rpc("download.setProxy", { id, proxyProfileId });
     get().upsertJob(job);
   },
 }));

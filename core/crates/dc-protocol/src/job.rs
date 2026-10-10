@@ -111,6 +111,10 @@ pub struct DownloadJob {
     /// Per-job bandwidth cap in KiB/s; omitted when unset (0 = unlimited).
     #[serde(rename = "speedLimitKBps", skip_serializing_if = "Option::is_none")]
     pub speed_limit_kbps: Option<u64>,
+    // ---- v1.4 (Phase 9): proxy routing ----
+    /// Proxy profile the job routes through; None = direct (always serialized).
+    #[serde(rename = "proxyProfileId")]
+    pub proxy_profile_id: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
     #[serde(rename = "updatedAt")]

@@ -20,7 +20,8 @@
     "updatedAt": 1735689900000,
     "recoveryCount": null,
     "reboundAt": null,
-    "queuePosition": null
+    "queuePosition": null,
+    "proxyProfileId": null
   },
   "downloadProgress": {
     "jobId": "01JD8W3G5XQ9V4M2K7PZ6N8S0T",
@@ -40,6 +41,7 @@
     "canGoForward": true,
     "isAudioMuted": false,
     "isAudible": false,
+    "proxyProfileId": null,
     "createdAt": 1735689600000
   },
   "appSettings": {
@@ -115,7 +117,8 @@
     "updatedAt": 1735689900000,
     "recoveryCount": null,
     "reboundAt": null,
-    "queuePosition": null
+    "queuePosition": null,
+    "proxyProfileId": null
   },
   "downloadJobRecovered": {
     "id": "01JD8W3G5XQ9V4M2K7PZ6N8S10",
@@ -140,7 +143,8 @@
     "updatedAt": 1735689900000,
     "recoveryCount": 2,
     "reboundAt": 1735689960000,
-    "queuePosition": null
+    "queuePosition": null,
+    "proxyProfileId": null
   },
   "downloadJobQueued": {
     "id": "01JD8W3G5XQ9V4M2K7PZ6N8S11",
@@ -163,7 +167,42 @@
     "reboundAt": null,
     "queuePosition": 2,
     "speedLimitKBps": 512,
+    "proxyProfileId": null,
     "createdAt": 1700000000000,
     "updatedAt": 1700000001000
+  },
+  "downloadJobProxied": {
+    "id": "01JD8W3G5XQ9V4M2K7PZ6N8S12",
+    "url": "https://example.com/files/update.zip",
+    "destinationDir": "/home/user/Downloads",
+    "destinationPath": null,
+    "status": "paused",
+    "totalBytes": 209715200,
+    "receivedBytes": 0,
+    "etag": null,
+    "lastModified": null,
+    "contentType": null,
+    "speedBps": null,
+    "etaSeconds": null,
+    "errorCode": "proxy_profile_not_found",
+    "segmentCount": null,
+    "checksumActual": null,
+    "checksumVerified": null,
+    "recoveryCount": null,
+    "reboundAt": null,
+    "queuePosition": null,
+    "proxyProfileId": "01K33R2VQ7M4X8N6P5T9W1Z3C4",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000002000
+  },
+  "proxyProfile": {
+    "id": "01K33R2VQ7M4X8N6P5T9W1Z3C4",
+    "name": "Office exit",
+    "scheme": "http",
+    "host": "proxy.example.com",
+    "port": 3128,
+    "username": "user",
+    "password": null,
+    "bypassList": [".internal.example.com", "<local>"]
   }
 }

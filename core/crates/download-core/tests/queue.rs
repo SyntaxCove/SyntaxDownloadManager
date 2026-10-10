@@ -34,6 +34,7 @@ fn params(url: String, dir: &std::path::Path) -> CreateJobParams {
         overwrite: false,
         headers: None,
         checksum: None,
+        proxy_profile_id: None,
     }
 }
 
@@ -482,6 +483,7 @@ async fn run_to_completion(engine: &Arc<Engine>, store: &Arc<JobStore>, url: Str
             overwrite: false,
             headers: None,
             checksum: None,
+            proxy_profile_id: None,
         })
         .await
         .unwrap();
@@ -543,6 +545,7 @@ async fn per_job_speed_limit_paces_the_run() {
             overwrite: false,
             headers: None,
             checksum: None,
+            proxy_profile_id: None,
         })
         .await
         .unwrap();
