@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 /**
- * Media domain data shapes — declared contract-first in v1 (consumed by vitest fixture tests);
- * the IPC methods (media.inspect / extract / download / merge) land with Phases 10–12.
+ * Media domain data shapes — declared contract-first in v1; `media.inspect` (v1.6, Phase 11)
+ * is the first method on this domain: the Rust core runs the bundled yt-dlp and projects its
+ * JSON into a MediaManifest. Download/merge of selected formats land with Phase 12.
  */
 
 export const VideoFormat = z.object({
@@ -13,6 +14,8 @@ export const VideoFormat = z.object({
   height: z.number().int().positive().nullable(),
   fps: z.number().positive().nullable(),
   vcodec: z.string().min(1),
+  /** Audio codec embedded in the video file (progressive formats); null = video-only. */
+  acodec: z.string().min(1).nullable(),
   vbitrateBps: z.number().int().nonnegative().nullable(),
   fileSizeBytes: z.number().int().nonnegative().nullable(),
 });
@@ -47,8 +50,23 @@ export const MediaManifest = z.object({
   durationSeconds: z.number().nonnegative().nullable(),
   webpageUrl: z.string().min(1),
   thumbnailUrl: z.string().nullable(),
+  /** Live streams surface honestly; merge/download policy for them is a Phase 12 decision. */
+  isLive: z.boolean(),
   videos: z.array(VideoFormat),
   audios: z.array(AudioFormat),
   subtitles: z.array(SubtitleTrack),
 });
 export type MediaManifest = z.infer<typeof MediaManifest>;
+
+/** `media.inspect` (v1.6, Phase 11) — served by the Rust core. */
+export const MediaInspectParams = z.object({
+  url: z.string().min(1),
+  /** Route the extractor's own traffic through a proxy profile (fail-closed if missing). */
+  proxyProfileId: z.string().min(1).optional(),
+});
+export type MediaInspectParams = z.infer<typeof MediaInspectParams>;
+
+export const MediaInspectResult = z.object({
+  manifest: MediaManifest,
+});
+export type MediaInspectResult = z.infer<typeof MediaInspectResult>;

@@ -43,6 +43,11 @@ pub enum ErrorCode {
     ToolkitFetchFailed,
     ToolkitExtractFailed,
     ToolkitChecksumMismatch,
+    // media (v1.6, Phase 11) — append-only
+    MediaToolMissing,
+    MediaExtractFailed,
+    MediaPlaylistUnsupported,
+    MediaInvalidResponse,
 }
 
 impl ErrorCode {
@@ -77,6 +82,10 @@ impl ErrorCode {
             ErrorCode::ToolkitFetchFailed => "toolkit_fetch_failed",
             ErrorCode::ToolkitExtractFailed => "toolkit_extract_failed",
             ErrorCode::ToolkitChecksumMismatch => "toolkit_checksum_mismatch",
+            ErrorCode::MediaToolMissing => "media_tool_missing",
+            ErrorCode::MediaExtractFailed => "media_extract_failed",
+            ErrorCode::MediaPlaylistUnsupported => "media_playlist_unsupported",
+            ErrorCode::MediaInvalidResponse => "media_invalid_response",
         }
     }
 }

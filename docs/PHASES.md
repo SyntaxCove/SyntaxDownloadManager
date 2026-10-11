@@ -38,7 +38,7 @@
 | 8 | Queue, scheduler policies, concurrency and bandwidth management | delivered (2026-10-08) |
 | 9 | Proxy engine — profiles, per-tab / per-job routing | delivered (2026-10-10) |
 | 10 | Bundled media toolkit — pinned FFmpeg / yt-dlp / Deno fetch + version manifest | delivered (2026-10-10) |
-| 11 | Media inspector / extractor — `media.inspect`, manifests | pending |
+| 11 | Media inspector / extractor — `media.inspect`, manifests | delivered (2026-10-11) |
 | 12 | Media download & merge pipeline (video/audio/subtitle mux) | pending |
 | 13 | Torrent engine + UI | pending |
 | 14 | Browser history, bookmarks, downloads library | pending |

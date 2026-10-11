@@ -30,16 +30,19 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dc_protocol::job::{ChecksumAlgorithm, DownloadJob};
-use dc_protocol::{new_ulid, ContractError, ErrorCode, EventEnvelope};
+use dc_protocol::{
+    new_ulid, ContractError, ErrorCode, EventEnvelope, MediaInspectParams, MediaInspectResult,
+};
 use dc_storage::{JobStore, SegmentRow};
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::media::{self, InspectLimits};
 use crate::proxy::{host_matches_bypass, host_of, proxy_url, ProxyMap, RuntimeProxy};
 use crate::rate_limit::Bucket;
 use crate::recover::{classify_source_failure, revalidate, RevalidateVerdict, SourceSignals};
@@ -50,6 +53,8 @@ use crate::segments::{
 use crate::toolkit::ToolkitMap;
 
 pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
+/// Max simultaneous media inspections (Phase 11) — yt-dlp is process-per-inspect.
+const MAX_CONCURRENT_INSPECTS: usize = 3;
 /// Journal flush cadence per segment (the durable cursor trails in-memory by at most ~1 MiB).
 const JOURNAL_FLUSH_BYTES: u64 = 1024 * 1024;
 /// Attempts per segment against transient network/stream errors before the job fails.
@@ -196,6 +201,8 @@ pub struct Engine {
     proxies: ProxyMap,
     /// Bundled media tool executables pushed by main (v1.5); only checksum-proven paths.
     toolkit: ToolkitMap,
+    /// Caps concurrent media inspections (Phase 11) — no process storms.
+    inspect_limiter: Arc<Semaphore>,
 }
 
 impl Engine {
@@ -214,6 +221,7 @@ impl Engine {
             job_buckets: Mutex::new(HashMap::new()),
             proxies: ProxyMap::new(),
             toolkit: ToolkitMap::new(),
+            inspect_limiter: Arc::new(Semaphore::new(MAX_CONCURRENT_INSPECTS)),
         }
     }
 
@@ -228,6 +236,22 @@ impl Engine {
         tools: Vec<dc_protocol::ToolkitPathEntry>,
     ) -> Result<(), dc_protocol::ContractError> {
         self.toolkit.replace(tools)
+    }
+
+    /// Media inspection (Phase 11): run the bundled yt-dlp against a media page and
+    /// normalize its JSON into a contract manifest. Fail-closed on unverified/missing tools.
+    pub async fn inspect_media(
+        &self,
+        params: MediaInspectParams,
+    ) -> Result<MediaInspectResult, dc_protocol::ContractError> {
+        media::inspect(
+            &self.toolkit,
+            &self.proxies,
+            &self.inspect_limiter,
+            params,
+            &InspectLimits::default(),
+        )
+        .await
     }
 
     /// Connections per download (segmentation ceiling); clamped to the contract range.

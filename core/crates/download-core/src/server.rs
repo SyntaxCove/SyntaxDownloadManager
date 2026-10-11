@@ -303,6 +303,14 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             manager.set_toolkit_paths(p.tools)?;
             Ok(serde_json::json!({ "applied": true }))
         }
+        // ---- Phase 11: media inspector ----
+        "media.inspect" => {
+            let p: dc_protocol::MediaInspectParams = parse(&params)?;
+            let result = manager.inspect_media(p).await?;
+            serde_json::to_value(result).map_err(|e| {
+                ContractError::new(ErrorCode::InternalError, format!("serialize manifest: {e}"))
+            })
+        }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.cancel(&p.id).await?;

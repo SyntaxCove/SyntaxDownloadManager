@@ -7,6 +7,7 @@ pub mod envelope;
 pub mod error;
 pub mod ids;
 pub mod job;
+pub mod media;
 pub mod toolkit;
 
 pub use envelope::{
@@ -16,11 +17,14 @@ pub use envelope::{
 pub use error::{ContractError, ErrorCode};
 pub use ids::{new_ulid, ulid_time, Ulid, UlidError};
 pub use job::{ChecksumAlgorithm, DownloadJob};
+pub use media::{
+    AudioFormat, MediaInspectParams, MediaInspectResult, MediaManifest, SubtitleTrack, VideoFormat,
+};
 pub use toolkit::{ToolkitPathEntry, ToolkitSetPathsParams};
 
 /// Mirrors CONTRACT_VERSION in packages/contracts/src/version.ts.
 /// download-core refuses to start against a mismatched main process.
-pub const CONTRACT_VERSION: &str = "1.5.0";
+pub const CONTRACT_VERSION: &str = "1.6.0";
 
 /// Wire protocol version carried by every envelope (`v`).
 pub const PROTOCOL_VERSION: i64 = 1;

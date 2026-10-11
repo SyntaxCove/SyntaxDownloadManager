@@ -8,6 +8,7 @@ import { resolveAppPaths } from "./paths.js";
 import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
 import { registerDownloadDomain } from "./domains/download.js";
+import { registerMediaDomain } from "./domains/media.js";
 import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
 import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
 import { ToolkitManager } from "./toolkit/manager.js";
@@ -105,6 +106,7 @@ if (!gotLock) {
       }
     });
     registerDownloadDomain(router, supervisor);
+    registerMediaDomain(router, supervisor);
     registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies);
     registerToolkitDomain(router, toolkitManager, supervisor);
     supervisor.start();

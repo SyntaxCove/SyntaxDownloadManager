@@ -143,3 +143,23 @@ fn parses_and_round_trips_toolkit_paths_fixture() {
         "wire format divergence between TS and Rust (toolkit paths)"
     );
 }
+
+#[test]
+fn parses_and_round_trips_media_manifest_fixture() {
+    // v1.6 (Phase 11): the media.inspect result payload — projection of yt-dlp JSON.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let manifest: dc_protocol::MediaManifest =
+        serde_json::from_value(doc["mediaManifest"].clone()).unwrap();
+    assert_eq!(manifest.title, "Sample Video");
+    assert!(!manifest.is_live);
+    assert_eq!(manifest.videos.len(), 1);
+    assert_eq!(manifest.videos[0].acodec, None);
+    assert_eq!(manifest.audios[0].abitrate_bps, Some(128_000));
+    assert_eq!(manifest.subtitles[0].format_id, "vtt-en");
+    let out: serde_json::Value = serde_json::to_value(&manifest).unwrap();
+    assert_eq!(
+        out, doc["mediaManifest"],
+        "wire format divergence between TS and Rust (media manifest)"
+    );
+}

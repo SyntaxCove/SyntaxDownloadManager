@@ -211,6 +211,15 @@ impl JobManager {
         self.engine.set_toolkit_paths(tools)
     }
 
+    /// Phase 11: media inspection through the bundled yt-dlp (engine owns the semaphore,
+    /// the fail-closed tool resolution and the JSON normalization).
+    pub async fn inspect_media(
+        &self,
+        params: dc_protocol::MediaInspectParams,
+    ) -> Result<dc_protocol::MediaInspectResult, ContractError> {
+        self.engine.inspect_media(params).await
+    }
+
     /// Phase 9: change the proxy profile a job routes through (None = direct).
     /// Refused while a run is active — mutating the route mid-run would splice bytes
     /// from two different network identities into one file.

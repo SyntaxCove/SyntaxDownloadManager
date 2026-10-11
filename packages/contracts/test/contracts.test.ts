@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DownloadJob, DownloadProgress, DownloadCreateParams, BrowserTab, AppSettings, MediaManifest,
+  MediaInspectParams,
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
   METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION, ErrorCodes,
   newUlid, ulidTime, normalizeUlid, Ulid, makeRequest, makeSuccess, makeError, makeEvent,
@@ -452,7 +453,65 @@ describe("v1.5 bundled media toolkit (Phase 10)", () => {
     expect(ErrorCodes).toContain("toolkit_checksum_mismatch");
   });
 
-  it("contract version advanced to 1.5.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.5.0");
+  it("contract version is at least 1.5.0 (Phase 10 toolkit is additive)", () => {
+    expect(CONTRACT_VERSION >= "1.5.0").toBe(true);
+  });
+});
+
+describe("v1.6 media inspector (Phase 11)", () => {
+  it("parses the refreshed mediaManifest fixture (isLive + progressive acodec)", () => {
+    const manifest = MediaManifest.parse(domainFixture.mediaManifest);
+    expect(manifest.isLive).toBe(false);
+    expect(manifest.videos[0].acodec).toBeNull();
+  });
+
+  it("accepts a progressive video (acodec present) and a live manifest", () => {
+    const progressive = MediaManifest.parse({
+      ...domainFixture.mediaManifest,
+      isLive: true,
+      videos: [{ ...domainFixture.mediaManifest.videos[0], acodec: "mp4a.40.2" }],
+    });
+    expect(progressive.isLive).toBe(true);
+    expect(progressive.videos[0].acodec).toBe("mp4a.40.2");
+    expect(MediaManifest.safeParse({ ...domainFixture.mediaManifest, isLive: "no" }).success).toBe(
+      false,
+    );
+    expect(
+      MediaManifest.safeParse({
+        ...domainFixture.mediaManifest,
+        videos: [{ ...domainFixture.mediaManifest.videos[0], acodec: 42 }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("media.inspect params validate url and optional proxyProfileId", () => {
+    expect(MediaInspectParams.safeParse({ url: "https://example.com/watch/abc" }).success).toBe(
+      true,
+    );
+    expect(
+      MediaInspectParams.safeParse({
+        url: "https://example.com/watch/abc",
+        proxyProfileId: newUlid(),
+      }).success,
+    ).toBe(true);
+    expect(MediaInspectParams.safeParse({ url: "" }).success).toBe(false);
+    expect(
+      MediaInspectParams.safeParse({ url: "https://x.example", proxyProfileId: "" }).success,
+    ).toBe(false);
+  });
+
+  it("registers media.inspect on the core server only", () => {
+    expect(METHODS["media.inspect"].server).toBe("core");
+  });
+
+  it("error codes stay append-only and gained the media codes", () => {
+    expect(ErrorCodes).toContain("media_tool_missing");
+    expect(ErrorCodes).toContain("media_extract_failed");
+    expect(ErrorCodes).toContain("media_playlist_unsupported");
+    expect(ErrorCodes).toContain("media_invalid_response");
+  });
+
+  it("contract version advanced to 1.6.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.6.0");
   });
 });

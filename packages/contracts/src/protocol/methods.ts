@@ -27,6 +27,7 @@ import {
   ToolkitEnsureAllResult, ToolkitEnsureParams, ToolkitEnsureResult, ToolkitCancelParams,
   ToolkitCancelResult, ToolkitSetPathsParams, ToolkitSetPathsResult,
 } from "../domain/toolkit.js";
+import { MediaInspectParams, MediaInspectResult } from "../domain/media.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -89,6 +90,9 @@ export const METHODS = {
   // ---- core (v1.5, Phase 10): bundled media toolkit paths ----
   /** Full replace of the core's in-memory toolkit path map (main pushes only verified tools). */
   "toolkit.setPaths": { server: "core", params: ToolkitSetPathsParams, result: ToolkitSetPathsResult },
+  // ---- core (v1.6, Phase 11): media inspector ----
+  /** Inspect a media page with the bundled yt-dlp; returns a normalized MediaManifest. */
+  "media.inspect": { server: "core", params: MediaInspectParams, result: MediaInspectResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },

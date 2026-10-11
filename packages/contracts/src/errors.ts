@@ -43,6 +43,11 @@ export const ErrorCodes = [
   "toolkit_fetch_failed",
   "toolkit_extract_failed",
   "toolkit_checksum_mismatch",
+  // media (v1.6, Phase 11) — append-only
+  "media_tool_missing",
+  "media_extract_failed",
+  "media_playlist_unsupported",
+  "media_invalid_response",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

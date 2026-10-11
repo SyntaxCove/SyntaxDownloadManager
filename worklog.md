@@ -248,3 +248,50 @@ Stage Summary:
   on restart). The end user never installs FFmpeg/yt-dlp/Deno.
 - Next: Phase 11 (media inspector/extractor — media.inspect, manifests) on top of the
   verified tool paths.
+
+---
+Task ID: 11
+Agent: main
+Task: Phase 11 — media inspector/extractor (`media.inspect`, manifests) on the verified toolkit paths
+
+Work Log:
+- Baseline repair: sandbox reset had wiped the Rust toolchain a FOURTH time (rustup 1.99.0
+  + rustfmt/clippy reinstalled); verified the Phase 0-10 gate green (cargo 115 / vitest 148
+  / typecheck x4 / build) before planning.
+- Plan: docs/phase-11-plan.md — inspection lives in the Rust core (fail-closed tool
+  resolution via ToolkitMap, proxy routing via runtime ProxyMap), contracts v1.6.0 additive
+  set, normalization rules, test plan + gate.
+- Contracts v1.6.0: media.inspect (core) {url, proxyProfileId?} -> {manifest};
+  MediaManifest.isLive + VideoFormat.acodec; 4 append-only error codes (media_tool_missing /
+  media_extract_failed / media_playlist_unsupported / media_invalid_response); fixture
+  mediaManifest refreshed (isLive, acodec, float fps); npm package 1.5.0 -> 1.6.0.
+- dc-protocol: src/media.rs wire types (camelCase serde) + MediaInspectParams/Result +
+  error codes + CONTRACT_VERSION 1.6.0 + mediaManifest fixture byte-parity test.
+- Core: download-core/src/media.rs — http(s)-only + leading-dash URL validation, fail-closed
+  yt-dlp resolution, argv-array spawn (no shell, --ignore-config --no-playlist
+  --dump-single-json), optional --proxy with fail-closed profile resolution, 90s timeout
+  with kill, 64 MiB stdout cap, 16 KiB stderr tail, Semaphore(3) cap, playlist refusal,
+  normalization (storyboard/mhtml/junk filtering, height->fps->bitrate ordering, pre-sort
+  dedupe, automatic-caption vtt + -orig limiting); engine.inspect_media + manager passthrough
+  + server dispatch arm.
+- Main: domains/media.ts validated forwarder (120s budget) + main.ts registration.
+- Renderer: stores/media.ts (inspect lifecycle), pages/MediaPage.tsx (URL + proxy picker +
+  manifest tables for videos/audios/subtitles), AppShell "Media" nav entry
+  (VideoClipMultipleRegular — MoviesRegular does not exist in the pinned icon set).
+- Fixed during Test/Fix: parallel test threads shared one temp dir (fake-binary tests
+  raced, cross-classified errors) -> per-test tagged temp dirs; fixture fps int vs Rust f64
+  wire divergence (fixture now true float); import.meta banned in CJS-compiled main tests
+  (inline fixture); UniDmError.from maps plain Errors to internal_error (classified codes
+  must be UniDmError — now explicitly tested); TS delete on non-optional -> Record cast.
+- Verification gate: cargo fmt/clippy clean, cargo test 132 passed (was 115), vitest
+  54 contracts + 105 main/renderer = 159 passed (was 48+94), typecheck x4 clean, vite build
+  green. Commit: phase(11). Report: docs/phase-11-report.md.
+
+Stage Summary:
+- media.inspect is live end-to-end: renderer -> main (validated forward) -> core (fail-closed
+  tool resolution, hardened spawn, bounded output, hard timeout, semaphore cap) -> normalized
+  contract manifest -> double-validated on both boundaries. Playlist URLs are classified, not
+  unwrapped. Live streams surface honestly (isLive). The Media page renders the full format
+  tables; downloading/merging is explicitly Phase 12 and the UI says so.
+- Next: Phase 12 (media download & merge pipeline — format selection -> segmented downloads
+  -> FFmpeg mux with verified tool paths) per docs/PHASES.md.
