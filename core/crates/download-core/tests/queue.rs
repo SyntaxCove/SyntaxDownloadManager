@@ -470,7 +470,12 @@ async fn window_evaluation_covers_normal_and_wrap_over() {
 
 fn make_engine(store: Arc<JobStore>) -> Arc<Engine> {
     let (tx, _rx) = mpsc::unbounded_channel();
-    Arc::new(Engine::new(store, tx))
+    Arc::new({
+        let toolkit = std::sync::Arc::new(download_core::toolkit::ToolkitMap::new());
+        let proxies = std::sync::Arc::new(download_core::proxy::ProxyMap::new());
+        let limiter = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+        Engine::new(store, tx, toolkit, proxies, limiter)
+    })
 }
 
 async fn run_to_completion(engine: &Arc<Engine>, store: &Arc<JobStore>, url: String) -> Duration {

@@ -311,6 +311,51 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
                 ContractError::new(ErrorCode::InternalError, format!("serialize manifest: {e}"))
             })
         }
+        // ---- Phase 12: persistent media download & merge pipeline ----
+        "media.download" => {
+            let p: dc_protocol::MediaDownloadParams = parse(&params)?;
+            let job = manager.media_download(p).await?;
+            serde_json::to_value(dc_protocol::MediaDownloadResult { job }).map_err(|e| {
+                ContractError::new(
+                    ErrorCode::InternalError,
+                    format!("serialize media job: {e}"),
+                )
+            })
+        }
+        "media.list" => {
+            let jobs = manager.media_list()?;
+            serde_json::to_value(dc_protocol::MediaListResult { jobs }).map_err(|e| {
+                ContractError::new(
+                    ErrorCode::InternalError,
+                    format!("serialize media jobs: {e}"),
+                )
+            })
+        }
+        "media.get" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.media_get(&p.id)?;
+            Ok(serde_json::json!({ "job": job }))
+        }
+        "media.pause" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.media_pause(&p.id).await?;
+            media_job_json(job)
+        }
+        "media.resume" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.media_resume(&p.id).await?;
+            media_job_json(job)
+        }
+        "media.cancel" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.media_cancel(&p.id).await?;
+            media_job_json(job)
+        }
+        "media.remove" => {
+            let p: dc_protocol::MediaRemoveParams = parse(&params)?;
+            manager.media_remove(&p.id, p.delete_files).await?;
+            Ok(serde_json::json!({ "removed": true }))
+        }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.cancel(&p.id).await?;
@@ -332,6 +377,17 @@ fn job_json(job: DownloadJob) -> Result<Value, ContractError> {
     serde_json::to_value(job)
         .map(|v| serde_json::json!({ "job": v }))
         .map_err(|e| ContractError::new(ErrorCode::InternalError, format!("serialize job: {e}")))
+}
+
+fn media_job_json(job: dc_protocol::MediaJob) -> Result<Value, ContractError> {
+    serde_json::to_value(job)
+        .map(|v| serde_json::json!({ "job": v }))
+        .map_err(|e| {
+            ContractError::new(
+                ErrorCode::InternalError,
+                format!("serialize media job: {e}"),
+            )
+        })
 }
 
 fn parse<T: for<'de> Deserialize<'de>>(params: &Value) -> Result<T, ContractError> {

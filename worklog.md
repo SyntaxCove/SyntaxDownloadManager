@@ -295,3 +295,59 @@ Stage Summary:
   tables; downloading/merging is explicitly Phase 12 and the UI says so.
 - Next: Phase 12 (media download & merge pipeline — format selection -> segmented downloads
   -> FFmpeg mux with verified tool paths) per docs/PHASES.md.
+
+---
+Task ID: 12
+Agent: main
+Task: Phase 12 — media download & merge pipeline (video/audio/subtitle mux) on the verified toolkit paths
+
+Work Log:
+- Baseline repair: sandbox reset had wiped the Rust toolchain a FIFTH time (rustup 1.99.0 +
+  rustfmt/clippy reinstalled); verified the Phase 0-11 state from git history (phase(0..11)
+  commits + docs all present) before planning.
+- Plan: docs/phase-12-plan.md — yt-dlp downloads the streams (page URL is the persistent
+  source; rebind-by-re-extraction), our own FFmpeg mux (stream-copy only), separate
+  media_jobs table + MediaJobManager, contracts v1.7.0 additive set, test plan + gate.
+- Contracts v1.7.0: 7 core methods (media.download/list/get/pause/resume/cancel/remove),
+  MediaJob/MediaSubtitleSelection/MediaContainer/MediaProgress schemas, media.progress +
+  media.updated events, 4 append-only error codes (media_download_failed / media_mux_failed /
+  media_format_not_found / media_live_unsupported), mediaJob + mediaProgress fixtures
+  (Crockford-valid ULIDs), package 1.6.0 -> 1.7.0.
+- dc-protocol: media.rs wire types (MediaJob with persisted filename, MediaContainer with
+  mux_format/subtitle_codec helpers) + error codes + CONTRACT_VERSION 1.7.0 + fixture
+  byte-parity tests.
+- dc-storage: migration v6 (media_jobs table + indexes), media CRUD + update_media_progress +
+  reset_active_media_jobs (boot recovery: queued/extracting/downloading/muxing -> paused),
+  tests for CRUD round-trip, reopen durability, boot reset, schema version.
+- download-core: src/media_job.rs — MediaJobManager (create/pump(2 slots)/run_job/drive),
+  extraction reuses the Phase 11 inspector (fail-closed tools + proxy, pause-aware select),
+  strict format resolution (vanished id -> media_format_not_found), per-stream yt-dlp runs
+  with UNIDM progress-template parsing (fixed 5-token rule), completed-stream disk skip,
+  single --skip-download subtitle run, ffmpeg mux to .tmp-unidm then rename-after-clean-exit
+  (+ empty-output guard), audio-only moves untouched, 500ms ticker (durable row + throttled
+  events) with an active-status guard, pause/cancel runner-ack (bounded wait), bounded
+  diagnostics tails, argv-array spawns only; Engine/JobManager now share Arc<ToolkitMap>/
+  Arc<ProxyMap>/Arc<Semaphore>; server arms for all 7 methods.
+- Fixed during Test/Fix: sandbox removed Engine's 2-arg new -> 3 test harnesses updated;
+  Split lacks select-friendly next() -> read_line loop; Box<dyn AsyncRead> pipe erasure;
+  pause ack race (runner persists after wait) + shell-grandchild holding pipe EOF 30s ->
+  tail drain detaches on interrupts + ticker never overwrites non-active rows; run_child
+  tail await deadlock; redundant-closure clippy lints; filename column end-to-end.
+- main: domains/media.ts registers all 8 media methods (inspect keeps 120s budget, pipeline
+  30s); core event forwarding stays centralized in the download domain (comment updated).
+- renderer: stores/media.ts (jobs list, selection state, download/pause/resume/cancel/remove,
+  upsert/patchProgress, subscribeMediaEvents wired from main.tsx); MediaPage format rows are
+  click-to-select, subtitle checkboxes, container picker, download bar (saving to the
+  settings downloadDir), live manifests disable download honestly, media-jobs list with
+  progress bars + actions; media-store tests for the full lifecycle.
+- Verification gate: cargo fmt/clippy clean, cargo test 159 passed (was 132), vitest
+  61+116=177 passed (was 54+105), typecheck x4 clean, vite build green.
+  Commit: phase(12). Report: docs/phase-12-report.md.
+
+Stage Summary:
+- The media pipeline is complete end-to-end: inspect -> select -> persistent job (extract,
+  download streams with bundled yt-dlp, mux with bundled FFmpeg) -> finished file in the
+  destination dir. Recovery is byte-preserving across pauses, crashes and URL rotation;
+  live streams, vanished formats and missing tools are classified, never guessed. The end
+  user still installs nothing.
+- Next: Phase 13 (torrent engine + UI) per docs/PHASES.md.

@@ -3,6 +3,7 @@ import { DownloadProgress, DownloadJob } from "../domain/download.js";
 import { TabUpdatedEvent, TabClosedEvent } from "../domain/browser.js";
 import { SettingsChangedEvent } from "../domain/settings.js";
 import { ToolkitToolStatus } from "../domain/toolkit.js";
+import { MediaProgress, MediaJob } from "../domain/media.js";
 
 /**
  * Event registry: event name → payload schema. Sources: core→main over stdio, main→renderer
@@ -39,6 +40,9 @@ export const EVENTS = {
   "settings.changed": { source: "main", payload: SettingsChangedEvent },
   /** v1.5 (Phase 10): toolkit fetch/verify/activate progress (throttled; state changes immediate). */
   "toolkit.progress": { source: "main", payload: ToolkitToolStatus },
+  // v1.7 (Phase 12): media pipeline progress (throttled ~500ms) + authoritative snapshots.
+  "media.progress": { source: "core", payload: MediaProgress },
+  "media.updated": { source: "core", payload: z.object({ job: MediaJob }) },
 } satisfies Record<string, EventEntry>;
 
 export type EventName = keyof typeof EVENTS;

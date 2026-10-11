@@ -48,6 +48,11 @@ export const ErrorCodes = [
   "media_extract_failed",
   "media_playlist_unsupported",
   "media_invalid_response",
+  // media pipeline (v1.7, Phase 12) — append-only
+  "media_download_failed",
+  "media_mux_failed",
+  "media_format_not_found",
+  "media_live_unsupported",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

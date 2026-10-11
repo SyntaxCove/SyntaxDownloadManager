@@ -27,10 +27,16 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::{now_ms, CreateJobParams, Engine, EventsTx, JobCommand};
-use crate::proxy::RuntimeProxy;
+use crate::media_job::MediaJobManager;
+use crate::proxy::{ProxyMap, RuntimeProxy};
+use crate::toolkit::ToolkitMap;
 
 /// How often the queue re-evaluates the schedule window (transition detection).
 const POLICY_TICK_SECS: u64 = 30;
+
+/// Max simultaneous media inspections (Phase 11) — yt-dlp is process-per-inspect.
+/// Mirrors the engine's own constant; the semaphore is created once here and shared.
+const MAX_CONCURRENT_INSPECTS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScheduleMode {
@@ -99,6 +105,8 @@ struct JobHandle {
 pub struct JobManager {
     store: Arc<JobStore>,
     engine: Arc<Engine>,
+    /// Phase 12: the persistent media download & merge pipeline (its own lifecycle).
+    media: Arc<MediaJobManager>,
     jobs: Mutex<HashMap<String, JobHandle>>,
     max_concurrent: AtomicUsize,
     policy: Mutex<QueuePolicy>,
@@ -135,10 +143,23 @@ pub fn local_minute_of_day(tz_offset_minutes: i32) -> u32 {
 
 impl JobManager {
     pub fn new(store: Arc<JobStore>, events: EventsTx) -> Arc<Self> {
-        let engine = Arc::new(Engine::new(store.clone(), events));
+        // Shared runtime maps + inspect budget: the HTTP engine and the media pipeline
+        // both resolve tools/proxies fail-closed through the same single source of truth.
+        let toolkit = Arc::new(ToolkitMap::new());
+        let proxies = Arc::new(ProxyMap::new());
+        let inspect_limiter = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_INSPECTS));
+        let engine = Arc::new(Engine::new(
+            store.clone(),
+            events.clone(),
+            toolkit.clone(),
+            proxies.clone(),
+            inspect_limiter.clone(),
+        ));
+        let media = MediaJobManager::new(store.clone(), events, toolkit, proxies, inspect_limiter);
         let manager = Arc::new(Self {
             store,
             engine,
+            media,
             jobs: Mutex::new(HashMap::new()),
             max_concurrent: AtomicUsize::new(3),
             policy: Mutex::new(QueuePolicy::default()),
@@ -218,6 +239,46 @@ impl JobManager {
         params: dc_protocol::MediaInspectParams,
     ) -> Result<dc_protocol::MediaInspectResult, ContractError> {
         self.engine.inspect_media(params).await
+    }
+
+    // ---- Phase 12: persistent media download & merge pipeline ----
+
+    pub async fn media_download(
+        self: &Arc<Self>,
+        params: dc_protocol::MediaDownloadParams,
+    ) -> Result<dc_protocol::MediaJob, ContractError> {
+        self.media.create(params).await
+    }
+
+    pub fn media_list(&self) -> Result<Vec<dc_protocol::MediaJob>, ContractError> {
+        self.media.list()
+    }
+
+    pub fn media_get(&self, id: &str) -> Result<Option<dc_protocol::MediaJob>, ContractError> {
+        self.media.get(id)
+    }
+
+    pub async fn media_pause(&self, id: &str) -> Result<dc_protocol::MediaJob, ContractError> {
+        self.media.pause(id).await
+    }
+
+    pub async fn media_resume(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Result<dc_protocol::MediaJob, ContractError> {
+        self.media.resume(id).await
+    }
+
+    pub async fn media_cancel(&self, id: &str) -> Result<dc_protocol::MediaJob, ContractError> {
+        self.media.cancel(id).await
+    }
+
+    pub async fn media_remove(
+        self: &Arc<Self>,
+        id: &str,
+        delete_files: bool,
+    ) -> Result<(), ContractError> {
+        self.media.remove(id, delete_files).await
     }
 
     /// Phase 9: change the proxy profile a job routes through (None = direct).
@@ -574,6 +635,7 @@ impl JobManager {
             let _ = cmd_tx.send(JobCommand::Pause).await;
             stop.cancel();
         }
+        self.media.shutdown().await;
     }
 
     async fn send_command(

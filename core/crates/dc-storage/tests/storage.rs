@@ -231,6 +231,177 @@ fn proxy_profile_id_round_trips_and_stays_null_safe() {
     assert!(!conn_phrase.contains("password"));
 }
 
+fn sample_media_job(id: &str, status: &str) -> dc_protocol::MediaJob {
+    dc_protocol::MediaJob {
+        id: Ulid(id.to_string()),
+        source_url: "https://example.com/watch/abc".into(),
+        title: Some("Sample Video".into()),
+        thumbnail_url: None,
+        video_format_id: Some("137".into()),
+        audio_format_id: Some("140".into()),
+        filename: None,
+        subtitles: vec![dc_protocol::MediaSubtitleSelection {
+            language: "en".into(),
+            extension: "vtt".into(),
+            is_auto_generated: false,
+        }],
+        container: dc_protocol::MediaContainer::Mkv,
+        destination_dir: "/tmp/unidm-media-test".into(),
+        destination_path: None,
+        work_dir: Some(format!("/tmp/unidm-media-test/.unidm-media/{id}")),
+        status: status.into(),
+        total_bytes: Some(121_400_000),
+        received_bytes: 0,
+        speed_bps: None,
+        eta_seconds: None,
+        error_code: None,
+        proxy_profile_id: None,
+        created_at: 1_735_689_600_000,
+        updated_at: 1_735_689_600_000,
+    }
+}
+
+#[test]
+fn media_jobs_crud_round_trip() {
+    let store = JobStore::open_in_memory().unwrap();
+    assert!(store.list_media_jobs().unwrap().is_empty());
+
+    let job = sample_media_job("01JMEDIA000000000000000001", "queued");
+    store.insert_media_job(&job).unwrap();
+
+    let read = store
+        .get_media_job("01JMEDIA000000000000000001")
+        .unwrap()
+        .unwrap();
+    assert_eq!(read.status, "queued");
+    assert_eq!(read.container, dc_protocol::MediaContainer::Mkv);
+    assert_eq!(read.subtitles.len(), 1);
+    assert_eq!(read.subtitles[0].language, "en");
+    assert_eq!(read.total_bytes, Some(121_400_000));
+    assert_eq!(read.title.as_deref(), Some("Sample Video"));
+
+    // progress tick persists live fields without touching the selection columns
+    store
+        .update_media_progress(
+            "01JMEDIA000000000000000001",
+            60_700_000,
+            Some(121_400_000),
+            2_097_152,
+            Some(29),
+            "downloading",
+        )
+        .unwrap();
+    let live = store
+        .get_media_job("01JMEDIA000000000000000001")
+        .unwrap()
+        .unwrap();
+    assert_eq!(live.status, "downloading");
+    assert_eq!(live.received_bytes, 60_700_000);
+    assert_eq!(live.speed_bps, Some(2_097_152));
+
+    // full update: title enrichment + terminal status
+    let mut updated = live;
+    updated.title = Some("Renamed".into());
+    updated.status = "completed".into();
+    updated.destination_path = Some("/tmp/unidm-media-test/Sample Video.mkv".into());
+    updated.updated_at = 1_735_689_900_000;
+    store.update_media_job(&updated).unwrap();
+    let done = store
+        .get_media_job("01JMEDIA000000000000000001")
+        .unwrap()
+        .unwrap();
+    assert_eq!(done.status, "completed");
+    assert_eq!(done.title.as_deref(), Some("Renamed"));
+    assert_eq!(
+        done.destination_path.as_deref(),
+        Some("/tmp/unidm-media-test/Sample Video.mkv")
+    );
+
+    assert!(store
+        .delete_media_job("01JMEDIA000000000000000001")
+        .unwrap());
+    assert!(store
+        .get_media_job("01JMEDIA000000000000000001")
+        .unwrap()
+        .is_none());
+    assert!(!store
+        .delete_media_job("01JMEDIA000000000000000001")
+        .unwrap());
+}
+
+#[test]
+fn media_jobs_survive_reopen_and_reset_actives_on_boot() {
+    let dir = tempdir();
+    let db = dir.join("media.db");
+    {
+        let store = JobStore::open(&db).unwrap();
+        for (id, status) in [
+            ("01JMEDIA00000000000000000A", "downloading"),
+            ("01JMEDIA00000000000000000B", "muxing"),
+            ("01JMEDIA00000000000000000C", "completed"),
+            ("01JMEDIA00000000000000000D", "failed"),
+        ] {
+            store
+                .insert_media_job(&sample_media_job(id, status))
+                .unwrap();
+        }
+    }
+    let store = JobStore::open(&db).unwrap();
+    let reset = store.reset_active_media_jobs().unwrap();
+    assert_eq!(
+        reset, 2,
+        "only queued/extracting/downloading/muxing rows reset"
+    );
+    assert_eq!(
+        store
+            .get_media_job("01JMEDIA00000000000000000A")
+            .unwrap()
+            .unwrap()
+            .status,
+        "paused"
+    );
+    assert_eq!(
+        store
+            .get_media_job("01JMEDIA00000000000000000B")
+            .unwrap()
+            .unwrap()
+            .status,
+        "paused"
+    );
+    assert_eq!(
+        store
+            .get_media_job("01JMEDIA00000000000000000C")
+            .unwrap()
+            .unwrap()
+            .status,
+        "completed"
+    );
+    assert_eq!(
+        store
+            .get_media_job("01JMEDIA00000000000000000D")
+            .unwrap()
+            .unwrap()
+            .status,
+        "failed"
+    );
+    // speed/eta cleared on the reset rows (no run owns them anymore)
+    assert_eq!(
+        store
+            .get_media_job("01JMEDIA00000000000000000A")
+            .unwrap()
+            .unwrap()
+            .speed_bps,
+        None
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn schema_version_is_at_least_6_after_migrations() {
+    let store = JobStore::open_in_memory().unwrap();
+    assert!(store.schema_version().unwrap() >= 6);
+}
+
 fn tempdir() -> PathBuf {
     let base = std::env::temp_dir();
     let dir = base.join(format!(

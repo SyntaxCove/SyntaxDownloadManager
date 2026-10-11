@@ -27,7 +27,12 @@ fn tempdir() -> PathBuf {
 
 fn make_engine(store: Arc<JobStore>) -> Arc<Engine> {
     let (tx, _rx) = mpsc::unbounded_channel();
-    Arc::new(Engine::new(store, tx))
+    Arc::new({
+        let toolkit = std::sync::Arc::new(download_core::toolkit::ToolkitMap::new());
+        let proxies = std::sync::Arc::new(download_core::proxy::ProxyMap::new());
+        let limiter = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+        Engine::new(store, tx, toolkit, proxies, limiter)
+    })
 }
 
 fn params(url: String, dir: &Path, headers: Option<HashMap<String, String>>) -> CreateJobParams {

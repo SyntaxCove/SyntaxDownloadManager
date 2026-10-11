@@ -51,7 +51,9 @@ export function registerDownloadDomain(router: IpcRouter, supervisor: CoreSuperv
   }
 
   // Forward core events to the renderer after payload validation (CoreClient already
-  // validated; the router validates again on emit).
+  // validated; the router validates again on emit). This listener covers EVERY core
+  // event in the registry — including the media pipeline's `media.progress`/`media.updated`
+  // (v1.7, Phase 12) — so the media domain needs no forwarding of its own.
   supervisor.on("event", (name: string, payload: unknown) => {
     const entry = EVENTS[name as keyof typeof EVENTS];
     if (entry) router.emit(name, entry.payload, payload);

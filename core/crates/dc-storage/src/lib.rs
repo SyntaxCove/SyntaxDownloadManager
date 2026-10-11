@@ -4,6 +4,7 @@
 //! recorded in `schema_migrations`. All times are epoch milliseconds, all IDs are ULIDs.
 
 use dc_protocol::job::DownloadJob;
+use dc_protocol::media::MediaJob;
 use dc_protocol::{ContractError, ErrorCode};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::path::Path;
@@ -59,6 +60,34 @@ const MIGRATIONS: &[&str] = &[
     // v5 (Phase 9): per-job proxy routing. Only the profile ID is persisted — credentials
     // live in main's keychain-backed store and are pushed to the core's memory at runtime.
     "ALTER TABLE jobs ADD COLUMN proxy_profile_id TEXT;",
+    // v6 (Phase 12): persistent media pipeline jobs (inspect → stream downloads → mux).
+    // A separate table: media jobs are page-URL-sourced composite pipelines, not HTTP range
+    // downloads; their lifecycle, columns and recovery semantics differ by design.
+    "CREATE TABLE IF NOT EXISTS media_jobs (
+        id              TEXT PRIMARY KEY,
+        source_url      TEXT NOT NULL,
+        title           TEXT,
+        thumbnail_url   TEXT,
+        video_format_id TEXT,
+        audio_format_id TEXT,
+        filename        TEXT,
+        subtitles_json  TEXT NOT NULL DEFAULT '[]',
+        container       TEXT NOT NULL,
+        destination_dir TEXT NOT NULL,
+        destination_path TEXT,
+        work_dir        TEXT,
+        status          TEXT NOT NULL,
+        total_bytes     INTEGER,
+        received_bytes  INTEGER NOT NULL DEFAULT 0,
+        speed_bps       INTEGER,
+        eta_seconds     INTEGER,
+        error_code      TEXT,
+        proxy_profile_id TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_status ON media_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_created_at ON media_jobs(created_at DESC);",
 ];
 
 /// One journal row of the per-segment download state (Phase 6).
@@ -372,6 +401,211 @@ impl JobStore {
             .map_err(wrap_sqlite("delete segments"))?;
         Ok(())
     }
+
+    // ---- media pipeline jobs (Phase 12) ----
+
+    pub fn insert_media_job(&self, job: &MediaJob) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO media_jobs (id, source_url, title, thumbnail_url, video_format_id,
+                                     audio_format_id, filename, subtitles_json, container,
+                                     destination_dir, destination_path, work_dir, status,
+                                     total_bytes, received_bytes, speed_bps, eta_seconds,
+                                     error_code, proxy_profile_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            params![
+                job.id.as_str(),
+                job.source_url,
+                job.title,
+                job.thumbnail_url,
+                job.video_format_id,
+                job.audio_format_id,
+                job.filename,
+                subtitles_to_json(&job.subtitles),
+                job.container.as_str(),
+                job.destination_dir,
+                job.destination_path,
+                job.work_dir,
+                job.status,
+                job.total_bytes.map(|v| v as i64),
+                job.received_bytes as i64,
+                job.speed_bps.map(|v| v as i64),
+                job.eta_seconds.map(|v| v as i64),
+                job.error_code,
+                job.proxy_profile_id,
+                job.created_at,
+                job.updated_at,
+            ],
+        )
+        .map_err(wrap_sqlite("insert media job"))?;
+        Ok(())
+    }
+
+    pub fn get_media_job(&self, id: &str) -> StorageResult<Option<MediaJob>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.query_row(
+            "SELECT * FROM media_jobs WHERE id = ?1",
+            params![id],
+            media_job_from_row,
+        )
+        .optional()
+        .map_err(wrap_sqlite("get media job"))
+    }
+
+    pub fn list_media_jobs(&self) -> StorageResult<Vec<MediaJob>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare("SELECT * FROM media_jobs ORDER BY created_at DESC")
+            .map_err(wrap_sqlite("list media jobs"))?;
+        let rows = stmt
+            .query_map([], media_job_from_row)
+            .map_err(wrap_sqlite("list media jobs"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list media jobs"))
+    }
+
+    pub fn update_media_job(&self, job: &MediaJob) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute(
+                "UPDATE media_jobs SET source_url=?2, title=?3, thumbnail_url=?4,
+                        video_format_id=?5, audio_format_id=?6, filename=?7,
+                        subtitles_json=?8, container=?9, destination_dir=?10,
+                        destination_path=?11, work_dir=?12, status=?13, total_bytes=?14,
+                        received_bytes=?15, speed_bps=?16, eta_seconds=?17, error_code=?18,
+                        proxy_profile_id=?19, updated_at=?20
+                 WHERE id=?1",
+                params![
+                    job.id.as_str(),
+                    job.source_url,
+                    job.title,
+                    job.thumbnail_url,
+                    job.video_format_id,
+                    job.audio_format_id,
+                    job.filename,
+                    subtitles_to_json(&job.subtitles),
+                    job.container.as_str(),
+                    job.destination_dir,
+                    job.destination_path,
+                    job.work_dir,
+                    job.status,
+                    job.total_bytes.map(|v| v as i64),
+                    job.received_bytes as i64,
+                    job.speed_bps.map(|v| v as i64),
+                    job.eta_seconds.map(|v| v as i64),
+                    job.error_code,
+                    job.proxy_profile_id,
+                    job.updated_at,
+                ],
+            )
+            .map_err(wrap_sqlite("update media job"))?;
+        if n == 0 {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "media job not found",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Lightweight progress tick for an active media run.
+    pub fn update_media_progress(
+        &self,
+        id: &str,
+        received: u64,
+        total: Option<u64>,
+        speed_bps: u64,
+        eta_seconds: Option<u64>,
+        status: &str,
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "UPDATE media_jobs SET received_bytes=?2, total_bytes=?3, speed_bps=?4,
+                    eta_seconds=?5, status=?6, updated_at=?7 WHERE id=?1",
+            params![
+                id,
+                received as i64,
+                total.map(|v| v as i64),
+                speed_bps as i64,
+                eta_seconds.map(|v| v as i64),
+                status,
+                now_ms(),
+            ],
+        )
+        .map_err(wrap_sqlite("update media progress"))?;
+        Ok(())
+    }
+
+    pub fn delete_media_job(&self, id: &str) -> StorageResult<bool> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute("DELETE FROM media_jobs WHERE id = ?1", params![id])
+            .map_err(wrap_sqlite("delete media job"))?;
+        Ok(n > 0)
+    }
+
+    /// Boot recovery: no media job may look active after a core restart (the fresh process
+    /// owns no child yt-dlp/ffmpeg). Queued rows pause too — a fresh core never auto-starts
+    /// media jobs (the same baseline rule the Phase 8 queue pump established). Returns the
+    /// number of reset rows.
+    pub fn reset_active_media_jobs(&self) -> StorageResult<usize> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute(
+                "UPDATE media_jobs SET status='paused', speed_bps=NULL, eta_seconds=NULL,
+                        updated_at=?1
+                 WHERE status IN ('queued','extracting','downloading','muxing')",
+                params![now_ms()],
+            )
+            .map_err(wrap_sqlite("reset active media jobs"))?;
+        Ok(n)
+    }
+}
+
+fn subtitles_to_json(subtitles: &[dc_protocol::MediaSubtitleSelection]) -> String {
+    serde_json::to_string(subtitles).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn parse_container(s: &str) -> dc_protocol::MediaContainer {
+    match s {
+        "mp4" => dc_protocol::MediaContainer::Mp4,
+        _ => dc_protocol::MediaContainer::Mkv,
+    }
+}
+
+fn media_job_from_row(row: &Row<'_>) -> rusqlite::Result<MediaJob> {
+    let subtitles_json: String = row.get("subtitles_json")?;
+    let subtitles: Vec<dc_protocol::MediaSubtitleSelection> =
+        serde_json::from_str(&subtitles_json).unwrap_or_default();
+    Ok(MediaJob {
+        id: dc_protocol::Ulid(row.get::<_, String>("id")?),
+        source_url: row.get("source_url")?,
+        title: row.get("title")?,
+        thumbnail_url: row.get("thumbnail_url")?,
+        video_format_id: row.get("video_format_id")?,
+        audio_format_id: row.get("audio_format_id")?,
+        filename: row.get("filename")?,
+        subtitles,
+        container: parse_container(&row.get::<_, String>("container")?),
+        destination_dir: row.get("destination_dir")?,
+        destination_path: row.get("destination_path")?,
+        work_dir: row.get("work_dir")?,
+        status: row.get("status")?,
+        total_bytes: row
+            .get::<_, Option<i64>>("total_bytes")?
+            .map(|v| v.max(0) as u64),
+        received_bytes: row.get::<_, i64>("received_bytes")?.max(0) as u64,
+        speed_bps: row
+            .get::<_, Option<i64>>("speed_bps")?
+            .map(|v| v.max(0) as u64),
+        eta_seconds: row
+            .get::<_, Option<i64>>("eta_seconds")?
+            .map(|v| v.max(0) as u64),
+        error_code: row.get("error_code")?,
+        proxy_profile_id: row.get("proxy_profile_id")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
 }
 
 fn job_from_row(row: &Row<'_>) -> rusqlite::Result<DownloadJob> {

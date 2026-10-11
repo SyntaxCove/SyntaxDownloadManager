@@ -27,7 +27,11 @@ import {
   ToolkitEnsureAllResult, ToolkitEnsureParams, ToolkitEnsureResult, ToolkitCancelParams,
   ToolkitCancelResult, ToolkitSetPathsParams, ToolkitSetPathsResult,
 } from "../domain/toolkit.js";
-import { MediaInspectParams, MediaInspectResult } from "../domain/media.js";
+import {
+  MediaDownloadParams, MediaDownloadResult, MediaListParams, MediaListResult,
+  MediaJobIdParams, MediaJobByIdResult, MediaRemoveParams, MediaRemoveResult,
+  MediaInspectParams, MediaInspectResult,
+} from "../domain/media.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -93,6 +97,15 @@ export const METHODS = {
   // ---- core (v1.6, Phase 11): media inspector ----
   /** Inspect a media page with the bundled yt-dlp; returns a normalized MediaManifest. */
   "media.inspect": { server: "core", params: MediaInspectParams, result: MediaInspectResult },
+  // ---- core (v1.7, Phase 12): persistent media download & merge pipeline ----
+  /** Create + queue a media job (selected formats → bundled yt-dlp → bundled FFmpeg mux). */
+  "media.download": { server: "core", params: MediaDownloadParams, result: MediaDownloadResult },
+  "media.list": { server: "core", params: MediaListParams, result: MediaListResult },
+  "media.get": { server: "core", params: MediaJobIdParams, result: MediaJobByIdResult },
+  "media.pause": { server: "core", params: MediaJobIdParams, result: MediaJobByIdResult },
+  "media.resume": { server: "core", params: MediaJobIdParams, result: MediaJobByIdResult },
+  "media.cancel": { server: "core", params: MediaJobIdParams, result: MediaJobByIdResult },
+  "media.remove": { server: "core", params: MediaRemoveParams, result: MediaRemoveResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },

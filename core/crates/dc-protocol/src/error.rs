@@ -48,6 +48,11 @@ pub enum ErrorCode {
     MediaExtractFailed,
     MediaPlaylistUnsupported,
     MediaInvalidResponse,
+    // media pipeline (v1.7, Phase 12) — append-only
+    MediaDownloadFailed,
+    MediaMuxFailed,
+    MediaFormatNotFound,
+    MediaLiveUnsupported,
 }
 
 impl ErrorCode {
@@ -86,6 +91,10 @@ impl ErrorCode {
             ErrorCode::MediaExtractFailed => "media_extract_failed",
             ErrorCode::MediaPlaylistUnsupported => "media_playlist_unsupported",
             ErrorCode::MediaInvalidResponse => "media_invalid_response",
+            ErrorCode::MediaDownloadFailed => "media_download_failed",
+            ErrorCode::MediaMuxFailed => "media_mux_failed",
+            ErrorCode::MediaFormatNotFound => "media_format_not_found",
+            ErrorCode::MediaLiveUnsupported => "media_live_unsupported",
         }
     }
 }

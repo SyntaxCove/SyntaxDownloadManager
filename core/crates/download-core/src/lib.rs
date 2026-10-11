@@ -6,6 +6,7 @@
 pub mod engine;
 pub mod manager;
 pub mod media;
+pub mod media_job;
 pub mod proxy;
 pub mod rate_limit;
 pub mod recover;

@@ -53,8 +53,6 @@ use crate::segments::{
 use crate::toolkit::ToolkitMap;
 
 pub const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
-/// Max simultaneous media inspections (Phase 11) — yt-dlp is process-per-inspect.
-const MAX_CONCURRENT_INSPECTS: usize = 3;
 /// Journal flush cadence per segment (the durable cursor trails in-memory by at most ~1 MiB).
 const JOURNAL_FLUSH_BYTES: u64 = 1024 * 1024;
 /// Attempts per segment against transient network/stream errors before the job fails.
@@ -198,15 +196,24 @@ pub struct Engine {
     /// Per-job bandwidth buckets, live while a run is active (0 = unlimited).
     job_buckets: Mutex<HashMap<String, Arc<Bucket>>>,
     /// Runtime proxy endpoints pushed by main (v1.4); secrets stay in memory only.
-    proxies: ProxyMap,
+    /// Shared with the media pipeline manager (Phase 12).
+    proxies: Arc<ProxyMap>,
     /// Bundled media tool executables pushed by main (v1.5); only checksum-proven paths.
-    toolkit: ToolkitMap,
-    /// Caps concurrent media inspections (Phase 11) — no process storms.
+    /// Shared with the media pipeline manager (Phase 12).
+    toolkit: Arc<ToolkitMap>,
+    /// Caps concurrent media inspections (Phase 11) — no process storms. Shared with the
+    /// media pipeline manager, whose extraction step consumes the same budget.
     inspect_limiter: Arc<Semaphore>,
 }
 
 impl Engine {
-    pub fn new(store: Arc<JobStore>, events: EventsTx) -> Self {
+    pub fn new(
+        store: Arc<JobStore>,
+        events: EventsTx,
+        toolkit: Arc<ToolkitMap>,
+        proxies: Arc<ProxyMap>,
+        inspect_limiter: Arc<Semaphore>,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .user_agent(concat!("UniDM/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(20))
@@ -219,9 +226,9 @@ impl Engine {
             max_connections: Arc::new(AtomicU64::new(4)),
             global_bucket: Bucket::new(0),
             job_buckets: Mutex::new(HashMap::new()),
-            proxies: ProxyMap::new(),
-            toolkit: ToolkitMap::new(),
-            inspect_limiter: Arc::new(Semaphore::new(MAX_CONCURRENT_INSPECTS)),
+            proxies,
+            toolkit,
+            inspect_limiter,
         }
     }
 

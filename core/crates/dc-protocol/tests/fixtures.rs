@@ -163,3 +163,37 @@ fn parses_and_round_trips_media_manifest_fixture() {
         "wire format divergence between TS and Rust (media manifest)"
     );
 }
+
+#[test]
+fn parses_and_round_trips_media_job_fixture() {
+    // v1.7 (Phase 12): the persistent media pipeline job — mirrors the TS MediaJob.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: dc_protocol::MediaJob = serde_json::from_value(doc["mediaJob"].clone()).unwrap();
+    assert_eq!(job.status, "downloading");
+    assert_eq!(job.container, dc_protocol::MediaContainer::Mkv);
+    assert_eq!(job.video_format_id.as_deref(), Some("137"));
+    assert_eq!(job.audio_format_id.as_deref(), Some("140"));
+    assert_eq!(job.subtitles.len(), 1);
+    assert_eq!(job.subtitles[0].language, "en");
+    assert!(!job.subtitles[0].is_auto_generated);
+    assert_eq!(job.destination_path, None);
+    assert_eq!(job.total_bytes, Some(121_400_000));
+    let out: serde_json::Value = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        out, doc["mediaJob"],
+        "wire format divergence between TS and Rust (media job)"
+    );
+}
+
+#[test]
+fn parses_media_progress_fixture() {
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let p: dc_protocol::MediaProgress =
+        serde_json::from_value(doc["mediaProgress"].clone()).unwrap();
+    assert_eq!(p.phase, "downloading");
+    assert_eq!(p.received_bytes, 60_700_000);
+    let out: serde_json::Value = serde_json::to_value(&p).unwrap();
+    assert_eq!(out, doc["mediaProgress"]);
+}
