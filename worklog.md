@@ -351,3 +351,55 @@ Stage Summary:
   live streams, vanished formats and missing tools are classified, never guessed. The end
   user still installs nothing.
 - Next: Phase 13 (torrent engine + UI) per docs/PHASES.md.
+
+---
+Task ID: 13
+Agent: Super Z (main agent)
+Task: Phase 13 — Torrent engine + UI ("فاز ۱۳"): verify Phases 0–12, then Plan → Implement → Test → Fix → Document → Review → Commit.
+
+Work Log:
+- Verified Phase 0–12 from git history (all delivered; Phase 12 = 8013c3d) and repaired the
+  sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 6th reset).
+- Plan: docs/phase-13-plan.md — native Rust BT engine in download-core (end user installs
+  no torrent client), new dc-bt crate, contracts v1.7.0→v1.8.0 (additive activation of the
+  never-consumed v1 torrent stub; statuses gained queued/canceled), storage v7.
+- Contracts: torrent.ts (TorrentJob v2 with infoHash/sourceKind/files/counters, 7 methods,
+  torrent.progress/updated events, 4 append-only error codes incl. torrent_proxy_unsupported),
+  fixtures torrentJob/torrentProgress, dc-protocol/src/torrent.rs + fixture parity tests,
+  CONTRACT_VERSION 1.8.0 both sides, package bumped to 1.8.0.
+- dc-bt (new crate, 46 tests): bencode (raw spans for exact info-hash), metainfo (v1,
+  hybrid OK, v2-only classified, traversal-proof sanitize), magnet (hex+base32), trackers
+  (HTTP + UDP/BEP 15, compact+dict peers), peer wire (BEP 3 + BEP 9/10), picker (rarest-
+  first, on-demand endgame, 16 KiB blocks), SOCKS5/HTTP-CONNECT tunnels, DHT (BEP 5,
+  closest-N table, rotating tokens, non-blocking bootstrap), base64/base32/hex helpers.
+- dc-storage v7: torrent_jobs (metainfo blob, have blob, files/trackers JSON, counters) +
+  CRUD + boot reset (queued/metadata/downloading/seeding → paused); 4 new tests.
+- download-core: torrent_manager.rs (~2.2k lines) — TorrentManager (bind listener+DHT,
+  pump ≤3, runner-ack pause/cancel/remove, fail-closed proxy → ProxyTunnel, metadata phase
+  with per-peer fetch bounded by budget, swarm phase with announce/dial loop, 500 ms ticker
+  with tick-driven finalize_completion, stale-request sweep, unchoke rotation, seeding
+  after completion); server.rs arms for torrent.*; manager.rs delegation + shutdown;
+  main.rs binds the peer listener.
+- Electron main: domains/torrent.ts (7 methods, 30 s budget) registered in main.ts.
+- Renderer: stores/torrent.ts (authoritative snapshots + progress patches, exactly-one-
+  source add), TorrentsPage.tsx (magnet textarea, .torrent file picker → base64 ≤8 MiB,
+  destination dir from settings, proxy picker, progress/speeds/peers, lifecycle actions),
+  AppShell nav entry, subscribeTorrentEvents in main.tsx; 8 store tests + 5 domain tests.
+- Fixed during Test/Fix (highlights): decode_top_with_span never returned the recorded
+  span (wrong info-hash for every torrent); KeepAlive encoded as zero bytes; responder
+  handshake re-read (inbound starvation); DHT drain(..8) panic; std-Mutex deadlock in the
+  Interested handler; peer in_flight never released on Piece arrival (download stalled
+  after one pipeline window); UDP reply offsets (action vs txn); session body cancelled
+  its own token (status race) → restructured with helper handles returned to run_session;
+  BEP 9 metadata is the bare info dict (wrapped under 4:info for persistence); tests made
+  hermetic (refused DHT bootstrap; throttled seeder for deterministic mid-download pause).
+- Gate: cargo fmt/clippy clean; cargo test 223 passed (was 159); vitest 68+129=197 (was
+  61+116); typecheck ×4 clean; vite build green.
+
+Stage Summary:
+- The torrent engine is complete end-to-end: .torrent or magnet → swarm discovery
+  (trackers + DHT) → verified per-piece download → seeding; byte-preserving resume across
+  pause/crash/restart via the persisted have-map; fail-closed proxy routing with DHT/UDP
+  suspension while proxied; honest surfaces everywhere (verified bytes only, classified
+  errors, no silent fallbacks).
+- Next: Phase 14 (browser history, bookmarks, downloads library) per docs/PHASES.md.

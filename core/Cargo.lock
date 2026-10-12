@@ -249,6 +249,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dc-bt"
+version = "0.6.0"
+dependencies = [
+ "dc-protocol",
+ "rand",
+ "reqwest",
+ "sha1",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "dc-protocol"
 version = "0.6.0"
 dependencies = [
@@ -293,12 +307,14 @@ dependencies = [
 name = "download-core"
 version = "0.6.0"
 dependencies = [
+ "dc-bt",
  "dc-protocol",
  "dc-storage",
  "futures-util",
  "reqwest",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "thiserror",
  "tokio",
@@ -1334,6 +1350,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]

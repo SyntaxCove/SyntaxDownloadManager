@@ -197,3 +197,71 @@ fn parses_media_progress_fixture() {
     let out: serde_json::Value = serde_json::to_value(&p).unwrap();
     assert_eq!(out, doc["mediaProgress"]);
 }
+
+// ---- v1.8 (Phase 13): torrent domain fixtures ----
+
+#[test]
+fn parses_domain_fixture_torrent_job() {
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: dc_protocol::TorrentJob = serde_json::from_value(doc["torrentJob"].clone()).unwrap();
+    assert_eq!(job.status, "downloading");
+    assert_eq!(job.source_kind, dc_protocol::TorrentSourceKind::Torrent);
+    assert_eq!(
+        job.info_hash.as_deref(),
+        Some("0123456789abcdef0123456789abcdef01234567")
+    );
+    assert_eq!(job.num_pieces, Some(4));
+    assert_eq!(job.files.len(), 1);
+    assert_eq!(job.files[0].path, "Sample Torrent/sample.txt");
+}
+
+#[test]
+fn rust_torrent_serialization_matches_ts_wire_format() {
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: dc_protocol::TorrentJob = serde_json::from_value(doc["torrentJob"].clone()).unwrap();
+    let out: serde_json::Value = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        out, doc["torrentJob"],
+        "wire format divergence between TS and Rust"
+    );
+
+    let progress: dc_protocol::TorrentProgress =
+        serde_json::from_value(doc["torrentProgress"].clone()).unwrap();
+    let out: serde_json::Value = serde_json::to_value(&progress).unwrap();
+    assert_eq!(out, doc["torrentProgress"]);
+}
+
+#[test]
+fn magnet_torrent_job_null_identity_round_trip() {
+    // A magnet pre-metadata serializes with explicit nulls the TS schema accepts.
+    let json = serde_json::json!({
+        "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0W",
+        "name": null,
+        "status": "metadata",
+        "sourceKind": "magnet",
+        "infoHash": null,
+        "destinationDir": "/home/user/Downloads",
+        "totalBytes": null,
+        "receivedBytes": 0,
+        "uploadedBytes": 0,
+        "downloadSpeedBps": 0,
+        "uploadSpeedBps": 0,
+        "peers": 0,
+        "seeds": 0,
+        "etaSeconds": null,
+        "numPieces": null,
+        "pieceLength": null,
+        "files": [],
+        "errorCode": null,
+        "proxyProfileId": null,
+        "createdAt": 1735689600000i64,
+        "updatedAt": 1735689900000i64
+    });
+    let job: dc_protocol::TorrentJob = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(job.source_kind, dc_protocol::TorrentSourceKind::Magnet);
+    assert_eq!(job.name, None);
+    let out = serde_json::to_value(&job).unwrap();
+    assert_eq!(out, json);
+}

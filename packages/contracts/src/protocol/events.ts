@@ -4,6 +4,7 @@ import { TabUpdatedEvent, TabClosedEvent } from "../domain/browser.js";
 import { SettingsChangedEvent } from "../domain/settings.js";
 import { ToolkitToolStatus } from "../domain/toolkit.js";
 import { MediaProgress, MediaJob } from "../domain/media.js";
+import { TorrentProgress, TorrentJob } from "../domain/torrent.js";
 
 /**
  * Event registry: event name → payload schema. Sources: core→main over stdio, main→renderer
@@ -43,6 +44,9 @@ export const EVENTS = {
   // v1.7 (Phase 12): media pipeline progress (throttled ~500ms) + authoritative snapshots.
   "media.progress": { source: "core", payload: MediaProgress },
   "media.updated": { source: "core", payload: z.object({ job: MediaJob }) },
+  // v1.8 (Phase 13): torrent engine progress (throttled ~500ms) + authoritative snapshots.
+  "torrent.progress": { source: "core", payload: TorrentProgress },
+  "torrent.updated": { source: "core", payload: z.object({ job: TorrentJob }) },
 } satisfies Record<string, EventEntry>;
 
 export type EventName = keyof typeof EVENTS;

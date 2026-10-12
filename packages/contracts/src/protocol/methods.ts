@@ -32,6 +32,10 @@ import {
   MediaJobIdParams, MediaJobByIdResult, MediaRemoveParams, MediaRemoveResult,
   MediaInspectParams, MediaInspectResult,
 } from "../domain/media.js";
+import {
+  TorrentAddParams, TorrentAddResult, TorrentListParams, TorrentListResult,
+  TorrentJobIdParams, TorrentJobByIdResult, TorrentRemoveParams, TorrentRemoveResult,
+} from "../domain/torrent.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -106,6 +110,15 @@ export const METHODS = {
   "media.resume": { server: "core", params: MediaJobIdParams, result: MediaJobByIdResult },
   "media.cancel": { server: "core", params: MediaJobIdParams, result: MediaJobByIdResult },
   "media.remove": { server: "core", params: MediaRemoveParams, result: MediaRemoveResult },
+  // ---- core (v1.8, Phase 13): native torrent engine ----
+  /** Add a .torrent (base64) or magnet URI; the swarm is the persistent source. */
+  "torrent.add": { server: "core", params: TorrentAddParams, result: TorrentAddResult },
+  "torrent.list": { server: "core", params: TorrentListParams, result: TorrentListResult },
+  "torrent.get": { server: "core", params: TorrentJobIdParams, result: TorrentJobByIdResult },
+  "torrent.pause": { server: "core", params: TorrentJobIdParams, result: TorrentJobByIdResult },
+  "torrent.resume": { server: "core", params: TorrentJobIdParams, result: TorrentJobByIdResult },
+  "torrent.cancel": { server: "core", params: TorrentJobIdParams, result: TorrentJobByIdResult },
+  "torrent.remove": { server: "core", params: TorrentRemoveParams, result: TorrentRemoveResult },
   // ---- main (Electron main process) ----
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },

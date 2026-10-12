@@ -53,6 +53,11 @@ pub enum ErrorCode {
     MediaMuxFailed,
     MediaFormatNotFound,
     MediaLiveUnsupported,
+    // torrent engine (v1.8, Phase 13) — append-only
+    TorrentInvalidMetainfo,
+    TorrentV2Unsupported,
+    TorrentMetadataTimeout,
+    TorrentProxyUnsupported,
 }
 
 impl ErrorCode {
@@ -95,6 +100,10 @@ impl ErrorCode {
             ErrorCode::MediaMuxFailed => "media_mux_failed",
             ErrorCode::MediaFormatNotFound => "media_format_not_found",
             ErrorCode::MediaLiveUnsupported => "media_live_unsupported",
+            ErrorCode::TorrentInvalidMetainfo => "torrent_invalid_metainfo",
+            ErrorCode::TorrentV2Unsupported => "torrent_v2_unsupported",
+            ErrorCode::TorrentMetadataTimeout => "torrent_metadata_timeout",
+            ErrorCode::TorrentProxyUnsupported => "torrent_proxy_unsupported",
         }
     }
 }

@@ -412,3 +412,184 @@ fn tempdir() -> PathBuf {
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
+
+// ---- v7 (Phase 13): torrent engine jobs ----
+
+fn sample_torrent_row(id: &str, status: &str) -> dc_storage::TorrentJobRow {
+    dc_storage::TorrentJobRow {
+        id: Ulid(id.to_string()),
+        source_kind: dc_protocol::TorrentSourceKind::Torrent,
+        source_uri: String::new(),
+        name: Some("Sample Torrent".into()),
+        info_hash: Some("0123456789abcdef0123456789abcdef01234567".into()),
+        destination_dir: "/home/user/Downloads".into(),
+        status: status.into(),
+        total_bytes: Some(262_144),
+        received_bytes: 131_072,
+        uploaded_bytes: 4_096,
+        num_pieces: Some(4),
+        piece_length: Some(65_536),
+        have_blob: Some(vec![0b1010_0000]),
+        metainfo_blob: Some(b"d4:infod4:spam4:eggsee".to_vec()),
+        files: vec![dc_protocol::TorrentFileEntry {
+            path: "Sample Torrent/sample.txt".into(),
+            size: 262_144,
+            offset: 0,
+        }],
+        trackers: vec!["http://tracker.example/ann".into()],
+        error_code: None,
+        proxy_profile_id: None,
+        created_at: 1_735_689_600_000,
+        updated_at: 1_735_689_600_000,
+    }
+}
+
+#[test]
+fn torrent_jobs_crud_round_trip() {
+    let store = JobStore::open_in_memory().unwrap();
+    let row = sample_torrent_row("01JTORRENT0000000000000000A", "downloading");
+    store.insert_torrent_job(&row).unwrap();
+
+    let got = store
+        .get_torrent_job("01JTORRENT0000000000000000A")
+        .unwrap()
+        .unwrap();
+    assert_eq!(got, row);
+
+    let list = store.list_torrent_jobs().unwrap();
+    assert_eq!(list.len(), 1);
+
+    // wire projection zeroes runtime-only fields
+    let wire = got.to_wire();
+    assert_eq!(wire.download_speed_bps, 0);
+    assert_eq!(wire.peers, 0);
+    assert_eq!(wire.name.as_deref(), Some("Sample Torrent"));
+    assert_eq!(wire.files.len(), 1);
+
+    // mutate + update
+    let mut updated = row.clone();
+    updated.status = "completed".into();
+    updated.received_bytes = 262_144;
+    updated.have_blob = Some(vec![0b1111_0000]);
+    store.update_torrent_job(&updated).unwrap();
+    let got = store
+        .get_torrent_job("01JTORRENT0000000000000000A")
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.status, "completed");
+    assert_eq!(got.received_bytes, 262_144);
+    assert_eq!(got.have_blob, Some(vec![0b1111_0000]));
+
+    // progress tick touches counters + have, leaves the rest
+    store
+        .update_torrent_progress("01JTORRENT0000000000000000A", 131_072, 8_192, None)
+        .unwrap();
+    let got = store
+        .get_torrent_job("01JTORRENT0000000000000000A")
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.received_bytes, 131_072);
+    assert_eq!(got.uploaded_bytes, 8_192);
+    assert_eq!(
+        got.have_blob,
+        Some(vec![0b1111_0000]),
+        "have preserved via COALESCE"
+    );
+
+    // delete
+    assert!(store
+        .delete_torrent_job("01JTORRENT0000000000000000A")
+        .unwrap());
+    assert!(store
+        .get_torrent_job("01JTORRENT0000000000000000A")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn magnet_torrent_row_persists_null_identity_and_survives_reopen() {
+    let dir = tempdir();
+    let db = dir.join("t.db");
+    {
+        let store = JobStore::open(&db).unwrap();
+        let row = dc_storage::TorrentJobRow {
+            id: Ulid("01JTORRENT0000000000000000B".into()),
+            source_kind: dc_protocol::TorrentSourceKind::Magnet,
+            source_uri: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567".into(),
+            name: None,
+            info_hash: None,
+            destination_dir: "/home/user/Downloads".into(),
+            status: "metadata".into(),
+            total_bytes: None,
+            received_bytes: 0,
+            uploaded_bytes: 0,
+            num_pieces: None,
+            piece_length: None,
+            have_blob: None,
+            metainfo_blob: None,
+            files: vec![],
+            trackers: vec![],
+            error_code: None,
+            proxy_profile_id: Some("01HQ".into()),
+            created_at: 1,
+            updated_at: 1,
+        };
+        store.insert_torrent_job(&row).unwrap();
+    }
+    let store = JobStore::open(&db).unwrap();
+    let got = store
+        .get_torrent_job("01JTORRENT0000000000000000B")
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.source_kind, dc_protocol::TorrentSourceKind::Magnet);
+    assert_eq!(got.name, None);
+    assert_eq!(got.info_hash, None);
+    assert_eq!(got.files, vec![]);
+    assert_eq!(got.proxy_profile_id.as_deref(), Some("01HQ"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn torrent_boot_reset_flips_active_to_paused() {
+    let store = JobStore::open_in_memory().unwrap();
+    for (i, status) in [
+        "queued",
+        "metadata",
+        "downloading",
+        "seeding",
+        "paused",
+        "completed",
+        "failed",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let id = format!("01JTORRENT0000000000000000{:02X}", i + 1);
+        let mut row = sample_torrent_row(&id, status);
+        row.source_uri = String::new();
+        store.insert_torrent_job(&row).unwrap();
+    }
+    let reset = store.reset_active_torrent_jobs().unwrap();
+    assert_eq!(reset, 4, "queued/metadata/downloading/seeding reset");
+    for (i, status) in [
+        "paused",
+        "paused",
+        "paused",
+        "paused",
+        "paused",
+        "completed",
+        "failed",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let id = format!("01JTORRENT0000000000000000{:02X}", i + 1);
+        assert_eq!(store.get_torrent_job(&id).unwrap().unwrap().status, *status);
+    }
+}
+
+#[test]
+fn schema_version_is_at_least_7_after_migrations() {
+    let store = JobStore::open_in_memory().unwrap();
+    assert!(store.schema_version().unwrap() >= 7);
+}

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/dc-protocol",
     "crates/dc-storage",
+    "crates/dc-bt",
     "crates/download-core",
 ]
 
@@ -26,6 +27,10 @@ futures-util = "0.3.31"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # max stable on crates.io verified 2026-10-07 (phase-6 report)
 sha2 = "0.11.0"
+# BitTorrent engine (v1.8, Phase 13) — verified against crates.io max stable this session
+sha1 = "0.11.0"
+rand = "0.10.3"
 
 dc-protocol = { path = "crates/dc-protocol" }
 dc-storage = { path = "crates/dc-storage" }
+dc-bt = { path = "crates/dc-bt" }

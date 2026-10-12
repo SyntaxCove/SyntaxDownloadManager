@@ -30,6 +30,7 @@ use crate::engine::{now_ms, CreateJobParams, Engine, EventsTx, JobCommand};
 use crate::media_job::MediaJobManager;
 use crate::proxy::{ProxyMap, RuntimeProxy};
 use crate::toolkit::ToolkitMap;
+use crate::torrent_manager::TorrentManager;
 
 /// How often the queue re-evaluates the schedule window (transition detection).
 const POLICY_TICK_SECS: u64 = 30;
@@ -107,6 +108,8 @@ pub struct JobManager {
     engine: Arc<Engine>,
     /// Phase 12: the persistent media download & merge pipeline (its own lifecycle).
     media: Arc<MediaJobManager>,
+    /// Phase 13: the native torrent engine (its own lifecycle).
+    torrent: Arc<TorrentManager>,
     jobs: Mutex<HashMap<String, JobHandle>>,
     max_concurrent: AtomicUsize,
     policy: Mutex<QueuePolicy>,
@@ -155,11 +158,19 @@ impl JobManager {
             proxies.clone(),
             inspect_limiter.clone(),
         ));
-        let media = MediaJobManager::new(store.clone(), events, toolkit, proxies, inspect_limiter);
+        let media = MediaJobManager::new(
+            store.clone(),
+            events.clone(),
+            toolkit,
+            proxies.clone(),
+            inspect_limiter,
+        );
+        let torrent = TorrentManager::new(store.clone(), events, proxies);
         let manager = Arc::new(Self {
             store,
             engine,
             media,
+            torrent,
             jobs: Mutex::new(HashMap::new()),
             max_concurrent: AtomicUsize::new(3),
             policy: Mutex::new(QueuePolicy::default()),
@@ -279,6 +290,51 @@ impl JobManager {
         delete_files: bool,
     ) -> Result<(), ContractError> {
         self.media.remove(id, delete_files).await
+    }
+
+    // ---- Phase 13: native torrent engine ----
+
+    /// Bind the torrent peer listener (once; the port is announced to trackers/DHT).
+    pub async fn bind_torrents(&self) -> Result<u16, ContractError> {
+        self.torrent.bind().await
+    }
+
+    pub async fn torrent_add(
+        self: &Arc<Self>,
+        params: dc_protocol::TorrentAddParams,
+    ) -> Result<dc_protocol::TorrentJob, ContractError> {
+        self.torrent.add(params).await
+    }
+
+    pub fn torrent_list(&self) -> Result<Vec<dc_protocol::TorrentJob>, ContractError> {
+        self.torrent.list()
+    }
+
+    pub fn torrent_get(&self, id: &str) -> Result<Option<dc_protocol::TorrentJob>, ContractError> {
+        self.torrent.get(id)
+    }
+
+    pub async fn torrent_pause(&self, id: &str) -> Result<dc_protocol::TorrentJob, ContractError> {
+        self.torrent.pause(id).await
+    }
+
+    pub async fn torrent_resume(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Result<dc_protocol::TorrentJob, ContractError> {
+        self.torrent.resume(id).await
+    }
+
+    pub async fn torrent_cancel(&self, id: &str) -> Result<dc_protocol::TorrentJob, ContractError> {
+        self.torrent.cancel(id).await
+    }
+
+    pub async fn torrent_remove(
+        self: &Arc<Self>,
+        id: &str,
+        delete_files: bool,
+    ) -> Result<(), ContractError> {
+        self.torrent.remove(id, delete_files).await
     }
 
     /// Phase 9: change the proxy profile a job routes through (None = direct).
@@ -636,6 +692,7 @@ impl JobManager {
             stop.cancel();
         }
         self.media.shutdown().await;
+        self.torrent.shutdown().await;
     }
 
     async fn send_command(

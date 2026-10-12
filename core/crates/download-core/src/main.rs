@@ -56,6 +56,10 @@ async fn run(db_path: String, max_concurrent: usize, max_connections: usize) {
     let manager = download_core::JobManager::new(store, events_tx);
     manager.set_max_concurrent(max_concurrent);
     manager.set_max_connections(max_connections);
+    // Torrent peer listener + DHT socket (ephemeral port; announced to trackers).
+    if let Err(e) = manager.bind_torrents().await {
+        tracing::warn!("torrent listener unavailable: {e}");
+    }
 
     // Bridge engine events into the shared outbound writer.
     let bridge_tx = outbound_tx.clone();

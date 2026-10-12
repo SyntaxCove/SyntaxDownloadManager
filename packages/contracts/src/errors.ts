@@ -53,6 +53,11 @@ export const ErrorCodes = [
   "media_mux_failed",
   "media_format_not_found",
   "media_live_unsupported",
+  // torrent engine (v1.8, Phase 13) — append-only
+  "torrent_invalid_metainfo",
+  "torrent_v2_unsupported",
+  "torrent_metadata_timeout",
+  "torrent_proxy_unsupported",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

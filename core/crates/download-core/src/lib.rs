@@ -13,5 +13,6 @@ pub mod recover;
 pub mod segments;
 pub mod server;
 pub mod toolkit;
+pub mod torrent_manager;
 
 pub use manager::JobManager;

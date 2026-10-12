@@ -356,6 +356,51 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             manager.media_remove(&p.id, p.delete_files).await?;
             Ok(serde_json::json!({ "removed": true }))
         }
+        // ---- Phase 13: native torrent engine ----
+        "torrent.add" => {
+            let p: dc_protocol::TorrentAddParams = parse(&params)?;
+            let job = manager.torrent_add(p).await?;
+            serde_json::to_value(dc_protocol::TorrentAddResult { job }).map_err(|e| {
+                ContractError::new(
+                    ErrorCode::InternalError,
+                    format!("serialize torrent job: {e}"),
+                )
+            })
+        }
+        "torrent.list" => {
+            let jobs = manager.torrent_list()?;
+            serde_json::to_value(dc_protocol::TorrentListResult { jobs }).map_err(|e| {
+                ContractError::new(
+                    ErrorCode::InternalError,
+                    format!("serialize torrent jobs: {e}"),
+                )
+            })
+        }
+        "torrent.get" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.torrent_get(&p.id)?;
+            Ok(serde_json::json!({ "job": job }))
+        }
+        "torrent.pause" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.torrent_pause(&p.id).await?;
+            torrent_job_json(job)
+        }
+        "torrent.resume" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.torrent_resume(&p.id).await?;
+            torrent_job_json(job)
+        }
+        "torrent.cancel" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.torrent_cancel(&p.id).await?;
+            torrent_job_json(job)
+        }
+        "torrent.remove" => {
+            let p: dc_protocol::TorrentRemoveParams = parse(&params)?;
+            manager.torrent_remove(&p.id, p.delete_files).await?;
+            Ok(serde_json::json!({ "removed": true }))
+        }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.cancel(&p.id).await?;
@@ -386,6 +431,17 @@ fn media_job_json(job: dc_protocol::MediaJob) -> Result<Value, ContractError> {
             ContractError::new(
                 ErrorCode::InternalError,
                 format!("serialize media job: {e}"),
+            )
+        })
+}
+
+fn torrent_job_json(job: dc_protocol::TorrentJob) -> Result<Value, ContractError> {
+    serde_json::to_value(job)
+        .map(|v| serde_json::json!({ "job": v }))
+        .map_err(|e| {
+            ContractError::new(
+                ErrorCode::InternalError,
+                format!("serialize torrent job: {e}"),
             )
         })
 }

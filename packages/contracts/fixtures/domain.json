@@ -315,5 +315,41 @@
     "totalBytes": 121400000,
     "speedBps": 2097152,
     "etaSeconds": 29
+  },
+  "torrentJob": {
+    "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0X",
+    "name": "Sample Torrent",
+    "status": "downloading",
+    "sourceKind": "torrent",
+    "infoHash": "0123456789abcdef0123456789abcdef01234567",
+    "destinationDir": "/home/user/Downloads",
+    "totalBytes": 262144,
+    "receivedBytes": 131072,
+    "uploadedBytes": 4096,
+    "downloadSpeedBps": 524288,
+    "uploadSpeedBps": 16384,
+    "peers": 7,
+    "seeds": 3,
+    "etaSeconds": 1,
+    "numPieces": 4,
+    "pieceLength": 65536,
+    "files": [
+      { "path": "Sample Torrent/sample.txt", "size": 262144, "offset": 0 }
+    ],
+    "errorCode": null,
+    "proxyProfileId": null,
+    "createdAt": 1735689600000,
+    "updatedAt": 1735689900000
+  },
+  "torrentProgress": {
+    "jobId": "01JD8W3G5XQ9V4M2K7PZ6N8S0X",
+    "phase": "downloading",
+    "receivedBytes": 131072,
+    "totalBytes": 262144,
+    "downloadSpeedBps": 524288,
+    "uploadSpeedBps": 16384,
+    "peers": 7,
+    "seeds": 3,
+    "etaSeconds": 1
   }
 }

@@ -40,7 +40,7 @@
 | 10 | Bundled media toolkit — pinned FFmpeg / yt-dlp / Deno fetch + version manifest | delivered (2026-10-10) |
 | 11 | Media inspector / extractor — `media.inspect`, manifests | delivered (2026-10-11) |
 | 12 | Media download & merge pipeline (video/audio/subtitle mux) | delivered (2026-10-12) |
-| 13 | Torrent engine + UI | pending |
+| 13 | Torrent engine + UI | delivered (2026-10-12) |
 | 14 | Browser history, bookmarks, downloads library | pending |
 | 15 | Scheduler jobs + automation | pending |
 | 16 | Settings domain completion | pending |

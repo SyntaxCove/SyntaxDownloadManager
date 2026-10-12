@@ -6,6 +6,7 @@ import {
   DownloadJob, DownloadProgress, DownloadCreateParams, BrowserTab, AppSettings, MediaManifest,
   MediaInspectParams, MediaJob, MediaDownloadParams, MediaProgress, MediaContainer,
   MediaSubtitleSelection,
+  TorrentJob, TorrentStatus, TorrentAddParams, TorrentProgress,
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
   METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION, ErrorCodes,
   newUlid, ulidTime, normalizeUlid, Ulid, makeRequest, makeSuccess, makeError, makeEvent,
@@ -594,7 +595,86 @@ describe("v1.7 media pipeline (Phase 12)", () => {
     expect(ErrorCodes).toContain("media_live_unsupported");
   });
 
-  it("contract version advanced to 1.7.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.7.0");
+  it("contract version is at least 1.7.0 (Phase 12 media pipeline is additive)", () => {
+    expect(CONTRACT_VERSION >= "1.7.0").toBe(true);
+  });
+});
+
+describe("v1.8 torrent engine (Phase 13)", () => {
+  it("parses the torrentJob fixture", () => {
+    const job = TorrentJob.parse(domainFixture.torrentJob);
+    expect(job.status).toBe("downloading");
+    expect(job.sourceKind).toBe("torrent");
+    expect(job.infoHash).toMatch(/^[0-9a-f]{40}$/);
+    expect(job.files).toHaveLength(1);
+    expect(job.files[0].path).toBe("Sample Torrent/sample.txt");
+    expect(job.errorCode).toBeNull();
+  });
+
+  it("torrent.add params require exactly one source kind", () => {
+    const base = { destinationDir: "/home/user/Downloads" };
+    expect(TorrentAddParams.safeParse(base).success).toBe(false);
+    // any non-empty magnet string is accepted by the wire schema; the core classifies parse errors
+    expect(
+      TorrentAddParams.safeParse({ ...base, magnetUri: "magnet:?xt=urn:btih:X" }).success,
+    ).toBe(true);
+    expect(
+      TorrentAddParams.safeParse({
+        ...base,
+        magnetUri: "magnet:?xt=urn:btih:" + "a".repeat(40),
+      }).success,
+    ).toBe(true);
+    expect(
+      TorrentAddParams.safeParse({ ...base, torrentFileB64: "ZGVmYXVsdA==" }).success,
+    ).toBe(true);
+    // both provided → refused
+    expect(
+      TorrentAddParams.safeParse({
+        ...base,
+        magnetUri: "magnet:?xt=urn:btih:" + "a".repeat(40),
+        torrentFileB64: "ZGVmYXVsdA==",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("torrent status enum is closed and gained queued/canceled", () => {
+    expect(TorrentStatus.options).toEqual([
+      "queued", "metadata", "downloading", "seeding", "paused", "completed", "failed",
+      "canceled",
+    ]);
+    expect(
+      TorrentJob.safeParse({ ...domainFixture.torrentJob, status: "teleporting" }).success,
+    ).toBe(false);
+    expect(
+      TorrentJob.safeParse({ ...domainFixture.torrentJob, infoHash: "nothex" }).success,
+    ).toBe(false);
+  });
+
+  it("torrent.* methods register on the core server", () => {
+    for (const m of [
+      "torrent.add", "torrent.list", "torrent.get", "torrent.pause",
+      "torrent.resume", "torrent.cancel", "torrent.remove",
+    ] as const) {
+      expect(METHODS[m].server).toBe("core");
+    }
+  });
+
+  it("torrent events register with core source", () => {
+    expect(EVENTS["torrent.progress"].source).toBe("core");
+    expect(EVENTS["torrent.updated"].source).toBe("core");
+    const p = TorrentProgress.parse(domainFixture.torrentProgress);
+    expect(p.phase).toBe("downloading");
+    expect(p.peers).toBe(7);
+  });
+
+  it("error codes stay append-only and gained the torrent codes", () => {
+    expect(ErrorCodes).toContain("torrent_invalid_metainfo");
+    expect(ErrorCodes).toContain("torrent_v2_unsupported");
+    expect(ErrorCodes).toContain("torrent_metadata_timeout");
+    expect(ErrorCodes).toContain("torrent_proxy_unsupported");
+  });
+
+  it("contract version advanced to 1.8.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.8.0");
   });
 });

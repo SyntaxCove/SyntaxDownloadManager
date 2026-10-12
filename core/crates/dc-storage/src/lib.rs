@@ -5,6 +5,7 @@
 
 use dc_protocol::job::DownloadJob;
 use dc_protocol::media::MediaJob;
+use dc_protocol::torrent::{TorrentFileEntry, TorrentJob, TorrentSourceKind};
 use dc_protocol::{ContractError, ErrorCode};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::path::Path;
@@ -88,6 +89,33 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_media_jobs_status ON media_jobs(status);
     CREATE INDEX IF NOT EXISTS idx_media_jobs_created_at ON media_jobs(created_at DESC);",
+    // v7 (Phase 13): persistent torrent engine jobs. A separate table: torrent jobs are
+    // swarm-sourced (no expiring URL), verified per-piece by SHA-1, and resume from the
+    // persisted have bitmap — lifecycle columns differ from HTTP jobs by design.
+    "CREATE TABLE IF NOT EXISTS torrent_jobs (
+        id               TEXT PRIMARY KEY,
+        source_kind      TEXT NOT NULL,
+        source_uri       TEXT NOT NULL,
+        name             TEXT,
+        info_hash        TEXT,
+        destination_dir  TEXT NOT NULL,
+        status           TEXT NOT NULL,
+        total_bytes      INTEGER,
+        received_bytes   INTEGER NOT NULL DEFAULT 0,
+        uploaded_bytes   INTEGER NOT NULL DEFAULT 0,
+        num_pieces       INTEGER,
+        piece_length     INTEGER,
+        have_blob        BLOB,
+        metainfo_blob    BLOB,
+        files_json       TEXT NOT NULL DEFAULT '[]',
+        trackers_json    TEXT NOT NULL DEFAULT '[]',
+        error_code       TEXT,
+        proxy_profile_id TEXT,
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_torrent_jobs_status ON torrent_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_torrent_jobs_created_at ON torrent_jobs(created_at DESC);",
 ];
 
 /// One journal row of the per-segment download state (Phase 6).
@@ -560,6 +588,265 @@ impl JobStore {
             .map_err(wrap_sqlite("reset active media jobs"))?;
         Ok(n)
     }
+
+    // ---- torrent engine jobs (Phase 13) ----
+
+    pub fn insert_torrent_job(&self, job: &TorrentJobRow) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO torrent_jobs (id, source_kind, source_uri, name, info_hash,
+                                       destination_dir, status, total_bytes, received_bytes,
+                                       uploaded_bytes, num_pieces, piece_length, have_blob,
+                                       metainfo_blob, files_json, trackers_json, error_code,
+                                       proxy_profile_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![
+                job.id.as_str(),
+                job.source_kind.as_str(),
+                job.source_uri,
+                job.name,
+                job.info_hash,
+                job.destination_dir,
+                job.status,
+                job.total_bytes.map(|v| v as i64),
+                job.received_bytes as i64,
+                job.uploaded_bytes as i64,
+                job.num_pieces.map(|v| v as i64),
+                job.piece_length.map(|v| v as i64),
+                job.have_blob,
+                job.metainfo_blob,
+                files_to_json(&job.files),
+                trackers_to_json(&job.trackers),
+                job.error_code,
+                job.proxy_profile_id,
+                job.created_at,
+                job.updated_at,
+            ],
+        )
+        .map_err(wrap_sqlite("insert torrent job"))?;
+        Ok(())
+    }
+
+    pub fn get_torrent_job(&self, id: &str) -> StorageResult<Option<TorrentJobRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.query_row(
+            "SELECT * FROM torrent_jobs WHERE id = ?1",
+            params![id],
+            torrent_job_from_row,
+        )
+        .optional()
+        .map_err(wrap_sqlite("get torrent job"))
+    }
+
+    pub fn list_torrent_jobs(&self) -> StorageResult<Vec<TorrentJobRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare("SELECT * FROM torrent_jobs ORDER BY created_at DESC")
+            .map_err(wrap_sqlite("list torrent jobs"))?;
+        let rows = stmt
+            .query_map([], torrent_job_from_row)
+            .map_err(wrap_sqlite("list torrent jobs"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list torrent jobs"))
+    }
+
+    pub fn update_torrent_job(&self, job: &TorrentJobRow) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute(
+                "UPDATE torrent_jobs SET source_kind=?2, source_uri=?3, name=?4, info_hash=?5,
+                        destination_dir=?6, status=?7, total_bytes=?8, received_bytes=?9,
+                        uploaded_bytes=?10, num_pieces=?11, piece_length=?12, have_blob=?13,
+                        metainfo_blob=?14, files_json=?15, trackers_json=?16, error_code=?17,
+                        proxy_profile_id=?18, updated_at=?19
+                 WHERE id=?1",
+                params![
+                    job.id.as_str(),
+                    job.source_kind.as_str(),
+                    job.source_uri,
+                    job.name,
+                    job.info_hash,
+                    job.destination_dir,
+                    job.status,
+                    job.total_bytes.map(|v| v as i64),
+                    job.received_bytes as i64,
+                    job.uploaded_bytes as i64,
+                    job.num_pieces.map(|v| v as i64),
+                    job.piece_length.map(|v| v as i64),
+                    job.have_blob,
+                    job.metainfo_blob,
+                    files_to_json(&job.files),
+                    trackers_to_json(&job.trackers),
+                    job.error_code,
+                    job.proxy_profile_id,
+                    job.updated_at,
+                ],
+            )
+            .map_err(wrap_sqlite("update torrent job"))?;
+        if n == 0 {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "torrent job not found",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Lightweight progress tick for an active torrent (have bitmap included so a crash
+    /// costs at most the un-persisted tail of verified pieces — re-verification is
+    /// idempotent, integrity is never at risk).
+    pub fn update_torrent_progress(
+        &self,
+        id: &str,
+        received_bytes: u64,
+        uploaded_bytes: u64,
+        have_blob: Option<&[u8]>,
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "UPDATE torrent_jobs SET received_bytes=?2, uploaded_bytes=?3,
+                    have_blob=COALESCE(?4, have_blob), updated_at=?5 WHERE id=?1",
+            params![
+                id,
+                received_bytes as i64,
+                uploaded_bytes as i64,
+                have_blob,
+                now_ms()
+            ],
+        )
+        .map_err(wrap_sqlite("update torrent progress"))?;
+        Ok(())
+    }
+
+    pub fn delete_torrent_job(&self, id: &str) -> StorageResult<bool> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute("DELETE FROM torrent_jobs WHERE id = ?1", params![id])
+            .map_err(wrap_sqlite("delete torrent job"))?;
+        Ok(n > 0)
+    }
+
+    /// Boot recovery: a fresh core never auto-starts torrents (Phase 8 baseline rule).
+    pub fn reset_active_torrent_jobs(&self) -> StorageResult<usize> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute(
+                "UPDATE torrent_jobs SET status='paused', updated_at=?1
+                 WHERE status IN ('queued','metadata','downloading','seeding')",
+                params![now_ms()],
+            )
+            .map_err(wrap_sqlite("reset active torrent jobs"))?;
+        Ok(n)
+    }
+}
+
+/// The persisted torrent row — everything the engine needs to reconstruct a session.
+/// Runtime-only values (speeds, peer counts, eta) are derived live, never stored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TorrentJobRow {
+    pub id: dc_protocol::Ulid,
+    pub source_kind: TorrentSourceKind,
+    /// Magnet URI (magnet jobs); empty for .torrent jobs (the blob is authoritative).
+    pub source_uri: String,
+    pub name: Option<String>,
+    /// 40-char lowercase hex; null for magnets until metadata arrives.
+    pub info_hash: Option<String>,
+    pub destination_dir: String,
+    pub status: String,
+    pub total_bytes: Option<u64>,
+    pub received_bytes: u64,
+    pub uploaded_bytes: u64,
+    pub num_pieces: Option<u64>,
+    pub piece_length: Option<u64>,
+    /// Persisted have bitmap (per-piece verification state).
+    pub have_blob: Option<Vec<u8>>,
+    /// Exact metainfo bytes (.torrent file or metadata fetched from the swarm).
+    pub metainfo_blob: Option<Vec<u8>>,
+    pub files: Vec<TorrentFileEntry>,
+    pub trackers: Vec<String>,
+    pub error_code: Option<String>,
+    pub proxy_profile_id: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl TorrentJobRow {
+    /// Project onto the wire shape (runtime fields zeroed — the caller overlays live state).
+    pub fn to_wire(&self) -> TorrentJob {
+        TorrentJob {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            status: self.status.clone(),
+            source_kind: self.source_kind,
+            info_hash: self.info_hash.clone(),
+            destination_dir: self.destination_dir.clone(),
+            total_bytes: self.total_bytes,
+            received_bytes: self.received_bytes,
+            uploaded_bytes: self.uploaded_bytes,
+            download_speed_bps: 0,
+            upload_speed_bps: 0,
+            peers: 0,
+            seeds: 0,
+            eta_seconds: None,
+            num_pieces: self.num_pieces,
+            piece_length: self.piece_length,
+            files: self.files.clone(),
+            error_code: self.error_code.clone(),
+            proxy_profile_id: self.proxy_profile_id.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+fn files_to_json(files: &[TorrentFileEntry]) -> String {
+    serde_json::to_string(files).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn trackers_to_json(trackers: &[String]) -> String {
+    serde_json::to_string(trackers).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn parse_source_kind(s: &str) -> TorrentSourceKind {
+    match s {
+        "magnet" => TorrentSourceKind::Magnet,
+        _ => TorrentSourceKind::Torrent,
+    }
+}
+
+fn torrent_job_from_row(row: &Row<'_>) -> rusqlite::Result<TorrentJobRow> {
+    let files_json: String = row.get("files_json")?;
+    let files: Vec<TorrentFileEntry> = serde_json::from_str(&files_json).unwrap_or_default();
+    let trackers_json: String = row.get("trackers_json")?;
+    let trackers: Vec<String> = serde_json::from_str(&trackers_json).unwrap_or_default();
+    Ok(TorrentJobRow {
+        id: dc_protocol::Ulid(row.get::<_, String>("id")?),
+        source_kind: parse_source_kind(&row.get::<_, String>("source_kind")?),
+        source_uri: row.get("source_uri")?,
+        name: row.get("name")?,
+        info_hash: row.get("info_hash")?,
+        destination_dir: row.get("destination_dir")?,
+        status: row.get("status")?,
+        total_bytes: row
+            .get::<_, Option<i64>>("total_bytes")?
+            .map(|v| v.max(0) as u64),
+        received_bytes: row.get::<_, i64>("received_bytes")?.max(0) as u64,
+        uploaded_bytes: row.get::<_, i64>("uploaded_bytes")?.max(0) as u64,
+        num_pieces: row
+            .get::<_, Option<i64>>("num_pieces")?
+            .map(|v| v.max(0) as u64),
+        piece_length: row
+            .get::<_, Option<i64>>("piece_length")?
+            .map(|v| v.max(0) as u64),
+        have_blob: row.get("have_blob")?,
+        metainfo_blob: row.get("metainfo_blob")?,
+        files,
+        trackers,
+        error_code: row.get("error_code")?,
+        proxy_profile_id: row.get("proxy_profile_id")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
 }
 
 fn subtitles_to_json(subtitles: &[dc_protocol::MediaSubtitleSelection]) -> String {

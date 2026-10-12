@@ -7,6 +7,7 @@ import { subscribeBrowserEvents, createTab, closeTab, useBrowserStore } from "./
 import { subscribeDownloadEvents } from "./stores/downloads.js";
 import { subscribeToolkitProgress } from "./stores/toolkit.js";
 import { subscribeMediaEvents } from "./stores/media.js";
+import { subscribeTorrentEvents } from "./stores/torrent.js";
 
 /**
  * Renderer bootstrap: the settings store must be loaded before first paint so the shell
@@ -20,6 +21,7 @@ async function boot(): Promise<void> {
   subscribeDownloadEvents();
   subscribeToolkitProgress();
   subscribeMediaEvents();
+  subscribeTorrentEvents();
   const root = createRoot(document.getElementById("app") ?? document.body);
   root.render(
     <StrictMode>

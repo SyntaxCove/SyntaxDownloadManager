@@ -50,6 +50,15 @@ development). No AI features. Data integrity first.
 - **Security**: `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, strict
   permission handlers, CSP for the renderer, zod runtime validation on every IPC boundary.
 - **Versioning**: protocol envelopes carry `v`; contract mismatches fail fast at startup.
+- **Torrent engine (Phase 13)**: a native BitTorrent stack in the Rust core (new `dc-bt`
+  crate: bencode with raw-span info-hash, v1 metainfo with traversal-proof paths, magnet
+  parsing, HTTP(S)+UDP trackers (BEP 15/23), peer wire (BEP 3) with per-piece SHA-1
+  verification, BEP 9/10 metadata exchange for magnets, BEP 5 DHT, SOCKS5/HTTP-CONNECT
+  peer tunnels). The swarm is the persistent source: resume requests only the pieces the
+  persisted have-map still lists as missing; `received_bytes` counts verified bytes only.
+  Proxy routing is fail-closed (missing profile → paused; proxied torrents suspend DHT and
+  UDP trackers rather than leak direct traffic). A session keeps seeding after completion
+  until the user pauses it.
 - **Proxy routing (Phase 9)**: proxy profiles persist in Electron main only — passwords are
   safeStorage ciphertext at rest (`enc:v1:`), redacted (`null`) to the renderer and never
   logged. Main pushes the decrypted runtime set to the core via `proxy.setRuntime` (memory
@@ -72,6 +81,7 @@ apps/desktop
 core/                  Rust workspace
   crates/dc-protocol   wire types mirroring packages/contracts (serde)
   crates/dc-storage    SQLite storage + migrations
+  crates/dc-bt         BitTorrent protocol toolbox (bencode/metainfo/trackers/peers/DHT)
   crates/download-core the supervised binary (JSONL RPC + engine)
 docs/                  phase map, architecture, per-phase reports
 scripts/               development helper scripts
