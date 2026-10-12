@@ -403,3 +403,50 @@ Stage Summary:
   suspension while proxied; honest surfaces everywhere (verified bytes only, classified
   errors, no silent fallbacks).
 - Next: Phase 14 (browser history, bookmarks, downloads library) per docs/PHASES.md.
+
+---
+Task ID: 14
+Agent: Super Z (main agent)
+Task: Phase 14 — Browser history, bookmarks, downloads library ("فاز ۱۴"): verify Phases 0–13, then Plan → Implement → Test → Fix → Document → Review → Commit.
+
+Work Log:
+- Verified Phase 0–13 from git history (all delivered; Phase 13 = 8ec3284) and repaired the
+  sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 7th reset).
+- Plan: docs/phase-14-plan.md — history/bookmarks persist in the core DB (ground rule: the
+  core owns the persistent DB; storage v8), visits recorded on settled main-frame http(s)
+  navigations only, downloads library as a renderer-side pure projection over the three live
+  job stores, reveal/open as a main method resolving paths ONLY from core-fetched job rows.
+- Contracts v1.9.0: domain/browser-data.ts (HistoryEntry, Bookmark, WebUrl protocol pin, 9
+  core methods, app.revealEntry, LibraryEntryKind), 2 append-only error codes
+  (entry_path_unavailable, file_missing), fixtures historyEntry/bookmark + TS parity tests,
+  version 1.8.0 → 1.9.0 both sides, npm package 1.9.0.
+- dc-protocol: browser.rs wire types (nullable = always serialized rule) + 4 fixture parity
+  tests; dc-storage: migration v8 (browser_history + bookmarks, indexes), history CRUD with
+  write-path prune to MAX_HISTORY_ROWS=50_000, bookmark CRUD with transactional position
+  assignment + 9 tests; download-core: 9 manager methods (+ensure_web_url scheme
+  re-validation) + 9 server dispatch arms + 3 wire round-trip tests.
+- Electron main: history-recorder.ts (pure scheme filter + per-tab 1500ms same-URL dedupe
+  pinned to first admission), tab-manager onVisited on did-stop-loading + main-frame
+  in-page navigations (forget on tab close), browser-data.ts thin proxy for 9 methods,
+  app-reveal.ts (download/media → destinationPath; torrent → destinationDir+name;
+  existsSync → file_missing; openPath error → io_error), main.ts wiring (supervisor
+  constructed before browser registration for the visit-sink capture).
+- Renderer: stores/browser-data.ts (history load/search/delete/clear + bookmark star
+  lifecycle), app/library-projection.ts (merge + kind/status/query filters, per-kind
+  titles, honest null paths, canDeleteFiles), pages/LibraryPage.tsx (Files/History/
+  Bookmarks tabs: search + filters, day-grouped history with clear-all/30-days, bookmark
+  rename dialog), BrowsePage address-bar star toggle, AppShell Library nav entry.
+- Fixed during Test/Fix: main.ts TDZ visit-sink capture (supervisor moved up); O(n²) prune
+  replaced with O(k) rowid-range delete (50k-row race test ~1.8s); Fluent optionValue; the
+  wire's TorrentJob has no sourceUri (magnet label from infoHash); test arithmetic +
+  rewritten mangled test file; clippy unnecessary_cast chain.
+- Gate: cargo fmt/clippy clean (0 warnings); cargo test 240 passed (was 223); vitest 75 +
+  170 = 245 (was 68 + 130); typecheck ×2 workspaces clean; vite build green.
+
+Stage Summary:
+- The app now remembers what the user browses and downloads: settled main-frame http(s)
+  visits land in the core's bounded history table, bookmarks toggle from the address bar,
+  and the Library page gives one searchable/filterable view over every artifact across
+  downloads/media/torrents with safe, validated reveal/open and honest per-kind delete
+  semantics. All persistence stays in the core-owned SQLite database (storage v8).
+- Next: Phase 15 (scheduler jobs + automation) per docs/PHASES.md.

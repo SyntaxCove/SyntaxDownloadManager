@@ -337,6 +337,102 @@ impl JobManager {
         self.torrent.remove(id, delete_files).await
     }
 
+    // ---- Phase 14: browser history + bookmarks (persisted in the same database) ----
+
+    /// Record one settled main-frame visit. The core re-validates the scheme (defense in
+    /// depth — main already filters) and stamps the row with its own clock when main
+    /// omitted `visitedAt`.
+    pub fn history_record(
+        &self,
+        params: dc_protocol::HistoryRecordParams,
+    ) -> Result<(), ContractError> {
+        ensure_web_url(&params.url)?;
+        let entry = dc_protocol::HistoryEntry {
+            id: dc_protocol::new_ulid(),
+            url: params.url,
+            title: params.title,
+            favicon_url: params.favicon_url,
+            visited_at: params.visited_at.unwrap_or_else(now_ms),
+        };
+        self.store.insert_history_entry(&entry)
+    }
+
+    pub fn history_list(
+        &self,
+        params: dc_protocol::HistoryListParams,
+    ) -> Result<Vec<dc_protocol::HistoryEntry>, ContractError> {
+        let limit = params.limit.unwrap_or(200).clamp(1, 500);
+        let offset = params.offset.unwrap_or(0);
+        self.store
+            .list_history(params.query.as_deref(), limit, offset)
+    }
+
+    pub fn history_delete(&self, id: &str) -> Result<(), ContractError> {
+        if !self.store.delete_history_entry(id)? {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "history entry not found",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn history_clear(&self, before: Option<i64>) -> Result<usize, ContractError> {
+        self.store.clear_history(before)
+    }
+
+    pub fn bookmark_create(
+        &self,
+        params: dc_protocol::BookmarkCreateParams,
+    ) -> Result<dc_protocol::Bookmark, ContractError> {
+        ensure_web_url(&params.url)?;
+        let now = now_ms();
+        let bookmark = dc_protocol::Bookmark {
+            id: dc_protocol::new_ulid(),
+            url: params.url,
+            title: params.title,
+            position: 0, // assigned by the store (max+1, same transaction)
+            created_at: now,
+            updated_at: now,
+        };
+        self.store.insert_bookmark(&bookmark)
+    }
+
+    pub fn bookmark_list(&self) -> Result<Vec<dc_protocol::Bookmark>, ContractError> {
+        self.store.list_bookmarks()
+    }
+
+    pub fn bookmark_get_by_url(
+        &self,
+        url: &str,
+    ) -> Result<Option<dc_protocol::Bookmark>, ContractError> {
+        self.store.get_bookmark_by_url(url)
+    }
+
+    pub fn bookmark_update(
+        &self,
+        params: dc_protocol::BookmarkUpdateParams,
+    ) -> Result<dc_protocol::Bookmark, ContractError> {
+        if let Some(url) = &params.url {
+            ensure_web_url(url)?;
+        }
+        self.store.update_bookmark(
+            params.id.as_str(),
+            params.title.as_deref(),
+            params.url.as_deref(),
+        )
+    }
+
+    pub fn bookmark_remove(&self, id: &str) -> Result<(), ContractError> {
+        if !self.store.delete_bookmark(id)? {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "bookmark not found",
+            ));
+        }
+        Ok(())
+    }
+
     /// Phase 9: change the proxy profile a job routes through (None = direct).
     /// Refused while a run is active — mutating the route mid-run would splice bytes
     /// from two different network identities into one file.
@@ -888,5 +984,18 @@ fn cmd_name(cmd: JobCommand) -> &'static str {
     match cmd {
         JobCommand::Pause => "pause",
         JobCommand::Cancel => "cancel",
+    }
+}
+
+/// History/bookmark URLs must be http(s) — the managed browser records nothing else and
+/// the boundary rejects everything else early (mirrors the zod `protocol: /^https?$/` pin).
+fn ensure_web_url(url: &str) -> Result<(), ContractError> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        Ok(())
+    } else {
+        Err(ContractError::new(
+            ErrorCode::InvalidParams,
+            "url must be http(s)",
+        ))
     }
 }

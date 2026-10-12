@@ -3,6 +3,7 @@
 //! rusqlite (bundled SQLite) guarded by a Mutex; schema evolved through ordered migrations
 //! recorded in `schema_migrations`. All times are epoch milliseconds, all IDs are ULIDs.
 
+use dc_protocol::browser::{Bookmark, HistoryEntry};
 use dc_protocol::job::DownloadJob;
 use dc_protocol::media::MediaJob;
 use dc_protocol::torrent::{TorrentFileEntry, TorrentJob, TorrentSourceKind};
@@ -116,7 +117,32 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_torrent_jobs_status ON torrent_jobs(status);
     CREATE INDEX IF NOT EXISTS idx_torrent_jobs_created_at ON torrent_jobs(created_at DESC);",
+    // v8 (Phase 14): browser history + bookmarks. The core owns ALL persistent user data;
+    // main records settled main-frame http(s) visits fire-and-forget. History is pruned to
+    // MAX_HISTORY_ROWS at the write path, so the table stays bounded forever.
+    "CREATE TABLE IF NOT EXISTS browser_history (
+        id          TEXT PRIMARY KEY,
+        url         TEXT NOT NULL,
+        title       TEXT,
+        favicon_url TEXT,
+        visited_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_history_visited ON browser_history(visited_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_history_url ON browser_history(url);
+    CREATE TABLE IF NOT EXISTS bookmarks (
+        id         TEXT PRIMARY KEY,
+        url        TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        position   INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bookmarks_position ON bookmarks(position);",
 ];
+
+/// History rows kept after each insert (oldest beyond the cap are pruned in the same
+/// transaction — the table can never grow past this, no matter how long the app runs).
+pub const MAX_HISTORY_ROWS: i64 = 50_000;
 
 /// One journal row of the per-segment download state (Phase 6).
 /// `end_offset == None` marks the append-mode single window (open-ended stream).
@@ -738,6 +764,213 @@ impl JobStore {
             .map_err(wrap_sqlite("reset active torrent jobs"))?;
         Ok(n)
     }
+
+    // ---- browser history + bookmarks (Phase 14, storage v8) ----
+
+    /// Insert one visit and prune the table back to `MAX_HISTORY_ROWS` inside the same
+    /// connection scope — the cap is enforced at the write path, never best-effort.
+    /// The prune keeps the most recently *recorded* 50 000 rows via an O(k) rowid range
+    /// delete (an index walk per insert would make every write O(n) — worse than the cap
+    /// it enforces; listing still orders by visit time, so backdated rows age out
+    /// naturally as newer visits arrive).
+    pub fn insert_history_entry(&self, entry: &HistoryEntry) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO browser_history (id, url, title, favicon_url, visited_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                entry.id.as_str(),
+                entry.url,
+                entry.title,
+                entry.favicon_url,
+                entry.visited_at,
+            ],
+        )
+        .map_err(wrap_sqlite("insert history entry"))?;
+        conn.execute(
+            "DELETE FROM browser_history WHERE rowid <= ?1 - ?2",
+            params![conn.last_insert_rowid(), MAX_HISTORY_ROWS],
+        )
+        .map_err(wrap_sqlite("prune history"))?;
+        Ok(())
+    }
+
+    /// Newest-first page of history; `query` is a case-insensitive substring match against
+    /// url and title. Rows tie-broken by rowid so same-ms visits keep insertion order.
+    pub fn list_history(
+        &self,
+        query: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> StorageResult<Vec<HistoryEntry>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let pattern = query.map(|q| format!("%{}%", q.to_lowercase()));
+        let sql = match pattern.is_some() {
+            true => {
+                "SELECT * FROM browser_history
+                     WHERE lower(url) LIKE ?1 OR lower(COALESCE(title, '')) LIKE ?1
+                     ORDER BY visited_at DESC, rowid DESC LIMIT ?2 OFFSET ?3"
+            }
+            false => {
+                "SELECT * FROM browser_history
+                      ORDER BY visited_at DESC, rowid DESC LIMIT ?1 OFFSET ?2"
+            }
+        };
+        let mut stmt = conn.prepare(sql).map_err(wrap_sqlite("list history"))?;
+        let map_row = |row: &Row<'_>| -> rusqlite::Result<HistoryEntry> {
+            Ok(HistoryEntry {
+                id: dc_protocol::Ulid(row.get::<_, String>("id")?),
+                url: row.get("url")?,
+                title: row.get("title")?,
+                favicon_url: row.get("favicon_url")?,
+                visited_at: row.get("visited_at")?,
+            })
+        };
+        let rows = if let Some(p) = &pattern {
+            stmt.query_map(params![p, limit, offset], map_row)
+        } else {
+            stmt.query_map(params![limit, offset], map_row)
+        }
+        .map_err(wrap_sqlite("list history"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list history"))
+    }
+
+    pub fn delete_history_entry(&self, id: &str) -> StorageResult<bool> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute("DELETE FROM browser_history WHERE id = ?1", params![id])
+            .map_err(wrap_sqlite("delete history entry"))?;
+        Ok(n > 0)
+    }
+
+    /// Clear everything, or only visits strictly before `before` (epoch ms). Returns rows removed.
+    pub fn clear_history(&self, before: Option<i64>) -> StorageResult<usize> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = match before {
+            Some(ts) => conn
+                .execute(
+                    "DELETE FROM browser_history WHERE visited_at < ?1",
+                    params![ts],
+                )
+                .map_err(wrap_sqlite("clear history"))?,
+            None => conn
+                .execute("DELETE FROM browser_history", [])
+                .map_err(wrap_sqlite("clear history"))?,
+        };
+        Ok(n)
+    }
+
+    pub fn count_history(&self) -> StorageResult<i64> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.query_row("SELECT COUNT(*) FROM browser_history", [], |r| r.get(0))
+            .map_err(wrap_sqlite("count history"))
+    }
+
+    /// Append a bookmark at the end of the flat list. The position is computed as max+1
+    /// inside the same transaction — the caller's `position` field is ignored.
+    pub fn insert_bookmark(&self, bookmark: &Bookmark) -> StorageResult<Bookmark> {
+        let mut conn = self.conn.lock().expect("storage mutex poisoned");
+        let tx = conn.transaction().map_err(wrap_sqlite("bookmark tx"))?;
+        let next: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM bookmarks",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(wrap_sqlite("next bookmark position"))?;
+        tx.execute(
+            "INSERT INTO bookmarks (id, url, title, position, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                bookmark.id.as_str(),
+                bookmark.url,
+                bookmark.title,
+                next,
+                bookmark.created_at,
+                bookmark.updated_at,
+            ],
+        )
+        .map_err(wrap_sqlite("insert bookmark"))?;
+        tx.commit().map_err(wrap_sqlite("bookmark tx commit"))?;
+        Ok(Bookmark {
+            position: next,
+            ..bookmark.clone()
+        })
+    }
+
+    /// All bookmarks in list order (position ASC; ties by insertion order).
+    pub fn list_bookmarks(&self) -> StorageResult<Vec<Bookmark>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare("SELECT * FROM bookmarks ORDER BY position ASC, rowid ASC")
+            .map_err(wrap_sqlite("list bookmarks"))?;
+        let rows = stmt
+            .query_map([], bookmark_from_row)
+            .map_err(wrap_sqlite("list bookmarks"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list bookmarks"))
+    }
+
+    /// First bookmark (lowest position) whose URL matches exactly — the address-bar star's
+    /// source of truth.
+    pub fn get_bookmark_by_url(&self, url: &str) -> StorageResult<Option<Bookmark>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.query_row(
+            "SELECT * FROM bookmarks WHERE url = ?1 ORDER BY position ASC, rowid ASC LIMIT 1",
+            params![url],
+            bookmark_from_row,
+        )
+        .optional()
+        .map_err(wrap_sqlite("get bookmark by url"))
+    }
+
+    /// Rename/re-URL a bookmark; at least one field must be present (enforced main-side and
+    /// re-checked here). Bumps `updated_at`; returns the updated row.
+    pub fn update_bookmark(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        url: Option<&str>,
+    ) -> StorageResult<Bookmark> {
+        if title.is_none() && url.is_none() {
+            return Err(ContractError::new(
+                ErrorCode::InvalidParams,
+                "bookmark update requires title or url",
+            ));
+        }
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute(
+                "UPDATE bookmarks SET
+                    title = COALESCE(?2, title),
+                    url   = COALESCE(?3, url),
+                    updated_at = ?4
+                 WHERE id = ?1",
+                params![id, title, url, now_ms()],
+            )
+            .map_err(wrap_sqlite("update bookmark"))?;
+        if n == 0 {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "bookmark not found",
+            ));
+        }
+        conn.query_row(
+            "SELECT * FROM bookmarks WHERE id = ?1",
+            params![id],
+            bookmark_from_row,
+        )
+        .map_err(wrap_sqlite("reload bookmark"))
+    }
+
+    pub fn delete_bookmark(&self, id: &str) -> StorageResult<bool> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute("DELETE FROM bookmarks WHERE id = ?1", params![id])
+            .map_err(wrap_sqlite("delete bookmark"))?;
+        Ok(n > 0)
+    }
 }
 
 /// The persisted torrent row — everything the engine needs to reconstruct a session.
@@ -984,6 +1217,17 @@ fn headers_to_json(headers: &Option<std::collections::HashMap<String, String>>) 
         Some(map) if !map.is_empty() => serde_json::to_string(map).ok(),
         _ => None,
     }
+}
+
+fn bookmark_from_row(row: &Row<'_>) -> rusqlite::Result<Bookmark> {
+    Ok(Bookmark {
+        id: dc_protocol::Ulid(row.get::<_, String>("id")?),
+        url: row.get("url")?,
+        title: row.get("title")?,
+        position: row.get("position")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
 }
 
 fn now_ms() -> i64 {

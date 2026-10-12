@@ -41,7 +41,7 @@
 | 11 | Media inspector / extractor — `media.inspect`, manifests | delivered (2026-10-11) |
 | 12 | Media download & merge pipeline (video/audio/subtitle mux) | delivered (2026-10-12) |
 | 13 | Torrent engine + UI | delivered (2026-10-12) |
-| 14 | Browser history, bookmarks, downloads library | pending |
+| 14 | Browser history, bookmarks, downloads library | delivered (2026-10-13) |
 | 15 | Scheduler jobs + automation | pending |
 | 16 | Settings domain completion | pending |
 | 17 | Notifications, toasts, tray integration | pending |

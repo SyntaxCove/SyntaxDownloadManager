@@ -1,4 +1,4 @@
-import { app, BrowserWindow, safeStorage } from "electron";
+import { app, BrowserWindow, safeStorage, shell } from "electron";
 import { resolve, join } from "node:path";
 import { EVENTS } from "@unidm/contracts";
 import { IpcRouter } from "./ipc/router.js";
@@ -12,6 +12,8 @@ import { registerMediaDomain } from "./domains/media.js";
 import { registerTorrentDomain } from "./domains/torrent.js";
 import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
 import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
+import { registerBrowserDataDomain } from "./domains/browser-data.js";
+import { registerAppDomain } from "./domains/app-reveal.js";
 import { ToolkitManager } from "./toolkit/manager.js";
 import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
@@ -62,18 +64,31 @@ if (!gotLock) {
     createMainWindow(paths);
 
     const mainWindow = () => BrowserWindow.getAllWindows()[0];
-    const tabManager = registerBrowserDomain(router, mainWindow, {
-      resolveProxy: (id) => proxyStore.resolveForTab(id),
-      hasProfile: (id) => proxyStore.has(id),
-    });
 
     // Rust download core: supervised subprocess owning the SQLite database.
+    // (Constructed before the browser domain so the visit sink below can capture it.)
     const supervisor = new CoreSupervisor({
       binaryPath: resolveCoreBinaryPath({ appRoot, isPackaged: app.isPackaged, envOverride: process.env.UNIDM_CORE_BIN }),
       dbPath: join(app.getPath("userData"), "downloads.db"),
       maxConcurrent: settingsStore.settings.concurrentDownloads,
       maxConnectionsPerDownload: settingsStore.settings.maxConnectionsPerDownload,
       log: (msg) => console.log(msg),
+    });
+
+    // Phase 14: settled main-frame visits are persisted through the core (fire-and-forget:
+    // a row lost during a core restart is accepted — download bytes never take this path).
+    const tabManager = registerBrowserDomain(router, mainWindow, {
+      resolveProxy: (id) => proxyStore.resolveForTab(id),
+      hasProfile: (id) => proxyStore.has(id),
+    }, (visit) => {
+      void supervisor
+        .request("browser.history.record", {
+          url: visit.url,
+          ...(visit.title !== null ? { title: visit.title } : {}),
+          ...(visit.faviconUrl !== null ? { faviconUrl: visit.faviconUrl } : {}),
+          visitedAt: visit.visitedAt,
+        })
+        .catch(() => undefined); // classified: history is best-effort during core restarts
     });
 
     // Phase 10: bundled media toolkit — pinned FFmpeg / yt-dlp / Deno, fetched + verified
@@ -109,6 +124,11 @@ if (!gotLock) {
     registerDownloadDomain(router, supervisor);
     registerMediaDomain(router, supervisor);
     registerTorrentDomain(router, supervisor);
+    registerBrowserDataDomain(router, supervisor);
+    registerAppDomain(router, supervisor, {
+      showItemInFolder: (p) => shell.showItemInFolder(p),
+      openPath: (p) => shell.openPath(p),
+    });
     registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies);
     registerToolkitDomain(router, toolkitManager, supervisor);
     supervisor.start();

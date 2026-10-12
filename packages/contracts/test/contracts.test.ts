@@ -13,6 +13,7 @@ import {
   ProxyProfileInput, ProxyProfilePublic, ProxyEndpoint, ProxyTestResult, DownloadSetProxyParams,
   TabSetProxyParams,
   ToolkitManifest, ToolkitStatusResult, ToolkitSetPathsParams, ToolkitToolStatus,
+  HistoryEntry, HistoryListParams, Bookmark, RevealEntryParams,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -674,7 +675,88 @@ describe("v1.8 torrent engine (Phase 13)", () => {
     expect(ErrorCodes).toContain("torrent_proxy_unsupported");
   });
 
-  it("contract version advanced to 1.8.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.8.0");
+  it("contract version advanced to 1.9.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.9.0");
+  });
+});
+
+describe("v1.9 browser history, bookmarks and library (Phase 14)", () => {
+  it("the nine core methods and the reveal method are registered", () => {
+    for (const m of [
+      "browser.history.record",
+      "browser.history.list",
+      "browser.history.delete",
+      "browser.history.clear",
+      "browser.bookmark.create",
+      "browser.bookmark.list",
+      "browser.bookmark.getByUrl",
+      "browser.bookmark.update",
+      "browser.bookmark.remove",
+    ] as const) {
+      expect(METHODS[m].server).toBe("core");
+    }
+    expect(METHODS["app.revealEntry"].server).toBe("main");
+  });
+
+  it("HistoryEntry requires a web url and always-serialized nullables", () => {
+    expect(
+      HistoryEntry.safeParse({
+        id: "01JD8W3G5XQ9V4M2K7PZ6N8S0H",
+        url: "https://example.com/x",
+        title: null,
+        faviconUrl: null,
+        visitedAt: 1,
+      }).success,
+    ).toBe(true);
+    expect(
+      HistoryEntry.safeParse({
+        id: "01JD8W3G5XQ9V4M2K7PZ6N8S0H",
+        url: "ftp://example.com/x",
+        title: null,
+        faviconUrl: null,
+        visitedAt: 1,
+      }).success,
+    ).toBe(false);
+    expect(HistoryEntry.safeParse({ id: "01JD8W3G5XQ9V4M2K7PZ6N8S0H", url: "https://a.b/" }).success).toBe(false);
+  });
+
+  it("Bookmark enforces non-empty title and web url", () => {
+    const valid = {
+      id: "01JD8W3G5XQ9V4M2K7PZ6N8S0B",
+      url: "https://example.com/x",
+      title: "X",
+      position: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    expect(Bookmark.safeParse(valid).success).toBe(true);
+    expect(Bookmark.safeParse({ ...valid, title: "" }).success).toBe(false);
+    expect(Bookmark.safeParse({ ...valid, url: "javascript:alert(1)" }).success).toBe(false);
+  });
+
+  it("history list params bound limit and require string query", () => {
+    expect(HistoryListParams.safeParse({ limit: 500 }).success).toBe(true);
+    expect(HistoryListParams.safeParse({ limit: 501 }).success).toBe(false);
+    expect(HistoryListParams.safeParse({ query: "" }).success).toBe(false);
+    expect(HistoryListParams.safeParse({}).success).toBe(true);
+  });
+
+  it("revealEntry params only accept the three kinds and two modes", () => {
+    const base = { id: "01JD8W3G5XQ9V4M2K7PZ6N8S0T" };
+    expect(RevealEntryParams.safeParse({ ...base, kind: "download", mode: "folder" }).success).toBe(true);
+    expect(RevealEntryParams.safeParse({ ...base, kind: "media", mode: "open" }).success).toBe(true);
+    expect(RevealEntryParams.safeParse({ ...base, kind: "torrent", mode: "folder" }).success).toBe(true);
+    expect(RevealEntryParams.safeParse({ ...base, kind: "other", mode: "folder" }).success).toBe(false);
+    expect(RevealEntryParams.safeParse({ ...base, kind: "download", mode: "delete" }).success).toBe(false);
+  });
+
+  it("error codes stay append-only and gained the library codes", () => {
+    expect(ErrorCodes).toContain("entry_path_unavailable");
+    expect(ErrorCodes).toContain("file_missing");
+  });
+
+  it("fixtures parse against the new schemas (cross-language parity inputs)", () => {
+    expect(HistoryEntry.parse(domainFixture.historyEntry).url).toBe("https://example.com/articles/unidm");
+    expect(Bookmark.parse(domainFixture.bookmark).position).toBe(0);
   });
 });

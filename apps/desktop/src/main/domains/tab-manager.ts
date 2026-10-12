@@ -2,6 +2,7 @@ import { WebContentsView, session } from "electron";
 import type { BrowserWindow } from "electron";
 import { newUlid, type BrowserTab } from "@unidm/contracts";
 import { titleForUrl, clampViewportBounds } from "./url-input.js";
+import { VisitRecorder, type RecordedVisit } from "./history-recorder.js";
 import type { ResolvedTabProxy } from "./proxy.js";
 
 /**
@@ -24,6 +25,8 @@ import type { ResolvedTabProxy } from "./proxy.js";
 export interface TabEvents {
   onUpdated(tab: BrowserTab): void;
   onClosed(id: string): void;
+  /** Phase 14: a settled main-frame http(s) navigation worth one history row. */
+  onVisited(visit: RecordedVisit & { tabId: string }): void;
 }
 
 /** Main-wired proxy resolution: profile id → session config (null → the default session). */
@@ -51,6 +54,8 @@ export class TabManager {
   private session: Electron.Session | null = null;
   /** One persistent session per proxy profile — cookies/storage scoped to the identity. */
   private readonly proxySessions = new Map<string, Electron.Session>();
+  /** Phase 14: per-tab settle dedupe for history recording. */
+  private readonly visitRecorder = new VisitRecorder();
   private viewport: { x: number; y: number; width: number; height: number } = { x: 0, y: 0, width: 0, height: 0 };
 
   constructor(
@@ -167,6 +172,7 @@ export class TabManager {
     entry.view.webContents.close();
     this.tabs.delete(id);
     this.order = this.order.filter((x) => x !== id);
+    this.visitRecorder.forget(id);
     this.events.onClosed(id);
 
     if (this.activeId === id) {
@@ -387,7 +393,17 @@ export class TabManager {
     });
     wc.on("did-navigate", (_e, url) => this.refresh(entry, { url, status: "loaded" }));
     wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
-      if (isMainFrame) this.refresh(entry, { url });
+      if (isMainFrame) {
+        this.refresh(entry, { url });
+        // SPA soft navigations never fire the loading cycle — record them here, now,
+        // with the title/favicon the loaded page already carries.
+        this.recordVisit(entry, url);
+      }
+    });
+    // Full navigations are recorded when the load settles (title + favicon are known by
+    // then). Failures never reach here: a failed load fires did-fail-load, not settle.
+    wc.on("did-stop-loading", () => {
+      if (!wc.isDestroyed()) this.recordVisit(entry, wc.getURL());
     });
     wc.on("audio-state-changed", () => this.refresh(entry, { isAudible: wc.isCurrentlyAudible() }));
     wc.on("render-process-gone", (_e, details) =>
@@ -400,6 +416,18 @@ export class TabManager {
       void this.create({ url, activate: true, proxyProfileId: entry.snapshot.proxyProfileId });
       return { action: "deny" };
     });
+  }
+
+  /** Filter a settle through the dedupe gate and hand it to main for persistence. */
+  private recordVisit(entry: TabEntry, url: string): void {
+    const visit = this.visitRecorder.admit({
+      tabId: entry.id,
+      url,
+      title: entry.snapshot.title || null,
+      faviconUrl: entry.snapshot.faviconUrl,
+      at: Date.now(),
+    });
+    if (visit) this.events.onVisited({ ...visit, tabId: entry.id });
   }
 
   /** Flush all tabs (used on app quit); the persistent session keeps cookies/storage. */

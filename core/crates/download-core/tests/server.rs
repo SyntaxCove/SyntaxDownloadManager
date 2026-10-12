@@ -457,3 +457,184 @@ mod common_test_server {
         socket.flush().await.ok();
     }
 }
+
+// ---- Phase 14: browser history + bookmarks over the wire ----
+
+#[tokio::test]
+async fn history_methods_round_trip_over_rpc() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // Record two visits (one without optional fields — nulls stay explicit).
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"h1","method":"browser.history.record","params":{"url":"https://example.com/a","title":"A","visitedAt":1000}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["recorded"], true);
+
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"h2","method":"browser.history.record","params":{"url":"https://example.com/b"}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["recorded"], true);
+
+    // List: newest first, explicit nulls preserved.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"h3","method":"browser.history.list","params":{}}"#,
+    )
+    .await;
+    let entries = response["result"]["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["url"], "https://example.com/b");
+    assert!(entries[0]["title"].is_null());
+    assert!(entries[0]["faviconUrl"].is_null());
+    let id = entries[0]["id"].as_str().unwrap().to_string();
+
+    // Query + pagination params parse.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"h4","method":"browser.history.list","params":{"query":"UNI","limit":50,"offset":0}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["entries"].as_array().unwrap().len(), 0);
+
+    // Delete + clear.
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(
+            r#"{{"v":1,"id":"h5","method":"browser.history.delete","params":{{"id":"{id}"}}}}"#
+        ),
+    )
+    .await;
+    assert_eq!(response["result"]["deleted"], true);
+
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"h6","method":"browser.history.clear","params":{"before":2000}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["cleared"], 1);
+
+    // Deleting a missing entry is invalid_state over the wire.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"h7","method":"browser.history.delete","params":{"id":"01JD8W3G5XQ9V4M2K7PZ6N8S0Z"}}"#,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_state");
+}
+
+#[tokio::test]
+async fn history_record_rejects_non_http_schemes() {
+    let (mut w, mut r) = spawn_serve().await;
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"s1","method":"browser.history.record","params":{"url":"file:///etc/passwd"}}"#,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_params");
+}
+
+#[tokio::test]
+async fn bookmark_methods_round_trip_over_rpc() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // Create two bookmarks; positions are assigned by the store.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"b1","method":"browser.bookmark.create","params":{"url":"https://a.example/","title":"A"}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["bookmark"]["position"], 0);
+    let id_a = response["result"]["bookmark"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"b2","method":"browser.bookmark.create","params":{"url":"https://b.example/","title":"B"}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["bookmark"]["position"], 1);
+
+    // List preserves position order.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"b3","method":"browser.bookmark.list","params":{}}"#,
+    )
+    .await;
+    let bookmarks = response["result"]["bookmarks"].as_array().unwrap();
+    assert_eq!(bookmarks.len(), 2);
+    assert_eq!(bookmarks[0]["title"], "A");
+
+    // getByUrl: first match; absent URL → explicit null.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"b4","method":"browser.bookmark.getByUrl","params":{"url":"https://a.example/"}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["bookmark"]["title"], "A");
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"b5","method":"browser.bookmark.getByUrl","params":{"url":"https://none.example/"}}"#,
+    )
+    .await;
+    assert!(response["result"]["bookmark"].is_null());
+
+    // Update: rename only.
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(
+            r#"{{"v":1,"id":"b6","method":"browser.bookmark.update","params":{{"id":"{id_a}","title":"Renamed"}}}}"#
+        ),
+    )
+    .await;
+    assert_eq!(response["result"]["bookmark"]["title"], "Renamed");
+    assert_eq!(response["result"]["bookmark"]["url"], "https://a.example/");
+
+    // Remove + remove again (invalid_state).
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(
+            r#"{{"v":1,"id":"b7","method":"browser.bookmark.remove","params":{{"id":"{id_a}"}}}}"#
+        ),
+    )
+    .await;
+    assert_eq!(response["result"]["removed"], true);
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(
+            r#"{{"v":1,"id":"b8","method":"browser.bookmark.remove","params":{{"id":"{id_a}"}}}}"#
+        ),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_state");
+
+    // Non-http bookmark URL rejected at the boundary.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"b9","method":"browser.bookmark.create","params":{"url":"javascript:alert(1)","title":"X"}}"#,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_params");
+}

@@ -265,3 +265,80 @@ fn magnet_torrent_job_null_identity_round_trip() {
     let out = serde_json::to_value(&job).unwrap();
     assert_eq!(out, json);
 }
+
+#[test]
+fn parses_and_round_trips_history_entry_fixture() {
+    // v1.9 (Phase 14): browser history rows — nullable title/favicon are always serialized.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let entry: dc_protocol::HistoryEntry =
+        serde_json::from_value(doc["historyEntry"].clone()).unwrap();
+    assert_eq!(entry.url, "https://example.com/articles/unidm");
+    assert_eq!(entry.title.as_deref(), Some("UniDM release notes"));
+    assert_eq!(entry.visited_at, 1735689600000);
+    let out: serde_json::Value = serde_json::to_value(&entry).unwrap();
+    assert_eq!(
+        out, doc["historyEntry"],
+        "wire format divergence between TS and Rust (history entry)"
+    );
+}
+
+#[test]
+fn history_entry_null_title_serializes_explicit_nulls() {
+    let json = serde_json::json!({
+        "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0H",
+        "url": "https://example.com/no-title",
+        "title": null,
+        "faviconUrl": null,
+        "visitedAt": 1735689600000i64
+    });
+    let entry: dc_protocol::HistoryEntry = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(entry.title, None);
+    assert_eq!(entry.favicon_url, None);
+    let out = serde_json::to_value(&entry).unwrap();
+    assert_eq!(out, json, "nulls must stay present on the wire");
+}
+
+#[test]
+fn parses_and_round_trips_bookmark_fixture() {
+    // v1.9 (Phase 14): bookmarks — flat, position-ordered.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let bookmark: dc_protocol::Bookmark = serde_json::from_value(doc["bookmark"].clone()).unwrap();
+    assert_eq!(bookmark.title, "UniDM release notes");
+    assert_eq!(bookmark.position, 0);
+    let out: serde_json::Value = serde_json::to_value(&bookmark).unwrap();
+    assert_eq!(
+        out, doc["bookmark"],
+        "wire format divergence between TS and Rust (bookmark)"
+    );
+}
+
+#[test]
+fn browser_data_params_deserialize_camel_case() {
+    let record = serde_json::json!({
+        "url": "https://example.com/x",
+        "title": "X",
+        "faviconUrl": "https://example.com/f.ico",
+        "visitedAt": 1735689600000i64
+    });
+    let p: dc_protocol::HistoryRecordParams = serde_json::from_value(record).unwrap();
+    assert_eq!(p.favicon_url.as_deref(), Some("https://example.com/f.ico"));
+    assert_eq!(p.visited_at, Some(1735689600000));
+
+    let list = serde_json::json!({ "query": "uni", "limit": 50, "offset": 10 });
+    let p: dc_protocol::HistoryListParams = serde_json::from_value(list).unwrap();
+    assert_eq!(p.query.as_deref(), Some("uni"));
+    assert_eq!(p.limit, Some(50));
+    assert_eq!(p.offset, Some(10));
+
+    let empty: dc_protocol::HistoryListParams =
+        serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(empty.query, None);
+    assert_eq!(empty.limit, None);
+
+    let upd = serde_json::json!({ "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0B", "title": "Renamed" });
+    let p: dc_protocol::BookmarkUpdateParams = serde_json::from_value(upd).unwrap();
+    assert_eq!(p.title.as_deref(), Some("Renamed"));
+    assert_eq!(p.url, None);
+}

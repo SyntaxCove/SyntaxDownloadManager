@@ -593,3 +593,235 @@ fn schema_version_is_at_least_7_after_migrations() {
     let store = JobStore::open_in_memory().unwrap();
     assert!(store.schema_version().unwrap() >= 7);
 }
+
+// ---- Phase 14: browser history + bookmarks (storage v8) ----
+
+fn history_entry(
+    url: &str,
+    title: Option<&str>,
+    visited_at: i64,
+) -> dc_protocol::browser::HistoryEntry {
+    dc_protocol::browser::HistoryEntry {
+        id: Ulid(dc_protocol::new_ulid().0),
+        url: url.into(),
+        title: title.map(Into::into),
+        favicon_url: None,
+        visited_at,
+    }
+}
+
+#[test]
+fn history_round_trips_with_newest_first_ordering() {
+    let store = JobStore::open_in_memory().unwrap();
+    for (i, at) in [3000i64, 1000, 2000].iter().enumerate() {
+        let mut entry = history_entry("https://example.com/a", Some("A"), *at);
+        entry.url = format!("https://example.com/page-{i}");
+        store.insert_history_entry(&entry).unwrap();
+    }
+    let entries = store.list_history(None, 10, 0).unwrap();
+    assert_eq!(entries.len(), 3);
+    // Newest first (page-0 was visited at 3000, page-1 at 1000).
+    assert_eq!(entries[0].url, "https://example.com/page-0");
+    assert_eq!(entries[2].url, "https://example.com/page-1");
+    assert_eq!(entries[0].visited_at, 3000);
+}
+
+#[test]
+fn history_search_matches_url_and_title_case_insensitively() {
+    let store = JobStore::open_in_memory().unwrap();
+    store
+        .insert_history_entry(&history_entry(
+            "https://example.com/UniDM-Docs",
+            Some("Framework docs"),
+            1000,
+        ))
+        .unwrap();
+    store
+        .insert_history_entry(&history_entry(
+            "https://other.org/news",
+            Some("Release notes"),
+            2000,
+        ))
+        .unwrap();
+
+    let by_url = store.list_history(Some("unidm"), 10, 0).unwrap();
+    assert_eq!(by_url.len(), 1);
+    assert_eq!(by_url[0].url, "https://example.com/UniDM-Docs");
+
+    let by_title = store.list_history(Some("RELEASE"), 10, 0).unwrap();
+    assert_eq!(by_title.len(), 1);
+    assert_eq!(by_title[0].url, "https://other.org/news");
+
+    let none = store.list_history(Some("no-such-thing"), 10, 0).unwrap();
+    assert!(none.is_empty());
+}
+
+#[test]
+fn history_limit_offset_paginates() {
+    let store = JobStore::open_in_memory().unwrap();
+    for i in 0..5i64 {
+        let mut entry = history_entry("https://example.com/x", None, 1000 + i);
+        entry.url = format!("https://example.com/x/{i}");
+        store.insert_history_entry(&entry).unwrap();
+    }
+    let page = store.list_history(None, 2, 1).unwrap();
+    assert_eq!(page.len(), 2);
+    assert_eq!(page[0].url, "https://example.com/x/3"); // newest first, skipping x/4
+}
+
+#[test]
+fn history_delete_clear_and_count() {
+    let store = JobStore::open_in_memory().unwrap();
+    for i in 0..4i64 {
+        let mut entry = history_entry("https://example.com/x", None, 2000 + i * 1000);
+        entry.url = format!("https://example.com/x/{i}");
+        store.insert_history_entry(&entry).unwrap();
+    }
+    assert_eq!(store.count_history().unwrap(), 4);
+
+    // before = 4000 removes visits strictly before it (x/0, x/1).
+    let cleared = store.clear_history(Some(4000)).unwrap();
+    assert_eq!(cleared, 2);
+    assert_eq!(store.count_history().unwrap(), 2);
+
+    // Delete one row directly; deleting it again reports false.
+    let first = &store.list_history(None, 1, 0).unwrap()[0].id.0.clone();
+    assert!(store.delete_history_entry(first).unwrap());
+    assert!(!store.delete_history_entry(first).unwrap());
+
+    // Clear everything.
+    assert_eq!(store.clear_history(None).unwrap(), 1);
+    assert_eq!(store.count_history().unwrap(), 0);
+}
+
+#[test]
+fn history_prune_keeps_the_cap_enforced_at_the_write_path() {
+    // The cap is 50 000 — the invariant is checked by racing 8 workers past the cap
+    // (+5 rows each) and verifying the table holds exactly MAX_HISTORY_ROWS rows with
+    // the newest surviving: pruning happens inside every insert, never best-effort.
+    use std::sync::Arc;
+    use std::thread;
+
+    let store = Arc::new(JobStore::open_in_memory().unwrap());
+    let workers = 8;
+    let per_worker = dc_storage::MAX_HISTORY_ROWS / 8 + 5;
+    let mut handles = Vec::new();
+    for w in 0..workers {
+        let store = Arc::clone(&store);
+        handles.push(thread::spawn(move || {
+            for i in 0..per_worker {
+                let at: i64 = (w as i64) * per_worker + i;
+                let mut entry = history_entry("https://example.com/x", None, at);
+                entry.url = format!("https://example.com/x/{at}");
+                store.insert_history_entry(&entry).unwrap();
+            }
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    assert_eq!(store.count_history().unwrap(), dc_storage::MAX_HISTORY_ROWS);
+    // The newest row survived; ordering is intact.
+    let top = &store.list_history(None, 1, 0).unwrap()[0];
+    let expected: i64 = (workers as i64) * per_worker - 1;
+    assert_eq!(top.visited_at, expected);
+}
+
+fn sample_bookmark(url: &str, title: &str) -> dc_protocol::browser::Bookmark {
+    dc_protocol::browser::Bookmark {
+        id: Ulid(dc_protocol::new_ulid().0),
+        url: url.into(),
+        title: title.into(),
+        position: 0, // assigned by the store
+        created_at: 1735689600000,
+        updated_at: 1735689600000,
+    }
+}
+
+#[test]
+fn bookmarks_assign_sequential_positions_and_list_in_order() {
+    let store = JobStore::open_in_memory().unwrap();
+    let b0 = store
+        .insert_bookmark(&sample_bookmark("https://a.example/", "A"))
+        .unwrap();
+    let b1 = store
+        .insert_bookmark(&sample_bookmark("https://b.example/", "B"))
+        .unwrap();
+    assert_eq!(b0.position, 0);
+    assert_eq!(b1.position, 1);
+
+    let list = store.list_bookmarks().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].url, "https://a.example/");
+    assert_eq!(list[1].url, "https://b.example/");
+}
+
+#[test]
+fn bookmark_get_by_url_returns_the_first_match_or_none() {
+    let store = JobStore::open_in_memory().unwrap();
+    store
+        .insert_bookmark(&sample_bookmark("https://dup.example/", "First"))
+        .unwrap();
+    store
+        .insert_bookmark(&sample_bookmark("https://dup.example/", "Second"))
+        .unwrap();
+    store
+        .insert_bookmark(&sample_bookmark("https://unique.example/", "Unique"))
+        .unwrap();
+
+    let first = store
+        .get_bookmark_by_url("https://dup.example/")
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.title, "First");
+    assert!(store
+        .get_bookmark_by_url("https://missing.example/")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn bookmark_update_changes_only_given_fields_and_bumps_updated_at() {
+    let store = JobStore::open_in_memory().unwrap();
+    let created = store
+        .insert_bookmark(&sample_bookmark("https://a.example/", "A"))
+        .unwrap();
+
+    let renamed = store
+        .update_bookmark(created.id.as_str(), Some("Renamed"), None)
+        .unwrap();
+    assert_eq!(renamed.title, "Renamed");
+    assert_eq!(renamed.url, "https://a.example/");
+    assert!(renamed.updated_at >= renamed.created_at);
+
+    let reurl = store
+        .update_bookmark(created.id.as_str(), None, Some("https://b.example/"))
+        .unwrap();
+    assert_eq!(reurl.url, "https://b.example/");
+    assert_eq!(reurl.title, "Renamed", "title survives a url-only update");
+
+    // No fields at all is a boundary error, not a silent no-op.
+    assert!(store
+        .update_bookmark(created.id.as_str(), None, None)
+        .is_err());
+    // Unknown id is invalid_state.
+    assert!(store
+        .update_bookmark("01JD8W3G5XQ9V4M2K7PZ6N8S0Z", Some("X"), None)
+        .is_err());
+}
+
+#[test]
+fn bookmark_delete_reports_whether_the_row_existed() {
+    let store = JobStore::open_in_memory().unwrap();
+    let created = store
+        .insert_bookmark(&sample_bookmark("https://a.example/", "A"))
+        .unwrap();
+    assert!(store.delete_bookmark(created.id.as_str()).unwrap());
+    assert!(!store.delete_bookmark(created.id.as_str()).unwrap());
+}
+
+#[test]
+fn schema_version_is_at_least_8_after_browser_data_tables() {
+    let store = JobStore::open_in_memory().unwrap();
+    assert!(store.schema_version().unwrap() >= 8);
+}

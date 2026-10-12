@@ -401,6 +401,60 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             manager.torrent_remove(&p.id, p.delete_files).await?;
             Ok(serde_json::json!({ "removed": true }))
         }
+        // ---- Phase 14: browser history + bookmarks ----
+        "browser.history.record" => {
+            let p: dc_protocol::HistoryRecordParams = parse(&params)?;
+            manager.history_record(p)?;
+            Ok(serde_json::json!({ "recorded": true }))
+        }
+        "browser.history.list" => {
+            let p: dc_protocol::HistoryListParams = parse(&params)?;
+            let entries = manager.history_list(p)?;
+            Ok(serde_json::json!({ "entries": entries }))
+        }
+        "browser.history.delete" => {
+            let p: JobIdParams = parse(&params)?;
+            manager.history_delete(&p.id)?;
+            Ok(serde_json::json!({ "deleted": true }))
+        }
+        "browser.history.clear" => {
+            #[derive(Deserialize)]
+            struct ClearParams {
+                #[serde(default)]
+                before: Option<i64>,
+            }
+            let p: ClearParams = parse(&params)?;
+            let cleared = manager.history_clear(p.before)?;
+            Ok(serde_json::json!({ "cleared": cleared }))
+        }
+        "browser.bookmark.create" => {
+            let p: dc_protocol::BookmarkCreateParams = parse(&params)?;
+            let bookmark = manager.bookmark_create(p)?;
+            Ok(serde_json::json!({ "bookmark": bookmark }))
+        }
+        "browser.bookmark.list" => {
+            let bookmarks = manager.bookmark_list()?;
+            Ok(serde_json::json!({ "bookmarks": bookmarks }))
+        }
+        "browser.bookmark.getByUrl" => {
+            #[derive(Deserialize)]
+            struct GetByUrlParams {
+                url: String,
+            }
+            let p: GetByUrlParams = parse(&params)?;
+            let bookmark = manager.bookmark_get_by_url(&p.url)?;
+            Ok(serde_json::json!({ "bookmark": bookmark }))
+        }
+        "browser.bookmark.update" => {
+            let p: dc_protocol::BookmarkUpdateParams = parse(&params)?;
+            let bookmark = manager.bookmark_update(p)?;
+            Ok(serde_json::json!({ "bookmark": bookmark }))
+        }
+        "browser.bookmark.remove" => {
+            let p: JobIdParams = parse(&params)?;
+            manager.bookmark_remove(&p.id)?;
+            Ok(serde_json::json!({ "removed": true }))
+        }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.cancel(&p.id).await?;

@@ -36,6 +36,13 @@ import {
   TorrentAddParams, TorrentAddResult, TorrentListParams, TorrentListResult,
   TorrentJobIdParams, TorrentJobByIdResult, TorrentRemoveParams, TorrentRemoveResult,
 } from "../domain/torrent.js";
+import {
+  HistoryRecordParams, HistoryRecordResult, HistoryListParams, HistoryListResult,
+  HistoryDeleteParams, HistoryDeleteResult, HistoryClearParams, HistoryClearResult,
+  BookmarkCreateParams, BookmarkCreateResult, BookmarkListParams, BookmarkListResult,
+  BookmarkGetByUrlParams, BookmarkGetByUrlResult, BookmarkUpdateParams, BookmarkUpdateResult,
+  BookmarkRemoveParams, BookmarkRemoveResult, RevealEntryParams, RevealEntryResult,
+} from "../domain/browser-data.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -119,7 +126,20 @@ export const METHODS = {
   "torrent.resume": { server: "core", params: TorrentJobIdParams, result: TorrentJobByIdResult },
   "torrent.cancel": { server: "core", params: TorrentJobIdParams, result: TorrentJobByIdResult },
   "torrent.remove": { server: "core", params: TorrentRemoveParams, result: TorrentRemoveResult },
+  // ---- core (v1.9, Phase 14): browser history + bookmarks (storage v8) ----
+  /** Record one settled main-frame http(s) visit (fire-and-forget from main). */
+  "browser.history.record": { server: "core", params: HistoryRecordParams, result: HistoryRecordResult },
+  "browser.history.list": { server: "core", params: HistoryListParams, result: HistoryListResult },
+  "browser.history.delete": { server: "core", params: HistoryDeleteParams, result: HistoryDeleteResult },
+  "browser.history.clear": { server: "core", params: HistoryClearParams, result: HistoryClearResult },
+  "browser.bookmark.create": { server: "core", params: BookmarkCreateParams, result: BookmarkCreateResult },
+  "browser.bookmark.list": { server: "core", params: BookmarkListParams, result: BookmarkListResult },
+  "browser.bookmark.getByUrl": { server: "core", params: BookmarkGetByUrlParams, result: BookmarkGetByUrlResult },
+  "browser.bookmark.update": { server: "core", params: BookmarkUpdateParams, result: BookmarkUpdateResult },
+  "browser.bookmark.remove": { server: "core", params: BookmarkRemoveParams, result: BookmarkRemoveResult },
   // ---- main (Electron main process) ----
+  // v1.9 (Phase 14): downloads library reveal/open — paths come from core job rows only.
+  "app.revealEntry": { server: "main", params: RevealEntryParams, result: RevealEntryResult },
   "browser.tab.create": { server: "main", params: TabCreateParams, result: TabCreateResult },
   "browser.tab.close": { server: "main", params: TabIdParams, result: TabCloseResult },
   "browser.tab.activate": { server: "main", params: TabIdParams, result: TabResult },

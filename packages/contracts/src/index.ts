@@ -4,6 +4,7 @@ export * from "./errors.js";
 
 export * from "./domain/download.js";
 export * from "./domain/browser.js";
+export * from "./domain/browser-data.js";
 export * from "./domain/settings.js";
 export * from "./domain/media.js";
 export * from "./domain/proxy.js";

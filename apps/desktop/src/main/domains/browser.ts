@@ -2,6 +2,7 @@ import type { BrowserWindow } from "electron";
 import { EVENTS, METHODS, UniDmError, type BrowserTab } from "@unidm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import { TabManager, type ProxyResolver } from "./tab-manager.js";
+import type { RecordedVisit } from "./history-recorder.js";
 import { normalizeUrlInput } from "./url-input.js";
 
 /**
@@ -16,11 +17,13 @@ export function registerBrowserDomain(
   router: IpcRouter,
   getWindow: () => BrowserWindow | undefined,
   proxyContext?: { resolveProxy: ProxyResolver; hasProfile: (id: string) => boolean },
+  visitSink?: (visit: RecordedVisit & { tabId: string }) => void,
 ): TabManager {
   const resolver: ProxyResolver = proxyContext?.resolveProxy ?? (async () => null);
   const manager = new TabManager(getWindow, {
     onUpdated: (tab) => router.emit("browser.tab.updated", EVENTS["browser.tab.updated"].payload, { tab }),
     onClosed: (id) => router.emit("browser.tab.closed", EVENTS["browser.tab.closed"].payload, { id }),
+    onVisited: (visit) => visitSink?.(visit),
   }, resolver);
 
   const assertProfile = (id: string | null | undefined): void => {

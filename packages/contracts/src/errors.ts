@@ -58,6 +58,9 @@ export const ErrorCodes = [
   "torrent_v2_unsupported",
   "torrent_metadata_timeout",
   "torrent_proxy_unsupported",
+  // library reveal (v1.9, Phase 14) — append-only
+  "entry_path_unavailable",
+  "file_missing",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

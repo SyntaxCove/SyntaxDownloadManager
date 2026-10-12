@@ -20,9 +20,12 @@ import {
   DismissRegular,
   ArrowClockwiseRegular,
   GlobeShieldRegular,
+  StarFilled,
+  StarRegular,
 } from "@fluentui/react-icons";
 import { useBrowserStore } from "../stores/browser.js";
 import { useProxyStore } from "../stores/proxy.js";
+import { useBrowserDataStore } from "../stores/browser-data.js";
 import {
   activateTab, closeTab, createTab, goBack, goForward, navigateActiveTab,
   pushViewportBounds, reloadTab,
@@ -77,6 +80,32 @@ export function BrowsePage(): ReactNode {
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
+  const [bookmarked, setBookmarked] = useState(false);
+  const toggleStarFromStore = useBrowserDataStore((s) => s.toggleStar);
+  const isBookmarkedFromStore = useBrowserDataStore((s) => s.isBookmarked);
+
+  // Star state follows the active URL (no cache — the core is the source of truth).
+  const activeUrl = active?.url ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeUrl || !/^https?:\/\//.test(activeUrl)) {
+      setBookmarked(false);
+      return;
+    }
+    void isBookmarkedFromStore(activeUrl)
+      .then((v) => {
+        if (!cancelled) setBookmarked(v);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUrl, isBookmarkedFromStore]);
+
+  const toggleStar = async (url: string, title: string): Promise<void> => {
+    const nowBookmarked = await toggleStarFromStore(url, title);
+    setBookmarked(nowBookmarked);
+  };
 
   useEffect(() => {
     setUrlDraft(active?.url ?? "");
@@ -195,6 +224,21 @@ export function BrowsePage(): ReactNode {
           style={{ flex: 1 }}
           aria-label="Address bar"
         />
+        {/* Phase 14: bookmark star for the active http(s) page. */}
+        {active && /^https?:\/\//.test(active.url) ? (
+          <Tooltip content={bookmarked ? "Remove bookmark" : "Bookmark this page"} relationship="label">
+            <Button
+              appearance="subtle"
+              icon={bookmarked ? <StarFilled style={{ color: tokens.colorPaletteMarigoldForeground1 }} /> : <StarRegular />}
+              aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"}
+              aria-pressed={bookmarked}
+              onClick={() =>
+                void toggleStar(active.url, active.title || active.url)
+                  .catch(() => undefined)
+              }
+            />
+          </Tooltip>
+        ) : null}
         {active?.isLoading ? <Spinner size="tiny" /> : null}
       </div>
 
