@@ -8,6 +8,7 @@ import { subscribeDownloadEvents } from "./stores/downloads.js";
 import { subscribeToolkitProgress } from "./stores/toolkit.js";
 import { subscribeMediaEvents } from "./stores/media.js";
 import { subscribeTorrentEvents } from "./stores/torrent.js";
+import { subscribeSchedulerEvents } from "./stores/scheduler.js";
 
 /**
  * Renderer bootstrap: the settings store must be loaded before first paint so the shell
@@ -22,6 +23,7 @@ async function boot(): Promise<void> {
   subscribeToolkitProgress();
   subscribeMediaEvents();
   subscribeTorrentEvents();
+  subscribeSchedulerEvents();
   const root = createRoot(document.getElementById("app") ?? document.body);
   root.render(
     <StrictMode>

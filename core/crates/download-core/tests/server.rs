@@ -638,3 +638,125 @@ async fn bookmark_methods_round_trip_over_rpc() {
     .await;
     assert_eq!(response["error"]["code"], "invalid_params");
 }
+
+// ---- Phase 15: scheduler jobs + automation (wire surface) ----
+
+#[tokio::test]
+async fn scheduler_arms_round_trip_and_classify() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // create: future anchor (tick-immune), daily startAll.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"s1","method":"scheduler.create","params":{"kind":"download.startAll","payload":{},"startAt":9999999999999,"repeat":"daily","enabled":true}}"#,
+    )
+    .await;
+    assert_eq!(response["ok"], true);
+    let job_id = response["result"]["job"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(response["result"]["job"]["kind"], "download.startAll");
+    assert_eq!(response["result"]["job"]["nextRunAt"], 9999999999999i64);
+    // Always-serialized nullable outcome fields.
+    assert!(response["result"]["job"]["lastFiredAt"].is_null());
+    assert!(response["result"]["job"]["lastResultCode"].is_null());
+
+    // list carries the row.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"s2","method":"scheduler.list"}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["jobs"].as_array().unwrap().len(), 1);
+
+    // update: switch repeat + disable.
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(
+            r#"{{"v":1,"id":"s3","method":"scheduler.update","params":{{"id":"{job_id}","patch":{{"repeat":"weekly","enabled":false}}}}}}"#
+        ),
+    )
+    .await;
+    assert_eq!(response["result"]["job"]["repeat"], "weekly");
+    assert_eq!(response["result"]["job"]["enabled"], false);
+
+    // setClock (main → core surface): applied.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"s4","method":"scheduler.setClock","params":{"tzOffsetMinutes":210}}"#,
+    )
+    .await;
+    assert_eq!(response["result"]["applied"], true);
+
+    // remove + remove again (invalid_state).
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(r#"{{"v":1,"id":"s5","method":"scheduler.remove","params":{{"id":"{job_id}"}}}}"#),
+    )
+    .await;
+    assert_eq!(response["result"]["removed"], true);
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(r#"{{"v":1,"id":"s6","method":"scheduler.remove","params":{{"id":"{job_id}"}}}}"#),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_state");
+
+    // Unknown action → invalid_params at the boundary.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"s7","method":"scheduler.create","params":{"kind":"media.inspect","payload":{},"startAt":1,"repeat":"none"}}"#,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "invalid_params");
+
+    // Unknown method is still method_not_found.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"s8","method":"scheduler.nope"}"#,
+    )
+    .await;
+    assert_eq!(response["error"]["code"], "method_not_found");
+}
+
+#[tokio::test]
+async fn scheduler_run_now_records_the_outcome_over_the_wire() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // Enabled one-shot with a future anchor (tick-immune) → runNow records ok and the
+    // schedule stays untouched.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"r1","method":"scheduler.create","params":{"kind":"download.startAll","payload":{},"startAt":9999999999999,"repeat":"none","enabled":true}}"#,
+    )
+    .await;
+    let job_id = response["result"]["job"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = request(
+        &mut w,
+        &mut r,
+        &format!(r#"{{"v":1,"id":"r2","method":"scheduler.runNow","params":{{"id":"{job_id}"}}}}"#),
+    )
+    .await;
+    assert_eq!(response["result"]["job"]["lastResultCode"], "ok");
+    assert!(response["result"]["job"]["lastFiredAt"].is_i64());
+    assert!(response["result"]["job"]["lastResultMessage"]
+        .as_str()
+        .unwrap()
+        .starts_with("started"));
+    // Manual fire leaves the schedule untouched.
+    assert_eq!(response["result"]["job"]["nextRunAt"], 9999999999999i64);
+}

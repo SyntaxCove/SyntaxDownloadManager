@@ -10,6 +10,7 @@ import { registerBrowserDomain } from "./domains/browser.js";
 import { registerDownloadDomain } from "./domains/download.js";
 import { registerMediaDomain } from "./domains/media.js";
 import { registerTorrentDomain } from "./domains/torrent.js";
+import { registerSchedulerDomain } from "./domains/scheduler.js";
 import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
 import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
 import { registerBrowserDataDomain } from "./domains/browser-data.js";
@@ -124,6 +125,7 @@ if (!gotLock) {
     registerDownloadDomain(router, supervisor);
     registerMediaDomain(router, supervisor);
     registerTorrentDomain(router, supervisor);
+    registerSchedulerDomain(router, supervisor);
     registerBrowserDataDomain(router, supervisor);
     registerAppDomain(router, supervisor, {
       showItemInFolder: (p) => shell.showItemInFolder(p),
@@ -154,11 +156,20 @@ if (!gotLock) {
         .catch(() => undefined); // core not ready yet — retried by the timer
     };
 
+    // Phase 15: the scheduler derives recurring runs in the user's local wall clock —
+    // push the offset at startup and from the same 10-minute drift-guard timer.
+    const applySchedulerClock = (): void => {
+      void supervisor
+        .request("scheduler.setClock", { tzOffsetMinutes: -new Date().getTimezoneOffset() })
+        .catch(() => undefined); // core not ready yet — retried by the timer
+    };
+
     supervisor
       .whenReady()
       .then(() => {
         applyCoreLimits();
         applyCorePolicy();
+        applySchedulerClock();
         pushRuntimeProxies();
       })
       .catch(() => undefined);
@@ -173,7 +184,10 @@ if (!gotLock) {
     if (settingsStore.settings.mediaToolsAutoFetch) {
       toolkitManager.ensureAll();
     }
-    const policyTimer = setInterval(applyCorePolicy, 10 * 60 * 1000);
+    const policyTimer = setInterval(() => {
+      applyCorePolicy();
+      applySchedulerClock();
+    }, 10 * 60 * 1000);
     app.on("before-quit", () => clearInterval(policyTimer));
 
     app.on("before-quit", () => {

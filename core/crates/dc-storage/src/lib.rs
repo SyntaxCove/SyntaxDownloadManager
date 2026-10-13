@@ -6,6 +6,7 @@
 use dc_protocol::browser::{Bookmark, HistoryEntry};
 use dc_protocol::job::DownloadJob;
 use dc_protocol::media::MediaJob;
+use dc_protocol::scheduler::SchedulerJob;
 use dc_protocol::torrent::{TorrentFileEntry, TorrentJob, TorrentSourceKind};
 use dc_protocol::{ContractError, ErrorCode};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -138,6 +139,28 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_bookmarks_position ON bookmarks(position);",
+    // v9 (Phase 15): persistent scheduler jobs. The core fires them from a 1 s tick;
+    // the persisted next_run_at makes catch-up-after-restart automatic. The payload is
+    // the target method's params object (opaque JSON here, validated per kind upstream).
+    // wall_anchor is the anchor's naive local ms (start_at + tz offset at set time) —
+    // recurring slots advance in wall clock so DST/travel changes snap back to the same
+    // local time when main re-pushes the offset.
+    "CREATE TABLE IF NOT EXISTS scheduler_jobs (
+        id                  TEXT PRIMARY KEY,
+        kind                TEXT NOT NULL,
+        payload_json        TEXT NOT NULL,
+        start_at            INTEGER NOT NULL,
+        wall_anchor         INTEGER NOT NULL,
+        repeat              TEXT NOT NULL,
+        enabled             INTEGER NOT NULL,
+        next_run_at         INTEGER,
+        last_fired_at       INTEGER,
+        last_result_code    TEXT,
+        last_result_message TEXT,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduler_due ON scheduler_jobs(enabled, next_run_at);",
 ];
 
 /// History rows kept after each insert (oldest beyond the cap are pruned in the same
@@ -971,6 +994,167 @@ impl JobStore {
             .map_err(wrap_sqlite("delete bookmark"))?;
         Ok(n > 0)
     }
+
+    // ---- scheduler jobs (Phase 15) ----
+
+    pub fn insert_scheduler_job(&self, job: &SchedulerJobRow) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO scheduler_jobs (id, kind, payload_json, start_at, wall_anchor,
+                                        repeat, enabled, next_run_at, last_fired_at,
+                                        last_result_code, last_result_message, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                job.id.as_str(),
+                job.kind,
+                payload_to_json(&job.payload),
+                job.start_at,
+                job.wall_anchor,
+                job.repeat,
+                job.enabled as i64,
+                job.next_run_at,
+                job.last_fired_at,
+                job.last_result_code,
+                job.last_result_message,
+                job.created_at,
+                job.updated_at,
+            ],
+        )
+        .map_err(wrap_sqlite("insert scheduler job"))?;
+        Ok(())
+    }
+
+    pub fn get_scheduler_job(&self, id: &str) -> StorageResult<Option<SchedulerJobRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.query_row(
+            "SELECT * FROM scheduler_jobs WHERE id = ?1",
+            params![id],
+            scheduler_job_from_row,
+        )
+        .optional()
+        .map_err(wrap_sqlite("get scheduler job"))
+    }
+
+    /// All scheduler jobs, newest first (the UI list).
+    pub fn list_scheduler_jobs(&self) -> StorageResult<Vec<SchedulerJobRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare("SELECT * FROM scheduler_jobs ORDER BY created_at DESC, id ASC")
+            .map_err(wrap_sqlite("list scheduler jobs"))?;
+        let rows = stmt
+            .query_map([], scheduler_job_from_row)
+            .map_err(wrap_sqlite("list scheduler jobs"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list scheduler jobs"))
+    }
+
+    /// Due jobs in fire order: enabled + next_run_at <= now, oldest due first (the tick
+    /// fires sequentially so a catch-up burst replays the schedule in order).
+    pub fn list_due_scheduler_jobs(&self, now: i64) -> StorageResult<Vec<SchedulerJobRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT * FROM scheduler_jobs
+                 WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?1
+                 ORDER BY next_run_at ASC, id ASC",
+            )
+            .map_err(wrap_sqlite("list due scheduler jobs"))?;
+        let rows = stmt
+            .query_map(params![now], scheduler_job_from_row)
+            .map_err(wrap_sqlite("list due scheduler jobs"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(wrap_sqlite("list due scheduler jobs"))
+    }
+
+    pub fn update_scheduler_job(&self, job: &SchedulerJobRow) -> StorageResult<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute(
+                "UPDATE scheduler_jobs SET kind=?2, payload_json=?3, start_at=?4,
+                        wall_anchor=?5, repeat=?6, enabled=?7, next_run_at=?8,
+                        last_fired_at=?9, last_result_code=?10, last_result_message=?11,
+                        updated_at=?12
+                 WHERE id=?1",
+                params![
+                    job.id.as_str(),
+                    job.kind,
+                    payload_to_json(&job.payload),
+                    job.start_at,
+                    job.wall_anchor,
+                    job.repeat,
+                    job.enabled as i64,
+                    job.next_run_at,
+                    job.last_fired_at,
+                    job.last_result_code,
+                    job.last_result_message,
+                    job.updated_at,
+                ],
+            )
+            .map_err(wrap_sqlite("update scheduler job"))?;
+        if n == 0 {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "scheduler job not found",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn delete_scheduler_job(&self, id: &str) -> StorageResult<bool> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let n = conn
+            .execute("DELETE FROM scheduler_jobs WHERE id = ?1", params![id])
+            .map_err(wrap_sqlite("delete scheduler job"))?;
+        Ok(n > 0)
+    }
+}
+
+/// The persisted scheduler row — the wire shape plus the core-internal wall anchor.
+/// `wall_anchor` is the anchor's naive local ms (start_at expressed under the tz offset
+/// that was current when the anchor was set); recurring slots advance in wall clock so a
+/// DST/travel change snaps future fires back to the same local time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchedulerJobRow {
+    pub id: dc_protocol::Ulid,
+    /// Closed action set (validated by the manager before insert/dispatch).
+    pub kind: String,
+    /// Opaque action payload — the target method's params object.
+    pub payload: serde_json::Value,
+    /// Epoch ms of the schedule anchor (first occurrence).
+    pub start_at: i64,
+    /// Naive local ms of the same anchor (offset-free recurrence space).
+    pub wall_anchor: i64,
+    /// none | daily | weekly.
+    pub repeat: String,
+    pub enabled: bool,
+    /// Epoch ms of the next due fire; null = nothing scheduled.
+    pub next_run_at: Option<i64>,
+    pub last_fired_at: Option<i64>,
+    /// "ok" or a classified error code; null = never fired.
+    pub last_result_code: Option<String>,
+    pub last_result_message: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl SchedulerJobRow {
+    /// Project onto the wire shape (wall_anchor stays core-internal).
+    pub fn to_wire(&self) -> SchedulerJob {
+        SchedulerJob {
+            id: self.id.clone(),
+            kind: self.kind.clone(),
+            payload: self.payload.clone(),
+            start_at: self.start_at,
+            repeat: self.repeat.clone(),
+            enabled: self.enabled,
+            next_run_at: self.next_run_at,
+            last_fired_at: self.last_fired_at,
+            last_result_code: self.last_result_code.clone(),
+            last_result_message: self.last_result_message.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
 }
 
 /// The persisted torrent row — everything the engine needs to reconstruct a session.
@@ -1225,6 +1409,31 @@ fn bookmark_from_row(row: &Row<'_>) -> rusqlite::Result<Bookmark> {
         url: row.get("url")?,
         title: row.get("title")?,
         position: row.get("position")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn payload_to_json(payload: &serde_json::Value) -> String {
+    serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn scheduler_job_from_row(row: &Row<'_>) -> rusqlite::Result<SchedulerJobRow> {
+    let payload_json: String = row.get("payload_json")?;
+    let payload: serde_json::Value =
+        serde_json::from_str(&payload_json).unwrap_or(serde_json::json!({}));
+    Ok(SchedulerJobRow {
+        id: dc_protocol::Ulid(row.get::<_, String>("id")?),
+        kind: row.get("kind")?,
+        payload,
+        start_at: row.get("start_at")?,
+        wall_anchor: row.get("wall_anchor")?,
+        repeat: row.get("repeat")?,
+        enabled: row.get::<_, i64>("enabled")? != 0,
+        next_run_at: row.get("next_run_at")?,
+        last_fired_at: row.get("last_fired_at")?,
+        last_result_code: row.get("last_result_code")?,
+        last_result_message: row.get("last_result_message")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })

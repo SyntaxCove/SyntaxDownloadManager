@@ -5,6 +5,7 @@ import { SettingsChangedEvent } from "../domain/settings.js";
 import { ToolkitToolStatus } from "../domain/toolkit.js";
 import { MediaProgress, MediaJob } from "../domain/media.js";
 import { TorrentProgress, TorrentJob } from "../domain/torrent.js";
+import { SchedulerUpdatedEvent } from "../domain/scheduler.js";
 
 /**
  * Event registry: event name → payload schema. Sources: core→main over stdio, main→renderer
@@ -47,6 +48,9 @@ export const EVENTS = {
   // v1.8 (Phase 13): torrent engine progress (throttled ~500ms) + authoritative snapshots.
   "torrent.progress": { source: "core", payload: TorrentProgress },
   "torrent.updated": { source: "core", payload: z.object({ job: TorrentJob }) },
+  // v1.10 (Phase 15): scheduler — authoritative snapshot whenever a job row changes
+  // (create / update / fire with outcome / clock recompute).
+  "scheduler.updated": { source: "core", payload: SchedulerUpdatedEvent },
 } satisfies Record<string, EventEntry>;
 
 export type EventName = keyof typeof EVENTS;

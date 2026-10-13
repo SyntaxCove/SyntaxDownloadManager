@@ -450,3 +450,59 @@ Stage Summary:
   downloads/media/torrents with safe, validated reveal/open and honest per-kind delete
   semantics. All persistence stays in the core-owned SQLite database (storage v8).
 - Next: Phase 15 (scheduler jobs + automation) per docs/PHASES.md.
+
+---
+Task ID: 15
+Agent: Super Z (main agent)
+Task: Phase 15 — Scheduler jobs + automation ("فاز ۱۵"): verify Phases 0–14, then Plan →
+Implement → Test → Fix → Document → Review → Commit.
+
+Work Log:
+- Verified Phase 0–14 from git history (all delivered; Phase 14 = d4622b2) and repaired the
+  sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 8th reset).
+- Plan: docs/phase-15-plan.md — scheduler jobs persist in the core DB (ground rule: the core
+  owns the persistent DB; storage v9), fired by a 1 s tick inside download-core; CLOSED
+  action set (download.create/startAll/pauseAll, media.download, torrent.add) dispatched
+  through the same JobManager methods as IPC; wall-clock recurrence with a persisted
+  wall_anchor so DST/travel changes snap future fires back to the same local time.
+- Contracts v1.10.0: activated the never-consumed scheduler stub (repeat enum preserved
+  verbatim), SchedulerAction + SchedulerJob v2 (always-serialized nullable outcome fields),
+  6 core methods (scheduler.setClock is main→core only, like download.setPolicy),
+  scheduler.updated event, SCHEDULER_PAYLOAD_SCHEMAS reusing the target methods' param
+  schemas; fixture schedulerJob + parity tests; version 1.9.0 → 1.10.0 both sides.
+- dc-protocol: scheduler.rs wire types + 3 fixture parity tests; dc-storage: migration v9
+  (scheduler_jobs + wall_anchor + due index), SchedulerJobRow + CRUD + list_due, 5 tests.
+- download-core: scheduler.rs (next_occurrence_wall pure math, epoch_to_wall/wall_to_epoch,
+  SchedulerEngine with 1 s tick, in-flight FiringGuard, FireMode Scheduled/Manual,
+  dispatch_action with per-kind payload structs incl. checksum normalization);
+  manager.rs: scheduler_list/create/update/remove/run_now/set_clock/fire_due + tick spawn
+  (events cloned before TorrentManager::new consumed it); server.rs: 6 dispatch arms +
+  scheduler_job_json; 9 unit + 9 integration + 2 wire tests.
+- Electron main: domains/scheduler.ts thin proxy (5 renderer-facing methods); main.ts
+  pushes scheduler.setClock at core-ready and from the 10-minute policy timer.
+- Renderer: stores/scheduler.ts (authoritative snapshot upserts, optimistic enable toggle,
+  local-time ↔ epoch helpers), SchedulerPage.tsx (job cards with anchor/next-run/last-run
+  outcome, Run now / Edit / Remove, create dialog covering all five action kinds),
+  AppShell Scheduler nav (ClockRegular), main.tsx event subscription; 8 store tests +
+  5 domain tests.
+- Fixed during Test/Fix: 4 PRE-EXISTING contracts-test defects exposed by the version bump
+  (three lexicographic `>= "1.x.0"` compares + one stale exact pin → numeric compare);
+  first-draft epoch-space recurrence drifted wall time across DST → rebuilt around
+  wall_anchor; test arithmetic/timing (due-window math, valid_ulid(n) ignores its argument,
+  1 ms clock drift between create and assert, manual-fire contract misreads); renderer
+  bridge re-validation caught non-ULID mock ids; clippy unnecessary_to_owned.
+- Review-stage fix: set_clock could STEAL a pending catch-up fire (the boot-time clock
+  push ran before the first post-boot tick and pushed a due repeating row into the
+  future) → currently-due rows are now left for the tick to fire, regression-tested.
+- Gate: scripts/verify-all.sh end-to-end "all checks passed" — cargo fmt/clippy -D
+  warnings clean, cargo test 268 (was 240), vitest 84 + 182/1-skip (was 75 + 169/1-skip),
+  typecheck ×2, vite build green. Commit: phase(15). Report: docs/phase-15-report.md.
+
+Stage Summary:
+- The app can now run itself on a schedule: persistent automation rows (download a URL at
+  02:00 daily, pause everything Fridays, add a magnet weekly) fire inside the Rust core,
+  survive restarts, catch up after downtime exactly once, keep their local time across
+  DST, and record every outcome — ok or classified — on the row and through the
+  scheduler.updated event. The Scheduler page manages them with honest semantics stated
+  in the UI. All persistence stays in the core-owned SQLite database (storage v9).
+- Next: Phase 16 (settings domain completion) per docs/PHASES.md.

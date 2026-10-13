@@ -10,6 +10,7 @@ pub mod media_job;
 pub mod proxy;
 pub mod rate_limit;
 pub mod recover;
+pub mod scheduler;
 pub mod segments;
 pub mod server;
 pub mod toolkit;

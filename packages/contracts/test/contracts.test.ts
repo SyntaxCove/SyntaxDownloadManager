@@ -14,6 +14,8 @@ import {
   TabSetProxyParams,
   ToolkitManifest, ToolkitStatusResult, ToolkitSetPathsParams, ToolkitToolStatus,
   HistoryEntry, HistoryListParams, Bookmark, RevealEntryParams,
+  SchedulerJob, SchedulerAction, SchedulerRepeat, SchedulerCreateParams, SchedulerUpdateParams,
+  SCHEDULER_PAYLOAD_SCHEMAS,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -457,7 +459,9 @@ describe("v1.5 bundled media toolkit (Phase 10)", () => {
   });
 
   it("contract version is at least 1.5.0 (Phase 10 toolkit is additive)", () => {
-    expect(CONTRACT_VERSION >= "1.5.0").toBe(true);
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(5);
+    else expect(maj).toBeGreaterThan(1);
   });
 });
 
@@ -515,7 +519,9 @@ describe("v1.6 media inspector (Phase 11)", () => {
   });
 
   it("contract version is at least 1.6.0 (Phase 11 media inspector is additive)", () => {
-    expect(CONTRACT_VERSION >= "1.6.0").toBe(true);
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(6);
+    else expect(maj).toBeGreaterThan(1);
   });
 });
 
@@ -597,7 +603,9 @@ describe("v1.7 media pipeline (Phase 12)", () => {
   });
 
   it("contract version is at least 1.7.0 (Phase 12 media pipeline is additive)", () => {
-    expect(CONTRACT_VERSION >= "1.7.0").toBe(true);
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(7);
+    else expect(maj).toBeGreaterThan(1);
   });
 });
 
@@ -675,8 +683,10 @@ describe("v1.8 torrent engine (Phase 13)", () => {
     expect(ErrorCodes).toContain("torrent_proxy_unsupported");
   });
 
-  it("contract version advanced to 1.9.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.9.0");
+  it("contract version is at least 1.9.0 (v1.10 continues additively)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(9);
+    else expect(maj).toBeGreaterThan(1);
   });
 });
 
@@ -758,5 +768,129 @@ describe("v1.9 browser history, bookmarks and library (Phase 14)", () => {
   it("fixtures parse against the new schemas (cross-language parity inputs)", () => {
     expect(HistoryEntry.parse(domainFixture.historyEntry).url).toBe("https://example.com/articles/unidm");
     expect(Bookmark.parse(domainFixture.bookmark).position).toBe(0);
+  });
+});
+
+describe("v1.10 scheduler jobs + automation (Phase 15)", () => {
+  it("parses the schedulerJob fixture (cross-language parity input)", () => {
+    const job = SchedulerJob.parse(domainFixture.schedulerJob);
+    expect(job.kind).toBe("download.create");
+    expect(job.repeat).toBe("daily");
+    expect(job.enabled).toBe(true);
+    expect(job.nextRunAt).toBe(1735776000000);
+    expect(job.lastResultCode).toBe("ok");
+    expect((job.payload as Record<string, unknown>).url).toBe("https://example.com/setup.exe");
+  });
+
+  it("nullable outcome fields are always serialized (null is valid, missing is not)", () => {
+    const base = {
+      id: "01K4SCHE0000000000000000AA",
+      kind: "download.startAll",
+      payload: {},
+      startAt: 1000,
+      repeat: "none",
+      enabled: false,
+      nextRunAt: null,
+      lastFiredAt: null,
+      lastResultCode: null,
+      lastResultMessage: null,
+      createdAt: 1,
+      updatedAt: 2,
+    } as const;
+    expect(SchedulerJob.safeParse(base).success).toBe(true);
+    for (const key of ["nextRunAt", "lastFiredAt", "lastResultCode", "lastResultMessage"]) {
+      const { [key]: _omit, ...without } = base as Record<string, unknown>;
+      expect(SchedulerJob.safeParse(without).success).toBe(false);
+    }
+    expect(SchedulerJob.safeParse({ ...base, kind: "media.inspect" }).success).toBe(false);
+    expect(SchedulerJob.safeParse({ ...base, repeat: "monthly" }).success).toBe(false);
+  });
+
+  it("repeat enum preserves the v1 stub values verbatim", () => {
+    expect(SchedulerRepeat.options).toEqual(["none", "daily", "weekly"]);
+  });
+
+  it("payload schemas per kind cover the closed action set exactly", () => {
+    expect(SchedulerAction.options).toEqual([
+      "download.create", "download.startAll", "download.pauseAll", "media.download",
+      "torrent.add",
+    ]);
+    expect(Object.keys(SCHEDULER_PAYLOAD_SCHEMAS).sort()).toEqual(
+      [...SchedulerAction.options].sort(),
+    );
+  });
+
+  it("create validates the payload against the row's kind", () => {
+    const base = { startAt: 1735689600000, repeat: "daily" } as const;
+    expect(
+      SchedulerCreateParams.safeParse({
+        ...base,
+        kind: "download.create",
+        payload: {
+          url: "https://example.com/setup.exe",
+          destinationDir: "/home/user/Downloads",
+        },
+      }).success,
+    ).toBe(true);
+    // a download.create payload missing destinationDir is rejected via superRefine
+    expect(
+      SchedulerCreateParams.safeParse({
+        ...base, kind: "download.create", payload: { url: "https://example.com/x" },
+      }).success,
+    ).toBe(false);
+    // torrent.add refinement: exactly one of magnetUri / torrentFileB64
+    expect(
+      SchedulerCreateParams.safeParse({
+        ...base, kind: "torrent.add",
+        payload: { magnetUri: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                   destinationDir: "/home/user/Downloads" },
+      }).success,
+    ).toBe(true);
+    expect(
+      SchedulerCreateParams.safeParse({
+        ...base, kind: "torrent.add", payload: { destinationDir: "/home/user/Downloads" },
+      }).success,
+    ).toBe(false);
+    // empty kinds reject unexpected payload keys
+    expect(
+      SchedulerCreateParams.safeParse({ ...base, kind: "download.startAll", payload: {} })
+        .success,
+    ).toBe(true);
+    expect(
+      SchedulerCreateParams.safeParse({ ...base, kind: "download.startAll", payload: { x: 1 } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("update validates the patch shape and rejects unknown kinds in the row", () => {
+    const id = "01K4SCHE0000000000000000AA";
+    expect(
+      SchedulerUpdateParams.safeParse({ id, patch: { enabled: false } }).success,
+    ).toBe(true);
+    expect(
+      SchedulerUpdateParams.safeParse({ id, patch: { startAt: -1 } }).success,
+    ).toBe(false);
+    expect(
+      SchedulerUpdateParams.safeParse({ id, patch: { repeat: "weekly" } }).success,
+    ).toBe(true);
+  });
+
+  it("scheduler.* methods register on the core server; setClock is main→core only", () => {
+    for (const m of [
+      "scheduler.list", "scheduler.create", "scheduler.update", "scheduler.remove",
+      "scheduler.runNow", "scheduler.setClock",
+    ] as const) {
+      expect(METHODS[m].server).toBe("core");
+    }
+  });
+
+  it("the scheduler.updated event registers with core source", () => {
+    expect(EVENTS["scheduler.updated"].source).toBe("core");
+    expect(EVENTS["scheduler.updated"].payload.safeParse({ job: domainFixture.schedulerJob })
+      .success).toBe(true);
+  });
+
+  it("contract version advanced to 1.10.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.10.0");
   });
 });

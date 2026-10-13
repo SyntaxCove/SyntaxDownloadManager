@@ -43,6 +43,12 @@ import {
   BookmarkGetByUrlParams, BookmarkGetByUrlResult, BookmarkUpdateParams, BookmarkUpdateResult,
   BookmarkRemoveParams, BookmarkRemoveResult, RevealEntryParams, RevealEntryResult,
 } from "../domain/browser-data.js";
+import {
+  SchedulerListParams, SchedulerListResult, SchedulerCreateParams, SchedulerCreateResult,
+  SchedulerUpdateParams, SchedulerUpdateResult, SchedulerJobIdParams, SchedulerJobByIdResult,
+  SchedulerRemoveResult, SchedulerRunNowResult, SchedulerSetClockParams,
+  SchedulerSetClockResult,
+} from "../domain/scheduler.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -137,6 +143,20 @@ export const METHODS = {
   "browser.bookmark.getByUrl": { server: "core", params: BookmarkGetByUrlParams, result: BookmarkGetByUrlResult },
   "browser.bookmark.update": { server: "core", params: BookmarkUpdateParams, result: BookmarkUpdateResult },
   "browser.bookmark.remove": { server: "core", params: BookmarkRemoveParams, result: BookmarkRemoveResult },
+  // ---- core (v1.10, Phase 15): scheduler jobs + automation ----
+  "scheduler.list": { server: "core", params: SchedulerListParams, result: SchedulerListResult },
+  /** `startAt` may be in the past — catch-up semantics (fires at the next tick). */
+  "scheduler.create": { server: "core", params: SchedulerCreateParams, result: SchedulerCreateResult },
+  "scheduler.update": { server: "core", params: SchedulerUpdateParams, result: SchedulerUpdateResult },
+  "scheduler.remove": { server: "core", params: SchedulerJobIdParams, result: SchedulerRemoveResult },
+  /** Fire immediately; the outcome is recorded on the row, the schedule is untouched. */
+  "scheduler.runNow": { server: "core", params: SchedulerJobIdParams, result: SchedulerRunNowResult },
+  /** Main → core only (never registered on the renderer router), like `download.setPolicy`. */
+  "scheduler.setClock": {
+    server: "core",
+    params: SchedulerSetClockParams,
+    result: SchedulerSetClockResult,
+  },
   // ---- main (Electron main process) ----
   // v1.9 (Phase 14): downloads library reveal/open — paths come from core job rows only.
   "app.revealEntry": { server: "main", params: RevealEntryParams, result: RevealEntryResult },

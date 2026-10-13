@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dc_protocol::job::DownloadJob;
+use dc_protocol::scheduler::SchedulerJob;
 use dc_protocol::{ContractError, ErrorCode};
 use dc_storage::JobStore;
 use serde::Deserialize;
@@ -29,6 +30,7 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::{now_ms, CreateJobParams, Engine, EventsTx, JobCommand};
 use crate::media_job::MediaJobManager;
 use crate::proxy::{ProxyMap, RuntimeProxy};
+use crate::scheduler::SchedulerEngine;
 use crate::toolkit::ToolkitMap;
 use crate::torrent_manager::TorrentManager;
 
@@ -110,6 +112,8 @@ pub struct JobManager {
     media: Arc<MediaJobManager>,
     /// Phase 13: the native torrent engine (its own lifecycle).
     torrent: Arc<TorrentManager>,
+    /// Phase 15: the persistent scheduler (its own 1 s tick; fires through this manager).
+    scheduler: Arc<SchedulerEngine>,
     jobs: Mutex<HashMap<String, JobHandle>>,
     max_concurrent: AtomicUsize,
     policy: Mutex<QueuePolicy>,
@@ -165,12 +169,14 @@ impl JobManager {
             proxies.clone(),
             inspect_limiter,
         );
-        let torrent = TorrentManager::new(store.clone(), events, proxies);
+        let torrent = TorrentManager::new(store.clone(), events.clone(), proxies);
+        let scheduler = Arc::new(SchedulerEngine::new(store.clone(), events));
         let manager = Arc::new(Self {
             store,
             engine,
             media,
             torrent,
+            scheduler,
             jobs: Mutex::new(HashMap::new()),
             max_concurrent: AtomicUsize::new(3),
             policy: Mutex::new(QueuePolicy::default()),
@@ -178,6 +184,7 @@ impl JobManager {
             last_in_window: AtomicBool::new(true),
         });
         manager.spawn_policy_tick();
+        manager.scheduler.spawn_tick(Arc::downgrade(&manager));
         manager
     }
 
@@ -431,6 +438,178 @@ impl JobManager {
             ));
         }
         Ok(())
+    }
+
+    // ---- Phase 15: scheduler jobs + automation ----
+
+    pub fn scheduler_list(&self) -> Result<Vec<SchedulerJob>, ContractError> {
+        Ok(self
+            .store
+            .list_scheduler_jobs()?
+            .iter()
+            .map(dc_storage::SchedulerJobRow::to_wire)
+            .collect())
+    }
+
+    /// Create + persist a scheduler job. The anchor is always the first occurrence:
+    /// `next_run_at = start_at` (past anchors catch up at the next tick — documented).
+    pub fn scheduler_create(
+        &self,
+        params: dc_protocol::SchedulerCreateParams,
+    ) -> Result<SchedulerJob, ContractError> {
+        if !crate::scheduler::is_valid_action(&params.kind) {
+            return Err(crate::scheduler::invalid_field("action", &params.kind));
+        }
+        if !crate::scheduler::is_valid_repeat(&params.repeat) {
+            return Err(crate::scheduler::invalid_field("repeat", &params.repeat));
+        }
+        if params.start_at < 0 {
+            return Err(ContractError::new(
+                ErrorCode::InvalidParams,
+                "startAt must be a non-negative epoch ms",
+            ));
+        }
+        crate::scheduler::validate_payload(&params.kind, &params.payload)?;
+        let now = now_ms();
+        let tz = self.scheduler.tz_offset();
+        let row = dc_storage::SchedulerJobRow {
+            id: dc_protocol::new_ulid(),
+            kind: params.kind,
+            payload: params.payload,
+            start_at: params.start_at,
+            wall_anchor: crate::scheduler::epoch_to_wall(params.start_at, tz),
+            repeat: params.repeat,
+            enabled: params.enabled,
+            next_run_at: if params.enabled {
+                Some(params.start_at)
+            } else {
+                None
+            },
+            last_fired_at: None,
+            last_result_code: None,
+            last_result_message: None,
+            created_at: now,
+            updated_at: now,
+        };
+        self.store.insert_scheduler_job(&row)?;
+        let wire = row.to_wire();
+        self.scheduler.emit(&wire);
+        Ok(wire)
+    }
+
+    /// Patch a scheduler row. `kind` is immutable; a replacement payload is re-validated
+    /// against the row's kind; startAt/repeat/enabled changes re-derive `next_run_at`
+    /// (a new anchor is honored verbatim; repeat switches and re-enables skip the past).
+    pub fn scheduler_update(
+        &self,
+        params: dc_protocol::SchedulerUpdateParams,
+    ) -> Result<SchedulerJob, ContractError> {
+        let mut row = self
+            .store
+            .get_scheduler_job(params.id.as_str())?
+            .ok_or_else(|| {
+                ContractError::new(ErrorCode::InvalidState, "scheduler job not found")
+            })?;
+        let patch = params.patch;
+        // Validate everything before mutating anything.
+        if let Some(repeat) = &patch.repeat {
+            if !crate::scheduler::is_valid_repeat(repeat) {
+                return Err(crate::scheduler::invalid_field("repeat", repeat));
+            }
+        }
+        if let Some(start_at) = patch.start_at {
+            if start_at < 0 {
+                return Err(ContractError::new(
+                    ErrorCode::InvalidParams,
+                    "startAt must be a non-negative epoch ms",
+                ));
+            }
+        }
+        if let Some(payload) = &patch.payload {
+            crate::scheduler::validate_payload(&row.kind, payload)?;
+        }
+
+        let tz = self.scheduler.tz_offset();
+        let now = now_ms();
+        if let Some(payload) = patch.payload {
+            row.payload = payload;
+        }
+        if let Some(start_at) = patch.start_at {
+            row.start_at = start_at;
+            row.wall_anchor = crate::scheduler::epoch_to_wall(start_at, tz);
+            if row.enabled {
+                row.next_run_at = Some(start_at);
+            }
+        }
+        if let Some(repeat) = patch.repeat {
+            if row.repeat != repeat {
+                row.repeat = repeat.clone();
+                if row.enabled {
+                    row.next_run_at = match repeat.as_str() {
+                        "none" => Some(row.start_at),
+                        r => crate::scheduler::next_occurrence_wall(
+                            row.wall_anchor,
+                            r,
+                            crate::scheduler::epoch_to_wall(now, tz),
+                        )
+                        .map(|w| crate::scheduler::wall_to_epoch(w, tz)),
+                    };
+                }
+            }
+        }
+        if let Some(enabled) = patch.enabled {
+            if enabled && !row.enabled {
+                row.enabled = true;
+                row.next_run_at = match row.repeat.as_str() {
+                    "none" => Some(row.start_at),
+                    r => crate::scheduler::next_occurrence_wall(
+                        row.wall_anchor,
+                        r,
+                        crate::scheduler::epoch_to_wall(now, tz),
+                    )
+                    .map(|w| crate::scheduler::wall_to_epoch(w, tz)),
+                };
+            } else if !enabled && row.enabled {
+                row.enabled = false;
+                // next_run_at stays; the row is inert until re-enabled (which recomputes).
+            }
+        }
+        row.updated_at = now_ms();
+        self.store.update_scheduler_job(&row)?;
+        let wire = row.to_wire();
+        self.scheduler.emit(&wire);
+        Ok(wire)
+    }
+
+    pub fn scheduler_remove(&self, id: &str) -> Result<(), ContractError> {
+        if !self.store.delete_scheduler_job(id)? {
+            return Err(ContractError::new(
+                ErrorCode::InvalidState,
+                "scheduler job not found",
+            ));
+        }
+        Ok(())
+    }
+
+    /// `scheduler.runNow`: fire immediately; the outcome is recorded on the row, the
+    /// schedule is untouched (explicit user intent).
+    pub async fn scheduler_run_now(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Result<SchedulerJob, ContractError> {
+        self.scheduler.run_now(self, id).await
+    }
+
+    /// `scheduler.setClock` (main → core): push the local-UTC offset; repeating rows
+    /// re-derive next_run_at in wall clock. Returns how many rows moved.
+    pub fn scheduler_set_clock(&self, tz_offset_minutes: i32) -> Result<usize, ContractError> {
+        self.scheduler.set_clock(tz_offset_minutes)
+    }
+
+    /// Fire every due scheduler job now (the 1 s tick calls this; exposed so the fire
+    /// pipeline is exercisable without waiting on wall-clock time in tests).
+    pub async fn scheduler_fire_due(self: &Arc<Self>) -> usize {
+        self.scheduler.fire_due(self).await
     }
 
     /// Phase 9: change the proxy profile a job routes through (None = direct).

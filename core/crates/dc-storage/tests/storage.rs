@@ -825,3 +825,125 @@ fn schema_version_is_at_least_8_after_browser_data_tables() {
     let store = JobStore::open_in_memory().unwrap();
     assert!(store.schema_version().unwrap() >= 8);
 }
+
+// ---- scheduler jobs (Phase 15, storage v9) ----
+
+use dc_storage::SchedulerJobRow;
+
+fn sample_scheduler_job(id: &str, kind: &str, repeat: &str) -> SchedulerJobRow {
+    SchedulerJobRow {
+        id: Ulid(id.to_string()),
+        kind: kind.into(),
+        payload: serde_json::json!({ "url": "https://example.com/a.zip", "destinationDir": "/tmp" }),
+        start_at: 1000,
+        wall_anchor: 1000,
+        repeat: repeat.into(),
+        enabled: true,
+        next_run_at: Some(1000),
+        last_fired_at: None,
+        last_result_code: None,
+        last_result_message: None,
+        created_at: 500,
+        updated_at: 500,
+    }
+}
+
+#[test]
+fn schema_version_is_at_least_9_after_scheduler_table() {
+    let store = JobStore::open_in_memory().unwrap();
+    assert!(store.schema_version().unwrap() >= 9);
+}
+
+#[test]
+fn scheduler_job_crud_round_trips_every_column() {
+    let store = JobStore::open_in_memory().unwrap();
+    let mut job = sample_scheduler_job(&valid_ulid(1), "download.create", "daily");
+    store.insert_scheduler_job(&job).unwrap();
+
+    let loaded = store.get_scheduler_job(job.id.as_str()).unwrap().unwrap();
+    assert_eq!(loaded, job, "every column survives the round trip");
+
+    // Outcome recording: last_* flip, one-shot disables and clears next_run_at.
+    job.last_fired_at = Some(2000);
+    job.last_result_code = Some("ok".into());
+    job.last_result_message = Some("created download job 01X".into());
+    job.next_run_at = None;
+    job.enabled = false;
+    job.updated_at = 2000;
+    store.update_scheduler_job(&job).unwrap();
+    let after = store.get_scheduler_job(job.id.as_str()).unwrap().unwrap();
+    assert_eq!(after.last_result_code.as_deref(), Some("ok"));
+    assert_eq!(after.next_run_at, None);
+    assert!(!after.enabled);
+
+    // Unknown id → invalid_state from the update path.
+    let mut ghost = job.clone();
+    ghost.id = Ulid(valid_ulid(99));
+    assert!(store.update_scheduler_job(&ghost).is_err());
+
+    assert!(store.delete_scheduler_job(job.id.as_str()).unwrap());
+    assert!(!store.delete_scheduler_job(job.id.as_str()).unwrap());
+    assert!(store.get_scheduler_job(job.id.as_str()).unwrap().is_none());
+}
+
+#[test]
+fn scheduler_due_query_orders_by_next_run_and_respects_enabled() {
+    let store = JobStore::open_in_memory().unwrap();
+
+    let id_later = valid_ulid(1);
+    let mut later = sample_scheduler_job(&id_later, "download.startAll", "none");
+    later.next_run_at = Some(3000);
+    later.created_at = 10;
+    store.insert_scheduler_job(&later).unwrap();
+
+    let id_earlier = valid_ulid(2);
+    let mut earlier = sample_scheduler_job(&id_earlier, "download.pauseAll", "none");
+    earlier.next_run_at = Some(2000);
+    earlier.created_at = 20;
+    store.insert_scheduler_job(&earlier).unwrap();
+
+    // Disabled but due — never fires.
+    let id_disabled = valid_ulid(3);
+    let mut disabled = sample_scheduler_job(&id_disabled, "download.startAll", "none");
+    disabled.next_run_at = Some(1500);
+    disabled.enabled = false;
+    disabled.created_at = 30;
+    store.insert_scheduler_job(&disabled).unwrap();
+
+    // Not yet due — stays out.
+    let id_future = valid_ulid(4);
+    let mut future = sample_scheduler_job(&id_future, "download.startAll", "none");
+    future.next_run_at = Some(9000);
+    future.created_at = 40;
+    store.insert_scheduler_job(&future).unwrap();
+
+    let due = store.list_due_scheduler_jobs(2500).unwrap();
+    let ids: Vec<String> = due.iter().map(|j| j.id.as_str().to_string()).collect();
+    assert_eq!(
+        ids,
+        vec![id_earlier.clone()],
+        "at 2500 only next_run_at=2000 is due; disabled (1500) and future rows stay out"
+    );
+
+    // Advancing the clock pulls the 3000 row in, still in next_run_at order.
+    let due = store.list_due_scheduler_jobs(3500).unwrap();
+    let ids: Vec<String> = due.iter().map(|j| j.id.as_str().to_string()).collect();
+    assert_eq!(
+        ids,
+        vec![id_earlier, id_later],
+        "due order is next_run_at ASC and skips disabled rows"
+    );
+}
+
+#[test]
+fn scheduler_list_orders_newest_first() {
+    let store = JobStore::open_in_memory().unwrap();
+    for (i, created) in [100i64, 300, 200].into_iter().enumerate() {
+        let mut job = sample_scheduler_job(&valid_ulid(i as u32 + 1), "download.startAll", "none");
+        job.created_at = created;
+        store.insert_scheduler_job(&job).unwrap();
+    }
+    let jobs = store.list_scheduler_jobs().unwrap();
+    let created: Vec<i64> = jobs.iter().map(|j| j.created_at).collect();
+    assert_eq!(created, vec![300, 200, 100]);
+}

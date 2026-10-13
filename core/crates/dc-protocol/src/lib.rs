@@ -9,6 +9,7 @@ pub mod error;
 pub mod ids;
 pub mod job;
 pub mod media;
+pub mod scheduler;
 pub mod toolkit;
 pub mod torrent;
 
@@ -28,6 +29,10 @@ pub use media::{
     MediaInspectResult, MediaJob, MediaListResult, MediaManifest, MediaProgress, MediaRemoveParams,
     MediaSubtitleSelection, SubtitleTrack, VideoFormat,
 };
+pub use scheduler::{
+    SchedulerCreateParams, SchedulerCreateResult, SchedulerJob, SchedulerJobResult,
+    SchedulerListResult, SchedulerPatch, SchedulerSetClockParams, SchedulerUpdateParams,
+};
 pub use toolkit::{ToolkitPathEntry, ToolkitSetPathsParams};
 pub use torrent::{
     TorrentAddParams, TorrentAddResult, TorrentFileEntry, TorrentJob, TorrentListResult,
@@ -36,7 +41,7 @@ pub use torrent::{
 
 /// Mirrors CONTRACT_VERSION in packages/contracts/src/version.ts.
 /// download-core refuses to start against a mismatched main process.
-pub const CONTRACT_VERSION: &str = "1.9.0";
+pub const CONTRACT_VERSION: &str = "1.10.0";
 
 /// Wire protocol version carried by every envelope (`v`).
 pub const PROTOCOL_VERSION: i64 = 1;

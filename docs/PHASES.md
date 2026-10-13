@@ -42,7 +42,7 @@
 | 12 | Media download & merge pipeline (video/audio/subtitle mux) | delivered (2026-10-12) |
 | 13 | Torrent engine + UI | delivered (2026-10-12) |
 | 14 | Browser history, bookmarks, downloads library | delivered (2026-10-13) |
-| 15 | Scheduler jobs + automation | pending |
+| 15 | Scheduler jobs + automation | delivered (2026-10-13) |
 | 16 | Settings domain completion | pending |
 | 17 | Notifications, toasts, tray integration | pending |
 | 18 | Auto-update channel | pending |

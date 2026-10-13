@@ -6,13 +6,14 @@ import {
   tokens,
   Tooltip,
 } from "@fluentui/react-components";
-import { SettingsRegular, GlobeRegular, ArrowDownloadRegular, ShieldTaskRegular, VideoClipMultipleRegular, ArrowSquareDownRegular, LibraryRegular } from "@fluentui/react-icons";
+import { SettingsRegular, GlobeRegular, ArrowDownloadRegular, ShieldTaskRegular, VideoClipMultipleRegular, ArrowSquareDownRegular, LibraryRegular, ClockRegular } from "@fluentui/react-icons";
 import { SettingsPage } from "../pages/SettingsPage.js";
 import { BrowsePage } from "../pages/BrowsePage.js";
 import { DownloadsPage } from "../pages/DownloadsPage.js";
 import { ProxyPage } from "../pages/ProxyPage.js";
 import { MediaPage } from "../pages/MediaPage.js";
 import { TorrentsPage } from "../pages/TorrentsPage.js";
+import { SchedulerPage } from "../pages/SchedulerPage.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
 
 /**
@@ -47,7 +48,7 @@ const useStyles = makeStyles({
   content: { flex: 1, minHeight: 0, overflow: "auto", padding: "16px" },
 });
 
-type View = "browse" | "downloads" | "media" | "torrents" | "library" | "proxy" | "settings";
+type View = "browse" | "downloads" | "media" | "torrents" | "scheduler" | "library" | "proxy" | "settings";
 
 // Drag regions are vendor-specific CSS; Griffel has no typed shorthand, so they are applied
 // as inline styles with an explicit cast.
@@ -59,6 +60,7 @@ const NAV: ReadonlyArray<{ id: View; label: string; icon: React.ReactElement }> 
   { id: "downloads", label: "Downloads", icon: <ArrowDownloadRegular /> },
   { id: "media", label: "Media", icon: <VideoClipMultipleRegular /> },
   { id: "torrents", label: "Torrents", icon: <ArrowSquareDownRegular /> },
+  { id: "scheduler", label: "Scheduler", icon: <ClockRegular /> },
   { id: "library", label: "Library", icon: <LibraryRegular /> },
   { id: "proxy", label: "Proxy", icon: <ShieldTaskRegular /> },
   { id: "settings", label: "Settings", icon: <SettingsRegular /> },
@@ -94,6 +96,7 @@ export function AppShell(): ReactNode {
           {view === "downloads" ? <DownloadsPage /> : null}
           {view === "media" ? <MediaPage /> : null}
           {view === "torrents" ? <TorrentsPage /> : null}
+          {view === "scheduler" ? <SchedulerPage /> : null}
           {view === "library" ? <LibraryPage /> : null}
           {view === "proxy" ? <ProxyPage /> : null}
           {view === "settings" ? <SettingsPage /> : null}

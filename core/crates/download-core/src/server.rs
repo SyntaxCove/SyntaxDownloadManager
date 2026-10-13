@@ -455,6 +455,41 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             manager.bookmark_remove(&p.id)?;
             Ok(serde_json::json!({ "removed": true }))
         }
+        // ---- Phase 15: scheduler jobs + automation ----
+        "scheduler.list" => {
+            let jobs = manager.scheduler_list()?;
+            serde_json::to_value(dc_protocol::SchedulerListResult { jobs }).map_err(|e| {
+                ContractError::new(
+                    ErrorCode::InternalError,
+                    format!("serialize scheduler jobs: {e}"),
+                )
+            })
+        }
+        "scheduler.create" => {
+            let p: dc_protocol::SchedulerCreateParams = parse(&params)?;
+            let job = manager.scheduler_create(p)?;
+            scheduler_job_json(job)
+        }
+        "scheduler.update" => {
+            let p: dc_protocol::SchedulerUpdateParams = parse(&params)?;
+            let job = manager.scheduler_update(p)?;
+            scheduler_job_json(job)
+        }
+        "scheduler.remove" => {
+            let p: JobIdParams = parse(&params)?;
+            manager.scheduler_remove(&p.id)?;
+            Ok(serde_json::json!({ "removed": true }))
+        }
+        "scheduler.runNow" => {
+            let p: JobIdParams = parse(&params)?;
+            let job = manager.scheduler_run_now(&p.id).await?;
+            scheduler_job_json(job)
+        }
+        "scheduler.setClock" => {
+            let p: dc_protocol::SchedulerSetClockParams = parse(&params)?;
+            manager.scheduler_set_clock(p.tz_offset_minutes)?;
+            Ok(serde_json::json!({ "applied": true }))
+        }
         "download.cancel" => {
             let p: JobIdParams = parse(&params)?;
             let job = manager.cancel(&p.id).await?;
@@ -496,6 +531,17 @@ fn torrent_job_json(job: dc_protocol::TorrentJob) -> Result<Value, ContractError
             ContractError::new(
                 ErrorCode::InternalError,
                 format!("serialize torrent job: {e}"),
+            )
+        })
+}
+
+fn scheduler_job_json(job: dc_protocol::SchedulerJob) -> Result<Value, ContractError> {
+    serde_json::to_value(job)
+        .map(|v| serde_json::json!({ "job": v }))
+        .map_err(|e| {
+            ContractError::new(
+                ErrorCode::InternalError,
+                format!("serialize scheduler job: {e}"),
             )
         })
 }

@@ -342,3 +342,96 @@ fn browser_data_params_deserialize_camel_case() {
     assert_eq!(p.title.as_deref(), Some("Renamed"));
     assert_eq!(p.url, None);
 }
+
+#[test]
+fn parses_and_round_trips_scheduler_job_fixture() {
+    // v1.10 (Phase 15): scheduler jobs — persistent automation rows.
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let job: dc_protocol::SchedulerJob =
+        serde_json::from_value(doc["schedulerJob"].clone()).unwrap();
+    assert_eq!(job.kind, "download.create");
+    assert_eq!(job.repeat, "daily");
+    assert!(job.enabled);
+    assert_eq!(job.next_run_at, Some(1735776000000));
+    assert_eq!(job.last_fired_at, Some(1735689600000));
+    assert_eq!(job.last_result_code.as_deref(), Some("ok"));
+    let out: serde_json::Value = serde_json::to_value(&job).unwrap();
+    assert_eq!(
+        out, doc["schedulerJob"],
+        "wire format divergence between TS and Rust (scheduler job)"
+    );
+}
+
+#[test]
+fn scheduler_job_null_outcome_fields_serialize_explicit_nulls() {
+    // nextRunAt/lastFiredAt/lastResultCode/lastResultMessage are zod-nullable → always
+    // serialized, even when the job never fired.
+    let json = serde_json::json!({
+        "id": "01K4SCHE0000000000000000AA",
+        "kind": "download.startAll",
+        "payload": {},
+        "startAt": 1000i64,
+        "repeat": "none",
+        "enabled": false,
+        "nextRunAt": null,
+        "lastFiredAt": null,
+        "lastResultCode": null,
+        "lastResultMessage": null,
+        "createdAt": 1i64,
+        "updatedAt": 2i64
+    });
+    let job: dc_protocol::SchedulerJob = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(job.next_run_at, None);
+    assert_eq!(job.last_result_code, None);
+    let out = serde_json::to_value(&job).unwrap();
+    assert_eq!(out, json, "nulls must stay present on the wire");
+    for key in [
+        "nextRunAt",
+        "lastFiredAt",
+        "lastResultCode",
+        "lastResultMessage",
+    ] {
+        assert!(out.get(key).is_some(), "{key} must always serialize");
+    }
+}
+
+#[test]
+fn scheduler_params_deserialize_camel_case() {
+    let create = serde_json::json!({
+        "kind": "media.download",
+        "payload": { "url": "https://example.com/watch?v=1", "audioFormatId": "140",
+                     "destinationDir": "/home/user/Downloads" },
+        "startAt": 1735689600000i64,
+        "repeat": "weekly",
+        "enabled": false
+    });
+    let p: dc_protocol::SchedulerCreateParams = serde_json::from_value(create).unwrap();
+    assert_eq!(p.kind, "media.download");
+    assert_eq!(p.start_at, 1735689600000);
+    assert_eq!(p.repeat, "weekly");
+    assert!(!p.enabled);
+    // default-enabled when omitted (zod `.optional().default(true)`)
+    let bare: dc_protocol::SchedulerCreateParams = serde_json::from_value(serde_json::json!({
+        "kind": "download.startAll", "payload": {}, "startAt": 1i64, "repeat": "none"
+    }))
+    .unwrap();
+    assert!(bare.enabled);
+
+    let upd = serde_json::json!({
+        "id": "01K4SCHE0000000000000000AA",
+        "patch": { "startAt": 5i64, "repeat": "daily", "enabled": true, "payload": {"url": "x"} }
+    });
+    let p: dc_protocol::SchedulerUpdateParams = serde_json::from_value(upd).unwrap();
+    assert_eq!(p.patch.start_at, Some(5));
+    assert_eq!(p.patch.repeat.as_deref(), Some("daily"));
+    assert_eq!(p.patch.enabled, Some(true));
+    assert!(p.patch.payload.is_some());
+
+    let empty: dc_protocol::SchedulerPatch = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(empty, dc_protocol::SchedulerPatch::default());
+
+    let clock: dc_protocol::SchedulerSetClockParams =
+        serde_json::from_value(serde_json::json!({ "tzOffsetMinutes": 210 })).unwrap();
+    assert_eq!(clock.tz_offset_minutes, 210);
+}
