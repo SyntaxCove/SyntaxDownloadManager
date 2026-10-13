@@ -506,3 +506,60 @@ Stage Summary:
   scheduler.updated event. The Scheduler page manages them with honest semantics stated
   in the UI. All persistence stays in the core-owned SQLite database (storage v9).
 - Next: Phase 16 (settings domain completion) per docs/PHASES.md.
+
+---
+Task ID: 16
+Agent: Super Z (main agent)
+Task: Phase 16 — Settings domain completion ("فاز ۱۶"): verify Phases 0–15, then Plan →
+Implement → Test → Fix → Document → Review → Commit.
+
+Work Log:
+- Verified Phase 0–15 from git history (all delivered; Phase 15 = e209412) and repaired the
+  sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 9th reset). Rebuilt
+  @unidm/contracts dist (workspace link lost with the reset).
+- Plan: docs/phase-16-plan.md — scope taken from the two DOCUMENTED deferrals into this
+  phase (Phase 3: directory picker; Phase 9 plan: settings-level default proxy) plus the
+  domain's coherence gaps (settings liveness on core restart, dangling default after
+  profile removal, restore-defaults affordance).
+- Contracts v1.11.0 (additive): AppSettings.defaultProxyProfileId (Ulid.nullable().default
+  (null)) + SETTINGS_DEFAULTS; app.pickDirectory main method ({} → {path: string|null});
+  DownloadCreateParams.proxyProfileId doc updated (schema unchanged); appSettings fixture
+  gained a valid ULID; Phase 15's exact version-pin test generalized to the numeric
+  major/minor compare (same fix pattern as the four Phase 15 defects).
+- Design decision (documented in plan + report): default-proxy injection is MAIN-SIDE
+  (applyDefaultProxy in domains/download.ts, keyed on the ABSENCE of proxyProfileId —
+  omitted vs null is distinguishable before serialization; explicit null = direct, explicit
+  id = verbatim). The Rust core never learns settings: zero core changes, only the
+  dc-protocol version constant. Scheduler payloads stay verbatim (Phase 15); the Scheduler
+  download.create form gained an explicit, Direct-default, frozen proxy picker instead.
+- Main: domains/app-dialogs.ts (new; injectable DirectoryPicker port over Electron
+  dialog.showOpenDialog); domains/download.ts (create special-cased with injection +
+  settingsStore param, every other method still a pure passthrough); domains/proxy.ts
+  (remove clears a dangling defaultProxyProfileId + emits settings.changed; refusals never
+  mutate settings); main.ts (dialogs registered; applyCoreLimits/applyCorePolicy/
+  applySchedulerClock moved into the core "ready" state handler — a restarted core now gets
+  the FULL settings re-applied; previously setConcurrency was never re-applied after a core
+  restart and policy healed only via the 10-min timer).
+- Renderer: stores/downloads.ts create is three-state (undefined = omit/app default, null =
+  explicit direct, id = verbatim); SettingsPage (Browse… button + DefaultProxyField dropdown
+  + Maintenance section with confirm-guarded Restore defaults writing SETTINGS_DEFAULTS);
+  DownloadsPage proxy dropdown is now App default/Direct/profile; SchedulerPage frozen proxy
+  picker for download.create.
+- Fixed during Test/Fix: router zod defaults (overwrite: false) ride along before injection
+  (test asserts the parsed shape); Electron OpenDialogOptions rejects readonly property
+  tuples; test fixture job id used "U" (outside Crockford base32 — renderer result
+  re-validation caught it); two test-file type errors surfaced only by the gate's tsc pass
+  (vitest does not typecheck).
+- Gate: scripts/verify-all.sh end-to-end "all checks passed" — cargo fmt/clippy -D warnings
+  clean; cargo test 268 (unchanged, by design); vitest contracts 90 (was 84); desktop 201
+  passed + 1 skipped (was 182 + 1); typecheck ×2 clean; vite build green.
+  Commit: phase(16) = 4c19393. Report: docs/phase-16-report.md.
+
+Stage Summary:
+- The settings domain is complete: the user picks folders with the native OS dialog, picks
+  an app-level default proxy that main applies to every new download that does not choose
+  one explicitly (with fail-closed Phase 9 semantics intact), profiles can never leave a
+  dangling default behind, settings survive core crashes (re-applied on every ready
+  transition), and the page offers a confirm-guarded reset. Contracts 1.11.0; storage
+  stays v9; the core remains settings-free.
+- Next: Phase 17 (notifications, toasts, tray integration) per docs/PHASES.md.
