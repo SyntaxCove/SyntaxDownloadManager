@@ -68,7 +68,10 @@ development). No AI features. Data integrity first.
   Tabs route through dedicated `persist:proxy.<profileId>` sessions with fixed-server rules
   and a `login` handler answering proxy auth challenges; credentials are never embedded in
   Chromium rules. Bypass lists use a documented subset (`<local>`, exact host, `.domain`,
-  `*.domain`, optional `:port`) with identical semantics on both sides.
+  `*.domain`, optional `:port`) with identical semantics on both sides. A settings-level
+  default proxy (Phase 16) is injected by main into renderer-issued `download.create`
+  requests that omit an explicit profile; the core never learns settings, and a run whose
+  profile is missing stays fail-closed (paused, never a silent direct fallback).
 
 ## Directory map
 

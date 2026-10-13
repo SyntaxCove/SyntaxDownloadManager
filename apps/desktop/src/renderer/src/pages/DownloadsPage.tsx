@@ -130,7 +130,8 @@ export function DownloadsPage(): ReactNode {
   const loadProxies = useProxyStore((s) => s.load);
   const proxyLoaded = useProxyStore((s) => s.loaded);
   const [url, setUrl] = useState("");
-  const [proxyChoice, setProxyChoice] = useState<string | null>(null); // null = direct
+  /** undefined = app default (Settings) · null = explicit direct · profile id = that profile. */
+  const [proxyChoice, setProxyChoice] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -172,13 +173,24 @@ export function DownloadsPage(): ReactNode {
           aria-label="Download URL"
         />
         <Dropdown
-          value={proxyChoice ? (proxyProfiles.find((p) => p.id === proxyChoice)?.name ?? "Proxy") : "Direct"}
-          selectedOptions={proxyChoice ? [proxyChoice] : []}
-          onOptionSelect={(_, d) => setProxyChoice((d.optionValue as string) || null)}
-          style={{ minWidth: "140px" }}
+          value={
+            proxyChoice === undefined
+              ? "App default"
+              : proxyChoice === null
+                ? "Direct"
+                : (proxyProfiles.find((p) => p.id === proxyChoice)?.name ?? "Proxy")
+          }
+          selectedOptions={[proxyChoice === undefined ? "__default" : proxyChoice === null ? "__direct" : proxyChoice]}
+          onOptionSelect={(_, d) =>
+            setProxyChoice(
+              d.optionValue === "__default" ? undefined : d.optionValue === "__direct" ? null : (d.optionValue as string),
+            )
+          }
+          style={{ minWidth: "150px" }}
           aria-label="Proxy for this download"
         >
-          <Option value="">Direct</Option>
+          <Option value="__default">App default</Option>
+          <Option value="__direct">Direct</Option>
           {proxyProfiles.map((p) => (
             <Option key={p.id} value={p.id}>
               {p.name}

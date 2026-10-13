@@ -74,12 +74,21 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
       ),
     })),
 
-  create: async (url, destinationDir, proxyProfileId) => {
+  /**
+   * Phase 16: three-way proxy choice. `undefined` = app default (field omitted — main
+   * injects `settings.defaultProxyProfileId`); `null` = explicit direct; a profile id
+   * routes through that profile verbatim.
+   */
+  create: async (url, destinationDir, proxyProfileId?: string | null) => {
     const { job } = await rpc("download.create", {
       url,
       destinationDir,
       overwrite: false,
-      ...(proxyProfileId ? { proxyProfileId } : {}),
+      ...(proxyProfileId === undefined
+        ? {}
+        : proxyProfileId === null
+          ? { proxyProfileId: null }
+          : { proxyProfileId }),
     });
     get().upsertJob(job);
   },

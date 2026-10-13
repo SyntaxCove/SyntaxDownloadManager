@@ -52,6 +52,14 @@ function rpcResult(method: string, params: unknown): unknown {
       return { paused: 3 };
     case "download.setSpeedLimit":
       return { job: jobFixture({ id: String(p.id), speedLimitKBps: Number(p.kbps) }) };
+    case "download.create":
+      return {
+        job: jobFixture({
+          id: "01JD8W3G5XQ9V4M2K7PZ6N8S0V",
+          url: String(p.url),
+          ...(p.proxyProfileId !== undefined ? { proxyProfileId: p.proxyProfileId as string | null } : {}),
+        }),
+      };
     default:
       return {};
   }
@@ -130,5 +138,45 @@ describe("compareQueueDisplay (Phase 8 display order)", () => {
     const b = jobFixture({ id: "b" });
     expect(compareQueueDisplay(a, b)).toBe(0);
     expect(compareQueueDisplay(a, a)).toBe(0);
+  });
+});
+
+describe("downloads store — create proxy choice (Phase 16)", () => {
+  it("no argument = app default: the field is OMITTED (main injects the setting)", async () => {
+    const { create } = useDownloadsStore.getState();
+    await create("https://example.com/a.bin", "/tmp");
+    expect(calls[0]).toEqual({
+      method: "download.create",
+      params: { url: "https://example.com/a.bin", destinationDir: "/tmp", overwrite: false },
+    });
+  });
+
+  it("null = explicit direct: proxyProfileId: null rides on the wire", async () => {
+    const { create } = useDownloadsStore.getState();
+    await create("https://example.com/b.bin", "/tmp", null);
+    expect(calls[0]).toEqual({
+      method: "download.create",
+      params: {
+        url: "https://example.com/b.bin",
+        destinationDir: "/tmp",
+        overwrite: false,
+        proxyProfileId: null,
+      },
+    });
+  });
+
+  it("a profile id passes through verbatim", async () => {
+    const { create } = useDownloadsStore.getState();
+    await create("https://example.com/c.bin", "/tmp", "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    expect(calls[0]).toEqual({
+      method: "download.create",
+      params: {
+        url: "https://example.com/c.bin",
+        destinationDir: "/tmp",
+        overwrite: false,
+        proxyProfileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      },
+    });
+    expect(useDownloadsStore.getState().jobs[0]?.proxyProfileId).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
 });

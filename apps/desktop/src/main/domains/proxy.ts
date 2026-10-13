@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  EVENTS,
   METHODS,
   newUlid,
   UniDmError,
@@ -10,6 +11,7 @@ import {
 } from "@unidm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
+import type { SettingsStore } from "./settings.js";
 
 /**
  * Proxy profile store (main process, Phase 9).
@@ -261,12 +263,17 @@ export class ProxyProfileStore {
  * successful mutation triggers `onChanged` (main re-pushes the runtime set to the core).
  * Removal is refused with `proxy_in_use` (+ job count) while any download job still
  * references the profile — the UI surfaces the count and offers reassignment.
+ *
+ * Phase 16: removal also keeps the settings coherent — a `defaultProxyProfileId` pointing
+ * at the removed profile is cleared (with a `settings.changed` broadcast) so settings never
+ * reference a nonexistent profile. Jobs keep their persisted Phase 9 fail-closed semantics.
  */
 export function registerProxyDomain(
   router: IpcRouter,
   store: ProxyProfileStore,
   supervisor: CoreSupervisor,
   onChanged: () => void,
+  settingsStore?: SettingsStore,
 ): void {
   const entry = (method: keyof typeof METHODS) => {
     const e = METHODS[method];
@@ -324,6 +331,11 @@ export function registerProxyDomain(
         );
       }
       await store.remove(id);
+      // Phase 16: settings must never reference a nonexistent profile.
+      if (settingsStore && settingsStore.settings.defaultProxyProfileId === id) {
+        const next = await settingsStore.update({ defaultProxyProfileId: null });
+        router.emit("settings.changed", EVENTS["settings.changed"].payload, { settings: next });
+      }
       onChanged();
       return { removed: true as const };
     },

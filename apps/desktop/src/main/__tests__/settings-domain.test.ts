@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SETTINGS_DEFAULTS } from "@unidm/contracts";
+import { AppSettings, SETTINGS_DEFAULTS } from "@unidm/contracts";
 import { SettingsStore, registerSettingsDomain } from "../domains/settings.js";
 import { IpcRouter } from "../ipc/router.js";
 
@@ -107,5 +107,31 @@ describe("settings domain RPC", () => {
     );
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error.code).toBe("invalid_params");
+  });
+});
+
+describe("SettingsStore — default proxy (Phase 16)", () => {
+  it("defaultProxyProfileId persists and round-trips (null default = direct)", async () => {
+    const store = new SettingsStore(dir);
+    await store.load();
+    expect(store.settings.defaultProxyProfileId).toBeNull();
+
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    await store.update({ defaultProxyProfileId: id });
+    const reloaded = new SettingsStore(dir);
+    await reloaded.load();
+    expect(reloaded.settings.defaultProxyProfileId).toBe(id);
+
+    await store.update({ defaultProxyProfileId: null });
+    const reloaded2 = new SettingsStore(dir);
+    await reloaded2.load();
+    expect(reloaded2.settings.defaultProxyProfileId).toBeNull();
+  });
+
+  it("rejects a non-ULID default proxy (invalid patch → router maps to invalid_params)", async () => {
+    const store = new SettingsStore(dir);
+    await store.load();
+    expect(() => AppSettings.parse({ ...store.settings, defaultProxyProfileId: "junk" }))
+      .toThrow();
   });
 });

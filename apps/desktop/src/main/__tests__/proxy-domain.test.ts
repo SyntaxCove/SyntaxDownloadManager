@@ -251,3 +251,86 @@ describe("registerProxyDomain", () => {
     expect((refused as { ok: false; error: { code: string } }).error.code).toBe("core_unavailable");
   });
 });
+
+describe("registerProxyDomain × settings default (Phase 16)", () => {
+  type Env = { ok: true; result: unknown } | { ok: false; error: { code: string; message: string } };
+
+  const call = async (
+    router: IpcRouter,
+    method: string,
+    params: unknown,
+  ): Promise<Env> => {
+    const { makeRequest, newUlid } = await import("@unidm/contracts");
+    return (await router.handleRequest(makeRequest(newUlid(), method, params), {})) as Env;
+  };
+
+  function supervisorWithJobs(jobs: Array<{ proxyProfileId?: string | null }>): CoreSupervisor {
+    return { request: vi.fn(async () => ({ jobs })) } as unknown as CoreSupervisor;
+  }
+
+  async function makeWorld(jobs: Array<{ proxyProfileId?: string | null }> = []) {
+    const { registerProxyDomain } = await import("../domains/proxy.js");
+    const { SettingsStore } = await import("../domains/settings.js");
+    const store = new ProxyProfileStore(dir, fakeSafeStorage());
+    await store.load();
+    const settings = new SettingsStore(dir);
+    await settings.load();
+    const router = new IpcRouter(() => undefined);
+    const emitted: Array<{ settings: { defaultProxyProfileId: string | null } }> = [];
+    const originalEmit = router.emit.bind(router);
+    router.emit = ((
+      name: string,
+      schema: Parameters<typeof router.emit>[1],
+      payload: unknown,
+    ) => {
+      if (name === "settings.changed") {
+        emitted.push(payload as { settings: { defaultProxyProfileId: string | null } });
+      }
+      return originalEmit(name, schema, payload);
+    }) as typeof router.emit;
+    registerProxyDomain(router, store, supervisorWithJobs(jobs), () => undefined, settings);
+    return { store, settings, router, emitted };
+  }
+
+  const createProfile = async (router: IpcRouter): Promise<string> => {
+    const created = await call(router, "proxy.create", { profile: input({ password: null }) });
+    return (created as { ok: true; result: { profile: { id: string } } }).result.profile.id;
+  };
+
+  it("removing the default profile clears defaultProxyProfileId and emits settings.changed", async () => {
+    const { settings, router, emitted } = await makeWorld();
+    const id = await createProfile(router);
+    await settings.update({ defaultProxyProfileId: id });
+    expect(settings.settings.defaultProxyProfileId).toBe(id);
+
+    const removed = await call(router, "proxy.remove", { id });
+    expect(removed).toMatchObject({ ok: true, result: { removed: true } });
+    expect(settings.settings.defaultProxyProfileId).toBeNull();
+    expect(emitted).toEqual([
+      { settings: expect.objectContaining({ defaultProxyProfileId: null }) },
+    ]);
+  });
+
+  it("removing an unrelated profile leaves the default untouched", async () => {
+    const { settings, router, emitted } = await makeWorld();
+    const other = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    await settings.update({ defaultProxyProfileId: other });
+    const id = await createProfile(router);
+
+    const removed = await call(router, "proxy.remove", { id });
+    expect(removed).toMatchObject({ ok: true });
+    expect(settings.settings.defaultProxyProfileId).toBe(other);
+    expect(emitted).toEqual([]);
+  });
+
+  it("a proxy_in_use refusal never mutates the settings default", async () => {
+    const id = "01BX5ZZKBKACTAV9WEVGEMMVRZ";
+    const { settings, router } = await makeWorld([{ proxyProfileId: id }, { proxyProfileId: id }]);
+    await settings.update({ defaultProxyProfileId: id });
+
+    const refused = await call(router, "proxy.remove", { id });
+    expect(refused.ok).toBe(false);
+    expect((refused as { ok: false; error: { code: string } }).error.code).toBe("proxy_in_use");
+    expect(settings.settings.defaultProxyProfileId).toBe(id);
+  });
+});

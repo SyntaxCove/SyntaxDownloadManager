@@ -188,6 +188,13 @@ export const METHODS = {
   },
   "settings.get": { server: "main", params: SettingsGetParams, result: SettingsGetResult },
   "settings.setAll": { server: "main", params: SettingsSetAllParams, result: SettingsSetAllResult },
+  // ---- main (v1.11, Phase 16): native directory picker (settings-completion deferral) ----
+  /** Opens the OS folder dialog; `path: null` = the user canceled. */
+  "app.pickDirectory": {
+    server: "main",
+    params: z.object({}),
+    result: z.object({ path: z.string().min(1).nullable() }),
+  },
   // ---- main (v1.4, Phase 9): proxy profile management (passwords redacted on results) ----
   "proxy.list": { server: "main", params: ProxyListParams, result: ProxyListResult },
   "proxy.create": { server: "main", params: ProxyCreateParams, result: ProxyCreateResult },

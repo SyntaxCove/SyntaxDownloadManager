@@ -120,7 +120,9 @@ export const DownloadCreateParams = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   /** v1.1: expected file checksum — the engine verifies the download before declaring completion. */
   checksum: Checksum.optional(),
-  /** v1.4: proxy profile to route through; omitted/null = direct. */
+  /** v1.4: proxy profile to route through; omitted = the app-level default applies (main
+   *  injects `settings.defaultProxyProfileId`, Phase 16; null default = direct); explicit
+   *  null = direct; an explicit profile id is honored verbatim. */
   proxyProfileId: Ulid.nullish(),
 });
 export type DownloadCreateParams = z.infer<typeof DownloadCreateParams>;

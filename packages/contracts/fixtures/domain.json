@@ -50,7 +50,8 @@
     "downloadDir": "~/Downloads",
     "concurrentDownloads": 3,
     "speedLimitKBps": 0,
-    "maxConnectionsPerDownload": 4
+    "maxConnectionsPerDownload": 4,
+    "defaultProxyProfileId": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
   },
   "mediaManifest": {
     "sourceUrl": "https://example.com/watch/abc",

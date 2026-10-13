@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Text,
   Input,
@@ -13,17 +13,30 @@ import {
   Button,
   ProgressBar,
   Badge,
+  Dropdown,
+  Option,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
+import { FolderOpenRegular, ArrowCounterclockwiseRegular } from "@fluentui/react-icons";
 import type { AppLanguage, ThemeMode, ToolkitToolStatus } from "@unidm/contracts";
+import { SETTINGS_DEFAULTS } from "@unidm/contracts";
+import { rpc } from "../bridge.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useProxyStore } from "../stores/proxy.js";
 import { useToolkitStore } from "../stores/toolkit.js";
 
 /**
  * Settings page — writes go through the optimistic zustand store → main → settings.json.
- * Directory picker arrives with the settings-completion phase (Phase 16); free-text absolute
- * path is the Phase 3 surface.
+ * Phase 16 completed the domain: native directory picker (app.pickDirectory), the
+ * app-level default proxy for new downloads (injected by main on download.create), and a
+ * confirm-guarded restore-defaults action. Free-text absolute paths stay valid everywhere.
  */
 
 const useStyles = makeStyles({
@@ -76,6 +89,7 @@ export function SettingsPage(): ReactNode {
   const error = useSettingsStore((s) => s.error);
   const load = useSettingsStore((s) => s.load);
   const update = useSettingsStore((s) => s.update);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     if (status === "loading") void load();
@@ -132,11 +146,18 @@ export function SettingsPage(): ReactNode {
           Downloads
         </Text>
         <Field label="Default download directory" hint="Absolute path on this machine">
-          <Input
-            value={settings.downloadDir}
-            onChange={(_, data) => void update({ downloadDir: data.value })}
-          />
+          <div style={{ display: "flex", gap: "8px" }}>
+            <Input
+              value={settings.downloadDir}
+              onChange={(_, data) => void update({ downloadDir: data.value })}
+              style={{ flex: 1 }}
+            />
+            <BrowseDirectoryButton
+              onPicked={(path) => void update({ downloadDir: path })}
+            />
+          </div>
         </Field>
+        <DefaultProxyField />
         <Field
           label={`Parallel downloads: ${settings.concurrentDownloads}`}
           hint="Applied by the download engine when starting new jobs"
@@ -221,7 +242,120 @@ export function SettingsPage(): ReactNode {
           Changes apply immediately and persist to the application profile.
         </Text>
       </section>
+
+      <section className={styles.section} aria-labelledby="maintenance-title">
+        <Text id="maintenance-title" className={styles.sectionTitle}>
+          Maintenance
+        </Text>
+        <Field
+          label="Restore default settings"
+          hint="Every preference returns to its factory value; jobs and files are untouched"
+        >
+          <Button
+            icon={<ArrowCounterclockwiseRegular />}
+            onClick={() => setConfirmReset(true)}
+          >
+            Restore defaults
+          </Button>
+        </Field>
+      </section>
+
+      <Dialog open={confirmReset} onOpenChange={(_, d) => setConfirmReset(d.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Restore default settings?</DialogTitle>
+            <DialogContent>
+              Theme, language, download directory, limits, proxy default and every other
+              preference return to their factory values. Downloads, history and profiles are
+              not touched. This cannot be undone.
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setConfirmReset(false)}>
+                Cancel
+              </Button>
+              <Button
+                appearance="primary"
+                onClick={() => {
+                  setConfirmReset(false);
+                  void update({ ...SETTINGS_DEFAULTS });
+                }}
+              >
+                Restore
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
+  );
+}
+
+/** Phase 16: native OS folder picker (app.pickDirectory); null (cancel) changes nothing. */
+function BrowseDirectoryButton(props: { onPicked: (path: string) => void }): ReactNode {
+  const [picking, setPicking] = useState(false);
+  return (
+    <Button
+      icon={<FolderOpenRegular />}
+      disabled={picking}
+      onClick={() => {
+        setPicking(true);
+        void rpc("app.pickDirectory", {})
+          .then(({ path }) => {
+            if (path) props.onPicked(path);
+          })
+          .catch(() => undefined)
+          .finally(() => setPicking(false));
+      }}
+    >
+      Browse…
+    </Button>
+  );
+}
+
+/**
+ * Phase 16: the app-level default proxy (main injects it into download.create requests
+ * that omit an explicit profile). Removing the referenced profile clears the setting in
+ * main (proxy.remove), so a stale selection cannot appear here.
+ */
+function DefaultProxyField(): ReactNode {
+  const settings = useSettingsStore((s) => s.settings);
+  const update = useSettingsStore((s) => s.update);
+  const profiles = useProxyStore((s) => s.profiles);
+  const loadProfiles = useProxyStore((s) => s.load);
+  const loaded = useProxyStore((s) => s.loaded);
+
+  useEffect(() => {
+    if (!loaded) void loadProfiles().catch(() => undefined);
+  }, [loaded, loadProfiles]);
+
+  if (!settings) return null;
+  const current = settings.defaultProxyProfileId;
+  const currentName = current
+    ? (profiles.find((p) => p.id === current)?.name ?? "unavailable profile")
+    : "Direct";
+  return (
+    <Field
+      label="Default proxy for new downloads"
+      hint="Applied to downloads created without an explicit proxy; a missing profile pauses the job (never falls back to direct)"
+    >
+      <Dropdown
+        value={currentName}
+        selectedOptions={current ? [current] : ["__direct"]}
+        onOptionSelect={(_, d) =>
+          void update({
+            defaultProxyProfileId: d.optionValue === "__direct" ? null : (d.optionValue as string),
+          })
+        }
+        aria-label="Default proxy for new downloads"
+      >
+        <Option value="__direct">Direct (no proxy)</Option>
+        {profiles.map((p) => (
+          <Option key={p.id} value={p.id}>
+            {p.name}
+          </Option>
+        ))}
+      </Dropdown>
+    </Field>
   );
 }
 

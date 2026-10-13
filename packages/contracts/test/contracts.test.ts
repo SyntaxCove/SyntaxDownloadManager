@@ -15,7 +15,7 @@ import {
   ToolkitManifest, ToolkitStatusResult, ToolkitSetPathsParams, ToolkitToolStatus,
   HistoryEntry, HistoryListParams, Bookmark, RevealEntryParams,
   SchedulerJob, SchedulerAction, SchedulerRepeat, SchedulerCreateParams, SchedulerUpdateParams,
-  SCHEDULER_PAYLOAD_SCHEMAS,
+  SCHEDULER_PAYLOAD_SCHEMAS, SETTINGS_DEFAULTS,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -890,7 +890,54 @@ describe("v1.10 scheduler jobs + automation (Phase 15)", () => {
       .success).toBe(true);
   });
 
-  it("contract version advanced to 1.10.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.10.0");
+  it("contract version advanced to at least 1.10.0 (Phase 15 scheduler)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(10);
+    else expect(maj).toBeGreaterThan(1);
+  });
+});
+
+describe("v1.11 settings domain completion (Phase 16)", () => {
+  it("appSettings gains defaultProxyProfileId defaulting to null", () => {
+    expect(AppSettings.parse({}).defaultProxyProfileId).toBeNull();
+    expect(SETTINGS_DEFAULTS.defaultProxyProfileId).toBeNull();
+  });
+
+  it("defaultProxyProfileId accepts a ULID and rejects everything else", () => {
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    expect(AppSettings.parse({ defaultProxyProfileId: id }).defaultProxyProfileId).toBe(id);
+    expect(AppSettings.parse({ defaultProxyProfileId: null }).defaultProxyProfileId).toBeNull();
+    expect(AppSettings.safeParse({ defaultProxyProfileId: "not-a-ulid" }).success).toBe(false);
+    expect(AppSettings.safeParse({ defaultProxyProfileId: 42 }).success).toBe(false);
+  });
+
+  it("the refreshed appSettings fixture parses with the profile reference", () => {
+    expect(AppSettings.parse(domainFixture.appSettings).defaultProxyProfileId)
+      .toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+  });
+
+  it("download.create documents the app-default injection (omitted vs null vs explicit)", () => {
+    // Omitted → the field stays absent; main injects the settings default (null default keeps
+    // it absent). Explicit null is "direct"; an explicit id passes through verbatim.
+    const omitted = DownloadCreateParams.parse({ url: "https://example.com/f.bin", destinationDir: "/tmp" });
+    expect("proxyProfileId" in omitted).toBe(false);
+    expect(DownloadCreateParams.parse({
+      url: "https://example.com/f.bin", destinationDir: "/tmp", proxyProfileId: null,
+    }).proxyProfileId).toBeNull();
+    expect(DownloadCreateParams.parse({
+      url: "https://example.com/f.bin", destinationDir: "/tmp", proxyProfileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    }).proxyProfileId).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+  });
+
+  it("registers app.pickDirectory on the main server", () => {
+    expect(METHODS["app.pickDirectory"].server).toBe("main");
+    expect(METHODS["app.pickDirectory"].result?.safeParse({ path: "/home/u/Downloads" }).success)
+      .toBe(true);
+    expect(METHODS["app.pickDirectory"].result?.safeParse({ path: null }).success).toBe(true);
+    expect(METHODS["app.pickDirectory"].result?.safeParse({ path: "" }).success).toBe(false);
+  });
+
+  it("contract version advanced to 1.11.0", () => {
+    expect(CONTRACT_VERSION).toBe("1.11.0");
   });
 });

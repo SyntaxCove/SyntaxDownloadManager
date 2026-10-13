@@ -15,6 +15,7 @@ import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
 import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
 import { registerBrowserDataDomain } from "./domains/browser-data.js";
 import { registerAppDomain } from "./domains/app-reveal.js";
+import { registerAppDialogs, electronDirectoryPicker } from "./domains/app-dialogs.js";
 import { ToolkitManager } from "./toolkit/manager.js";
 import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
@@ -113,30 +114,9 @@ if (!gotLock) {
         .catch(() => undefined); // core not ready yet — re-pushed on the ready transition
     };
 
-    supervisor.on("state", (status: string) => {
-      // Broadcast lifecycle to every renderer (downloads page shows a banner).
-      router.emit("core.state", EVENTS["core.state"].payload, { status });
-      // A (re)started core starts with empty runtime maps — re-push after ready.
-      if (status === "ready") {
-        pushRuntimeProxies();
-        pushToolkitPaths(supervisor, toolkitManager.readyToolPaths());
-      }
-    });
-    registerDownloadDomain(router, supervisor);
-    registerMediaDomain(router, supervisor);
-    registerTorrentDomain(router, supervisor);
-    registerSchedulerDomain(router, supervisor);
-    registerBrowserDataDomain(router, supervisor);
-    registerAppDomain(router, supervisor, {
-      showItemInFolder: (p) => shell.showItemInFolder(p),
-      openPath: (p) => shell.openPath(p),
-    });
-    registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies);
-    registerToolkitDomain(router, toolkitManager, supervisor);
-    supervisor.start();
-
-    // Push the concurrency settings to the core at startup and re-apply whenever the
-    // user changes them (the core clamps and applies both live).
+    // Push the concurrency settings to the core and re-apply whenever the user changes
+    // them (the core clamps and applies both live). Defined before the state handler so
+    // the ready transition can always reference them.
     const applyCoreLimits = (): void => {
       const { concurrentDownloads, maxConnectionsPerDownload } = settingsStore.settings;
       void supervisor
@@ -144,7 +124,7 @@ if (!gotLock) {
           max: concurrentDownloads,
           maxConnectionsPerDownload,
         })
-        .catch(() => undefined); // core not ready yet — env defaults already cover it
+        .catch(() => undefined); // core not ready yet — the ready handler re-applies
     };
 
     // Phase 8: engine operating policy — auto-start, daily download window, global
@@ -153,7 +133,7 @@ if (!gotLock) {
     const applyCorePolicy = (): void => {
       void supervisor
         .request("download.setPolicy", buildSetPolicyPayload(settingsStore.settings))
-        .catch(() => undefined); // core not ready yet — retried by the timer
+        .catch(() => undefined); // core not ready yet — the ready handler re-applies
     };
 
     // Phase 15: the scheduler derives recurring runs in the user's local wall clock —
@@ -161,18 +141,38 @@ if (!gotLock) {
     const applySchedulerClock = (): void => {
       void supervisor
         .request("scheduler.setClock", { tzOffsetMinutes: -new Date().getTimezoneOffset() })
-        .catch(() => undefined); // core not ready yet — retried by the timer
+        .catch(() => undefined); // core not ready yet — the ready handler re-applies
     };
 
-    supervisor
-      .whenReady()
-      .then(() => {
+    supervisor.on("state", (status: string) => {
+      // Broadcast lifecycle to every renderer (downloads page shows a banner).
+      router.emit("core.state", EVENTS["core.state"].payload, { status });
+      // A (re)started core starts with empty runtime maps and default policy — re-push
+      // EVERYTHING after ready (Phase 16: this previously missed setConcurrency entirely
+      // and left policy/clock to heal within the 10-minute timer; a restarted core now
+      // gets the full settings immediately. All pushes are idempotent).
+      if (status === "ready") {
+        pushRuntimeProxies();
+        pushToolkitPaths(supervisor, toolkitManager.readyToolPaths());
         applyCoreLimits();
         applyCorePolicy();
         applySchedulerClock();
-        pushRuntimeProxies();
-      })
-      .catch(() => undefined);
+      }
+    });
+    registerDownloadDomain(router, supervisor, settingsStore);
+    registerMediaDomain(router, supervisor);
+    registerTorrentDomain(router, supervisor);
+    registerSchedulerDomain(router, supervisor);
+    registerBrowserDataDomain(router, supervisor);
+    registerAppDomain(router, supervisor, {
+      showItemInFolder: (p) => shell.showItemInFolder(p),
+      openPath: (p) => shell.openPath(p),
+    });
+    registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies, settingsStore);
+    registerToolkitDomain(router, toolkitManager, supervisor);
+    registerAppDialogs(router, electronDirectoryPicker());
+    supervisor.start();
+
     router.onEvent((name) => {
       if (name === "settings.changed") {
         applyCoreLimits();

@@ -41,7 +41,7 @@ pub use torrent::{
 
 /// Mirrors CONTRACT_VERSION in packages/contracts/src/version.ts.
 /// download-core refuses to start against a mismatched main process.
-pub const CONTRACT_VERSION: &str = "1.10.0";
+pub const CONTRACT_VERSION: &str = "1.11.0";
 
 /// Wire protocol version carried by every envelope (`v`).
 pub const PROTOCOL_VERSION: i64 = 1;

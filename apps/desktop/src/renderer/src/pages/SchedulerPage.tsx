@@ -28,6 +28,7 @@ import {
 } from "@fluentui/react-icons";
 import { useSchedulerStore, epochMsToLocalInput, type SchedulerActionChoice } from "../stores/scheduler.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useProxyStore } from "../stores/proxy.js";
 import type { SchedulerJob } from "@unidm/contracts";
 
 /**
@@ -94,6 +95,9 @@ interface FormState {
   videoFormatId: string;
   audioFormatId: string;
   magnetUri: string;
+  /** Proxy for scheduled `download.create` payloads: null = direct (frozen at save time —
+   *  scheduler payloads bypass main's app-default injection by design, Phase 15/16). */
+  proxyProfileId: string | null;
   startLocal: string;
   repeat: "none" | "daily" | "weekly";
   enabled: boolean;
@@ -111,6 +115,9 @@ export function SchedulerPage(): ReactNode {
   const runNow = useSchedulerStore((s) => s.runNow);
   const setEnabledLocal = useSchedulerStore((s) => s.setEnabledLocal);
   const downloadDir = useSettingsStore((s) => s.settings?.downloadDir ?? "");
+  const proxyProfiles = useProxyStore((s) => s.profiles);
+  const loadProxies = useProxyStore((s) => s.load);
+  const proxyLoaded = useProxyStore((s) => s.loaded);
 
   const [pageError, setPageError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -120,6 +127,9 @@ export function SchedulerPage(): ReactNode {
   useEffect(() => {
     if (!loaded) void loadJobs().catch((e) => setPageError(String(e?.message ?? e)));
   }, [loaded, loadJobs]);
+  useEffect(() => {
+    if (!proxyLoaded) void loadProxies().catch(() => undefined);
+  }, [proxyLoaded, loadProxies]);
 
   const openCreate = () => {
     setEditing(null);
@@ -130,6 +140,7 @@ export function SchedulerPage(): ReactNode {
       videoFormatId: "",
       audioFormatId: "",
       magnetUri: "",
+      proxyProfileId: null, // privacy-safe: a scheduled download is never proxied silently
       startLocal: epochMsToLocalInput(Date.now() + 60 * 60 * 1000),
       repeat: "none",
       enabled: true,
@@ -147,6 +158,7 @@ export function SchedulerPage(): ReactNode {
       videoFormatId: typeof p.videoFormatId === "string" ? p.videoFormatId : "",
       audioFormatId: typeof p.audioFormatId === "string" ? p.audioFormatId : "",
       magnetUri: typeof p.magnetUri === "string" ? p.magnetUri : "",
+      proxyProfileId: typeof p.proxyProfileId === "string" ? p.proxyProfileId : null,
       startLocal: epochMsToLocalInput(job.startAt),
       repeat: job.repeat,
       enabled: job.enabled,
@@ -158,7 +170,10 @@ export function SchedulerPage(): ReactNode {
     switch (f.kind) {
       case "download.create": {
         if (!f.url.trim()) return "a URL is required";
-        return { url: f.url.trim(), destinationDir: f.destinationDir };
+        const payload: Record<string, unknown> = { url: f.url.trim(), destinationDir: f.destinationDir };
+        // Frozen at save time: scheduler payloads bypass main's app-default injection.
+        if (f.proxyProfileId) payload.proxyProfileId = f.proxyProfileId;
+        return payload;
       }
       case "media.download": {
         if (!f.url.trim()) return "a page URL is required";
@@ -384,6 +399,33 @@ export function SchedulerPage(): ReactNode {
                         value={form.destinationDir}
                         onChange={(_e, d) => setForm({ ...form, destinationDir: d.value })}
                       />
+                    </div>
+                  ) : null}
+
+                  {form.kind === "download.create" ? (
+                    <div className={styles.field}>
+                      <Text>Proxy (frozen with the job — the app default is not applied here)</Text>
+                      <Dropdown
+                        value={
+                          form.proxyProfileId
+                            ? (proxyProfiles.find((p) => p.id === form.proxyProfileId)?.name ?? "unavailable profile")
+                            : "Direct"
+                        }
+                        selectedOptions={form.proxyProfileId ? [form.proxyProfileId] : ["__direct"]}
+                        onOptionSelect={(_e, d) =>
+                          setForm({
+                            ...form,
+                            proxyProfileId: d.optionValue === "__direct" ? null : (d.optionValue as string),
+                          })
+                        }
+                      >
+                        <Option value="__direct">Direct (no proxy)</Option>
+                        {proxyProfiles.map((p) => (
+                          <Option key={p.id} value={p.id}>
+                            {p.name}
+                          </Option>
+                        ))}
+                      </Dropdown>
                     </div>
                   ) : null}
 

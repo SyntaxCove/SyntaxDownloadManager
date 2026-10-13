@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { Ulid } from "../ids.js";
 
 /**
  * Application settings — persisted by the Electron main process (userData/settings.json).
  * Contract v1 covers the Phase 3 foundation set; later phases extend additively with defaults.
  * v1.3 (Phase 8) adds the queue/scheduler policy set (auto-start + daily download window).
+ * v1.11 (Phase 16) adds the app-level default proxy for new downloads.
  */
 
 export const ThemeMode = z.enum(["system", "light", "dark"]);
@@ -42,6 +44,14 @@ export const AppSettings = z.object({
   // ---- v1.5 (Phase 10): bundled media toolkit ----
   /** false: missing/failed media tools are NOT fetched automatically at startup. */
   mediaToolsAutoFetch: z.boolean().optional().default(true),
+  // ---- v1.11 (Phase 16): app-level default proxy ----
+  /**
+   * Proxy profile applied by main to renderer-issued `download.create` requests that omit
+   * an explicit `proxyProfileId`; null = direct. Injection is creation-time only (the id is
+   * persisted on the job row); a run whose profile is missing stays fail-closed (Phase 9:
+   * paused with `proxy_profile_not_found`, never a silent direct fallback).
+   */
+  defaultProxyProfileId: Ulid.nullable().optional().default(null),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -58,6 +68,7 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   scheduleStart: "00:00",
   scheduleEnd: "00:00",
   mediaToolsAutoFetch: true,
+  defaultProxyProfileId: null,
 });
 
 export const SettingsGetParams = z.object({});
