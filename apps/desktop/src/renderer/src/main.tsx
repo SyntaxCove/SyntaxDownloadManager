@@ -9,6 +9,7 @@ import { subscribeToolkitProgress } from "./stores/toolkit.js";
 import { subscribeMediaEvents } from "./stores/media.js";
 import { subscribeTorrentEvents } from "./stores/torrent.js";
 import { subscribeSchedulerEvents } from "./stores/scheduler.js";
+import { subscribeStatusToasts } from "./app/toasts.js";
 
 /**
  * Renderer bootstrap: the settings store must be loaded before first paint so the shell
@@ -24,6 +25,8 @@ async function boot(): Promise<void> {
   subscribeMediaEvents();
   subscribeTorrentEvents();
   subscribeSchedulerEvents();
+  // Phase 17: job-end + engine-interruption toasts ride the same validated events.
+  subscribeStatusToasts();
   const root = createRoot(document.getElementById("app") ?? document.body);
   root.render(
     <StrictMode>

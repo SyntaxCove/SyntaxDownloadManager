@@ -1,4 +1,4 @@
-import { app, BrowserWindow, safeStorage, shell } from "electron";
+import { app, BrowserWindow, Menu, Notification, nativeImage, safeStorage, Tray, shell } from "electron";
 import { resolve, join } from "node:path";
 import { EVENTS } from "@unidm/contracts";
 import { IpcRouter } from "./ipc/router.js";
@@ -16,6 +16,13 @@ import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
 import { registerBrowserDataDomain } from "./domains/browser-data.js";
 import { registerAppDomain } from "./domains/app-reveal.js";
 import { registerAppDialogs, electronDirectoryPicker } from "./domains/app-dialogs.js";
+import { registerNotifyEngine, type OsNotificationPort } from "./domains/notify.js";
+import {
+  TrayController,
+  countsFromStatuses,
+  shouldHideOnClose,
+  type TrayPort,
+} from "./domains/tray.js";
 import { ToolkitManager } from "./toolkit/manager.js";
 import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
@@ -39,12 +46,18 @@ if (!gotLock) {
     const [win] = BrowserWindow.getAllWindows();
     if (win) {
       if (win.isMinimized()) win.restore();
+      // Phase 17: the window may be hidden to the tray — a second launch reveals it.
+      win.show();
       win.focus();
     }
   });
 
   void app.whenReady().then(async () => {
     const appRoot = app.isPackaged ? process.resourcesPath : resolve(__dirname, "../..");
+    // Phase 17: stable Windows notification identity (OS toast grouping + Action Center).
+    // Dev caveat: unpackaged runs have no Start-menu shortcut carrying this AUM ID, so
+    // Windows may not deliver toasts there; packaged installs (Phase 19) register it.
+    app.setAppUserModelId("com.unidm.desktop");
     const paths = resolveAppPaths({
       appRoot,
       isPackaged: app.isPackaged,
@@ -65,7 +78,46 @@ if (!gotLock) {
 
     createMainWindow(paths);
 
-    const mainWindow = () => BrowserWindow.getAllWindows()[0];
+    const mainWindow = (): BrowserWindow | undefined => BrowserWindow.getAllWindows()[0];
+    const focusShellWindow = (): void => {
+      const [win] = BrowserWindow.getAllWindows();
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
+    };
+
+    // ---- Phase 17: tray + close-to-tray ----
+    let tray: TrayController | null = null;
+    let quitting = false;
+    const shellWindow = BrowserWindow.getAllWindows()[0];
+    if (shellWindow) {
+      shellWindow.on("close", (e) => {
+        // Effective only while a tray icon actually exists (see shouldHideOnClose).
+        if (shouldHideOnClose(settingsStore.settings.closeToTray, tray !== null, quitting)) {
+          e.preventDefault();
+          shellWindow.hide();
+        }
+      });
+    }
+
+    // Tray counts: a job-status mirror seeded from download.list at every core ready
+    // transition and updated from validated download.updated snapshots thereafter.
+    const trayStatuses = new Map<string, string>();
+    const pushTrayCounts = (): void => {
+      tray?.updateCounts(countsFromStatuses([...trayStatuses.values()].map((status) => ({ status }))));
+    };
+    const seedTrayCounts = (): void => {
+      void supervisor
+        .request<{ jobs: Array<{ id: string; status: string }> }>("download.list", {})
+        .then(({ jobs }) => {
+          trayStatuses.clear();
+          for (const j of jobs) trayStatuses.set(j.id, j.status);
+          pushTrayCounts();
+        })
+        .catch(() => undefined); // core not ready yet — re-seeded on the next ready transition
+    };
 
     // Rust download core: supervised subprocess owning the SQLite database.
     // (Constructed before the browser domain so the visit sink below can capture it.)
@@ -157,6 +209,7 @@ if (!gotLock) {
         applyCoreLimits();
         applyCorePolicy();
         applySchedulerClock();
+        seedTrayCounts();
       }
     });
     registerDownloadDomain(router, supervisor, settingsStore);
@@ -171,12 +224,69 @@ if (!gotLock) {
     registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies, settingsStore);
     registerToolkitDomain(router, toolkitManager, supervisor);
     registerAppDialogs(router, electronDirectoryPicker());
+
+    // ---- Phase 17: OS notifications ----
+    const notificationPort: OsNotificationPort = {
+      supported: () => Notification.isSupported(),
+      show: ({ title, body }) => {
+        const n = new Notification({ title, body });
+        n.on("click", () => focusShellWindow());
+        n.show();
+      },
+    };
+    registerNotifyEngine(router, { port: notificationPort, settings: settingsStore });
+
+    // ---- Phase 17: tray icon (creation is guarded — without a live tray, close-to-tray
+    // self-disables and closing keeps the Phase 2 quit behavior) ----
+    try {
+      const icon = nativeImage.createFromPath(paths.trayIcon);
+      if (icon.isEmpty()) throw new Error(`tray icon missing: ${paths.trayIcon}`);
+      const electronTray = new Tray(icon);
+      const trayPort: TrayPort = {
+        setTooltip: (text) => electronTray.setToolTip(text),
+        setContextMenu: (items, onAction) => {
+          electronTray.setContextMenu(
+            Menu.buildFromTemplate(
+              items.map((item) => {
+                const action = item.id;
+                return {
+                  label: item.label,
+                  enabled: item.enabled,
+                  ...(action ? { click: () => onAction(action) } : {}),
+                };
+              }),
+            ),
+          );
+        },
+        onClick: (cb) => electronTray.on("click", () => cb()),
+        destroy: () => electronTray.destroy(),
+      };
+      tray = new TrayController({
+        port: trayPort,
+        supervisor,
+        onOpen: focusShellWindow,
+        onQuit: () => {
+          quitting = true;
+          app.quit();
+        },
+      });
+    } catch (err) {
+      console.log(`[tray] unavailable (${err instanceof Error ? err.message : String(err)})`);
+      tray = null;
+    }
+
     supervisor.start();
 
-    router.onEvent((name) => {
+    router.onEvent((name, payload) => {
       if (name === "settings.changed") {
         applyCoreLimits();
         applyCorePolicy();
+      } else if (name === "download.updated") {
+        const job = (payload as { job?: { id?: unknown; status?: unknown } } | null)?.job;
+        if (job && typeof job.id === "string" && typeof job.status === "string") {
+          trayStatuses.set(job.id, job.status);
+          pushTrayCounts();
+        }
       }
     });
 
@@ -191,6 +301,14 @@ if (!gotLock) {
     app.on("before-quit", () => clearInterval(policyTimer));
 
     app.on("before-quit", () => {
+      // Quitting must never be intercepted by close-to-tray; tear the tray down first
+      // so the icon does not linger after the process is gone.
+      quitting = true;
+      tray?.destroy();
+      tray = null;
+    });
+
+    app.on("before-quit", () => {
       tabManager.destroyAll();
       // Persisting job state before teardown outranks a fast exit.
       void supervisor.stop(4_000);
@@ -201,7 +319,8 @@ if (!gotLock) {
     });
   });
 
-  // Desktop app convention: close-to-quit (tray minimize is a later phase decision, Phase 17).
+  // Phase 17: with close-to-tray the window hides instead of closing, so this only fires
+  // on a real close (quit path or tray-less close) — the historical quit behavior stands.
   app.on("window-all-closed", () => {
     app.quit();
   });

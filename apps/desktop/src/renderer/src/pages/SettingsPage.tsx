@@ -243,6 +243,43 @@ export function SettingsPage(): ReactNode {
         </Text>
       </section>
 
+      <section className={styles.section} aria-labelledby="notifications-title">
+        <Text id="notifications-title" className={styles.sectionTitle}>
+          Notifications &amp; tray
+        </Text>
+        <Field
+          label="Notify when a job completes"
+          hint="Windows notifications and in-app toasts for finished downloads, media and torrents"
+        >
+          <Switch
+            checked={settings.notifyOnComplete}
+            onChange={(_, data) => void update({ notifyOnComplete: data.checked })}
+          />
+        </Field>
+        <Field
+          label="Notify when a job fails"
+          hint="Failures always surface in the job lists; this controls the pop-ups"
+        >
+          <Switch
+            checked={settings.notifyOnFailure}
+            onChange={(_, data) => void update({ notifyOnFailure: data.checked })}
+          />
+        </Field>
+        <Field
+          label="Close button keeps downloads running in the tray"
+          hint="Closing the window hides it to the notification area; Quit lives in the tray menu. Off: closing exits the app (and pauses active downloads)"
+        >
+          <Switch
+            checked={settings.closeToTray}
+            onChange={(_, data) => void update({ closeToTray: data.checked })}
+          />
+        </Field>
+        <Text className={styles.hint}>
+          Close-to-tray needs a live tray icon — if the system has none, the close button
+          exits the app regardless of this switch.
+        </Text>
+      </section>
+
       <section className={styles.section} aria-labelledby="maintenance-title">
         <Text id="maintenance-title" className={styles.sectionTitle}>
           Maintenance

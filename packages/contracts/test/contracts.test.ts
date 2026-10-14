@@ -16,6 +16,7 @@ import {
   HistoryEntry, HistoryListParams, Bookmark, RevealEntryParams,
   SchedulerJob, SchedulerAction, SchedulerRepeat, SchedulerCreateParams, SchedulerUpdateParams,
   SCHEDULER_PAYLOAD_SCHEMAS, SETTINGS_DEFAULTS,
+  JobEndTracker, jobEndLabel, coreStateToast,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -937,7 +938,128 @@ describe("v1.11 settings domain completion (Phase 16)", () => {
     expect(METHODS["app.pickDirectory"].result?.safeParse({ path: "" }).success).toBe(false);
   });
 
-  it("contract version advanced to 1.11.0", () => {
-    expect(CONTRACT_VERSION).toBe("1.11.0");
+  it("contract version advanced to at least 1.12.0 (v1.13 continues additively)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(12);
+    else expect(maj).toBeGreaterThan(1);
+  });
+});
+
+describe("v1.12 notifications + tray settings (Phase 17)", () => {
+  it("notification keys default to on", () => {
+    const defaults = AppSettings.parse({});
+    expect(defaults.notifyOnComplete).toBe(true);
+    expect(defaults.notifyOnFailure).toBe(true);
+    expect(SETTINGS_DEFAULTS.notifyOnComplete).toBe(true);
+    expect(SETTINGS_DEFAULTS.notifyOnFailure).toBe(true);
+  });
+
+  it("closeToTray defaults to true and only accepts booleans", () => {
+    expect(AppSettings.parse({}).closeToTray).toBe(true);
+    expect(SETTINGS_DEFAULTS.closeToTray).toBe(true);
+    expect(AppSettings.parse({ closeToTray: false }).closeToTray).toBe(false);
+    expect(AppSettings.safeParse({ closeToTray: "yes" }).success).toBe(false);
+    expect(AppSettings.safeParse({ notifyOnComplete: 1 }).success).toBe(false);
+    expect(AppSettings.safeParse({ notifyOnFailure: null }).success).toBe(false);
+  });
+
+  it("the refreshed appSettings fixture parses with the phase 17 keys", () => {
+    const parsed = AppSettings.parse(domainFixture.appSettings);
+    expect(parsed.notifyOnComplete).toBe(true);
+    expect(parsed.notifyOnFailure).toBe(false);
+    expect(parsed.closeToTray).toBe(true);
+  });
+});
+
+describe("job end transitions (Phase 17)", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+  it("notifies active→completed/failed exactly once per job", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("download", id, "queued")).toBeNull();
+    expect(t.observe("download", id, "probing")).toBeNull();
+    expect(t.observe("download", id, "downloading")).toBeNull();
+    const end = t.observe("download", id, "completed");
+    expect(end).toEqual({ domain: "download", jobId: id, kind: "completed" });
+    // repeat terminal snapshots never refire
+    expect(t.observe("download", id, "completed")).toBeNull();
+    expect(t.observe("download", id, "failed")).toBeNull();
+  });
+
+  it("stays silent for unknown previous statuses (boot snapshots, removals)", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("media", id, "completed")).toBeNull();
+    expect(t.observe("media", id, "failed")).toBeNull();
+    expect(t.observe("media", id, "canceled")).toBeNull();
+  });
+
+  it("canceled is user-initiated and never notifies from any active status", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("download", id, "downloading")).toBeNull();
+    expect(t.observe("download", id, "canceled")).toBeNull();
+    expect(t.observe("media", id, "queued")).toBeNull();
+    expect(t.observe("media", id, "canceled")).toBeNull();
+  });
+
+  it("paused and resumed cycles only end-notify on a real end", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("download", id, "downloading")).toBeNull();
+    expect(t.observe("download", id, "paused")).toBeNull();
+    expect(t.observe("download", id, "queued")).toBeNull(); // resume re-enters active
+    expect(t.observe("download", id, "failed")).toEqual({ domain: "download", jobId: id, kind: "failed" });
+  });
+
+  it("a torrent finishes into seeding, not completed (completed = removal)", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("torrent", id, "metadata")).toBeNull();
+    expect(t.observe("torrent", id, "downloading")).toBeNull();
+    // finalize_completion sets `seeding` — the real download-finished moment.
+    expect(t.observe("torrent", id, "seeding")).toEqual({ domain: "torrent", jobId: id, kind: "completed" });
+    expect(t.observe("torrent", id, "seeding")).toBeNull();
+    // Removal-time `completed` (and removal of a downloading row) never notifies.
+    expect(t.observe("torrent", id, "completed")).toBeNull();
+    const t2 = new JobEndTracker();
+    expect(t2.observe("torrent", id, "downloading")).toBeNull();
+    expect(t2.observe("torrent", id, "completed")).toBeNull();
+  });
+
+  it("media extracting/muxing are active; failed carries the classification", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("media", id, "extracting")).toBeNull();
+    expect(t.observe("media", id, "downloading")).toBeNull();
+    expect(t.observe("media", id, "muxing")).toBeNull();
+    expect(t.observe("media", id, "failed")).toEqual({ domain: "media", jobId: id, kind: "failed" });
+  });
+
+  it("trackers keep domains and jobs independent; map survives as restart dedupe", () => {
+    const t = new JobEndTracker();
+    expect(t.observe("download", id, "downloading")).toBeNull();
+    expect(t.observe("media", id, "completed")).toBeNull(); // different domain, unknown prev
+    const other = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+    expect(t.observe("download", other, "completed")).toBeNull();
+    expect(t.tracked("download", id)).toBe(true);
+    expect(t.tracked("media", id)).toBe(true);
+    expect(t.tracked("download", other)).toBe(true);
+  });
+
+  it("jobEndLabel basenames, handles backslashes and truncates", () => {
+    expect(jobEndLabel("download", { destinationPath: "/home/u/Files/setup.exe" })).toBe("setup.exe");
+    expect(jobEndLabel("download", { destinationPath: "C:\\Users\\u\\video.mp4" })).toBe("video.mp4");
+    expect(jobEndLabel("media", { title: "My Video" })).toBe("My Video");
+    expect(jobEndLabel("torrent", { name: null, infoHash: "a".repeat(40) })).toBe("a".repeat(40));
+    const long = "x".repeat(200);
+    expect(jobEndLabel("download", { url: `https://e.com/${long}` }).length).toBe(120);
+  });
+
+  it("coreStateToast: boot stays silent, interruptions toast once", () => {
+    expect(coreStateToast(undefined, "starting")).toBeNull();
+    expect(coreStateToast("starting", "ready")).toBeNull();
+    expect(coreStateToast("starting", "restarting")).toBeNull(); // never entered ready
+    const restart = coreStateToast("ready", "restarting");
+    expect(restart?.intent).toBe("info");
+    expect(coreStateToast("restarting", "ready")).toBeNull();
+    const down = coreStateToast("ready", "unavailable");
+    expect(down?.intent).toBe("error");
+    expect(coreStateToast("unavailable", "unavailable")).toBeNull(); // no-op
   });
 });

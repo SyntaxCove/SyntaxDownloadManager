@@ -10,6 +10,8 @@ export interface AppPaths {
   readonly devServerUrl: string | null;
   /** Pinned media-tool manifest (Phase 10): dev = apps/desktop/resources, packaged = resourcesPath. */
   readonly toolchainsManifest: string;
+  /** Tray icon (Phase 17): dev = apps/desktop/resources/icons, packaged = resourcesPath. */
+  readonly trayIcon: string;
 }
 
 /**
@@ -26,6 +28,9 @@ export function resolveAppPaths(opts: {
   const toolchainsManifest = opts.isPackaged
     ? resolve(opts.appRoot, "toolchains.json")
     : resolve(opts.appRoot, "resources/toolchains.json");
+  const trayIcon = opts.isPackaged
+    ? resolve(opts.appRoot, "unidm-tray.png")
+    : resolve(opts.appRoot, "resources/icons/unidm-tray.png");
   const devServerUrl = opts.envDevServerUrl?.trim() ? opts.envDevServerUrl.trim() : null;
   if (devServerUrl) {
     return {
@@ -33,6 +38,7 @@ export function resolveAppPaths(opts: {
       preloadScript: resolve(opts.appRoot, "dist/preload/preload.cjs"),
       devServerUrl,
       toolchainsManifest,
+      trayIcon,
     };
   }
   return {
@@ -40,6 +46,7 @@ export function resolveAppPaths(opts: {
     preloadScript: resolve(opts.appRoot, "dist/preload/preload.cjs"),
     devServerUrl: null,
     toolchainsManifest,
+    trayIcon,
   };
 }
 

@@ -15,6 +15,7 @@ import { MediaPage } from "../pages/MediaPage.js";
 import { TorrentsPage } from "../pages/TorrentsPage.js";
 import { SchedulerPage } from "../pages/SchedulerPage.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
+import { ToastHost } from "./ToastHost.js";
 
 /**
  * App shell: drag-region title bar (Windows 11 overlay) + left navigation + content.
@@ -102,6 +103,8 @@ export function AppShell(): ReactNode {
           {view === "settings" ? <SettingsPage /> : null}
         </main>
       </div>
+      {/* Phase 17: in-app toasts (job ends + engine interruptions) live above everything. */}
+      <ToastHost />
     </div>
   );
 }

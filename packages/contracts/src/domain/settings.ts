@@ -6,6 +6,8 @@ import { Ulid } from "../ids.js";
  * Contract v1 covers the Phase 3 foundation set; later phases extend additively with defaults.
  * v1.3 (Phase 8) adds the queue/scheduler policy set (auto-start + daily download window).
  * v1.11 (Phase 16) adds the app-level default proxy for new downloads.
+ * v1.12 (Phase 17) adds notification + tray preferences (main-consumed only; the core
+ * never learns settings).
  */
 
 export const ThemeMode = z.enum(["system", "light", "dark"]);
@@ -52,6 +54,18 @@ export const AppSettings = z.object({
    * paused with `proxy_profile_not_found`, never a silent direct fallback).
    */
   defaultProxyProfileId: Ulid.nullable().optional().default(null),
+  // ---- v1.12 (Phase 17): notifications + tray ----
+  /** false: OS notifications and in-app toasts for completed jobs are suppressed. */
+  notifyOnComplete: z.boolean().optional().default(true),
+  /** false: OS notifications and in-app toasts for failed jobs are suppressed. */
+  notifyOnFailure: z.boolean().optional().default(true),
+  /**
+   * true: closing the shell window hides it to the tray and keeps downloads running.
+   * Effective only while a tray icon actually exists — if tray creation failed, closing
+   * keeps the plain quit behavior (an app that vanishes with no tray icon would strand
+   * the engine and the user's only way back in).
+   */
+  closeToTray: z.boolean().optional().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -69,6 +83,9 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   scheduleEnd: "00:00",
   mediaToolsAutoFetch: true,
   defaultProxyProfileId: null,
+  notifyOnComplete: true,
+  notifyOnFailure: true,
+  closeToTray: true,
 });
 
 export const SettingsGetParams = z.object({});

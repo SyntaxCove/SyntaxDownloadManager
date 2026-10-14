@@ -563,3 +563,66 @@ Stage Summary:
   transition), and the page offers a confirm-guarded reset. Contracts 1.11.0; storage
   stays v9; the core remains settings-free.
 - Next: Phase 17 (notifications, toasts, tray integration) per docs/PHASES.md.
+
+---
+Task ID: 17
+Agent: Super Z (main agent)
+Task: Phase 17 — Notifications, toasts, tray integration ("فاز ۱۷"): verify Phases 0–16,
+then Plan → Implement → Test → Fix → Document → Review → Commit.
+
+Work Log:
+- Verified Phase 0–16 from git history (all delivered; Phase 16 = 4c19393) and repaired
+  the sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 10th reset).
+- Ground truth established before design: the core emits `*.updated` only on real
+  transitions (never for restored rows at boot — verified in engine.rs / manager.rs /
+  media_job.rs / torrent_manager.rs), and a torrent finishes into `seeding`
+  (finalize_completion) while `completed` appears only on removal.
+- Plan: docs/phase-17-plan.md — three surfaces (OS notifications, in-app toasts, tray)
+  over one event source; canceled never notifies; close-to-tray effective only while a
+  live tray icon exists.
+- Contracts v1.12.0 (additive): AppSettings.notifyOnComplete/notifyOnFailure/closeToTray
+  (defaults true) + SETTINGS_DEFAULTS + fixture + version ≥1.12 numeric-pin test; NEW
+  src/domain/transitions.ts — JobEndTracker / jobEndKind / jobEndLabel / coreStateToast
+  as the SINGLE shared classifier (implementation refinement over the plan's "duplicate
+  honestly" sketch; documented in plan + report) with 9 contracts tests pinning the
+  transition matrix (once-only ends, paused/resume cycles, torrent seeding-vs-completed,
+  boot/removal silence, per-domain independence, core-state mapping).
+- Main: domains/notify.ts (OsNotificationPort + registerNotifyEngine over ONE
+  router.onEvent listener; live settings gates; click → restore/show/focus window);
+  domains/tray.ts (TrayPort + TrayController with 1s-throttled menu/tooltip pushes,
+  buildTrayMenuModel with disabled count line and count-gated Start/Pause all,
+  countsFromStatuses, shouldHideOnClose); main.ts (setAppUserModelId com.unidm.desktop,
+  notify engine wiring, guarded Tray creation via nativeImage.isEmpty + try/catch,
+  shell close handler, tray-count mirror seeded from download.list on every core ready
+  transition, before-quit flips quitting + destroys tray, second-instance now also
+  win.show()); paths.ts trayIcon resolution (dev resources/icons vs packaged resourcesPath).
+- Tray icon: real 256×256 PNG asset generated once by scripts/gen-tray-icon.py (rounded
+  #202020 tile + accent-blue download arrow, committed as resources/icons/unidm-tray.png).
+- Renderer: app/toasts.ts (pub/sub bus with a 5-slot concurrency budget — non-error
+  toasts dropped over cap, errors always pass; slots release on the 6s/10s intent
+  timeouts; subscribeStatusToasts wires download/media/torrent updated + core.state),
+  app/ToastHost.tsx (Fluent v9 Toaster bottom-end, intent icons, theme/RTL aware; React
+  19 useId() is prefix-less — toaster id built around it), AppShell mounts ToastHost,
+  main.tsx calls subscribeStatusToasts, SettingsPage gains the "Notifications & tray"
+  section (three switches + honest close-to-tray hint).
+- Fixed during Test/Fix: router.emit drops invalid payloads (inlined CJS-safe job
+  fixtures per the main-tests convention instead of import.meta reads); the gates test
+  used two different ULIDs for one lifecycle; torrent test sequenced an unrealistic
+  mid-stream `completed`; two fake-timer throttle expectations corrected to the real
+  batching behavior; vi.fn generic vs CoreSupervisor["request"] and
+  noUncheckedIndexedAccess errors surfaced only by the gate's tsc pass (vitest does not
+  typecheck); React 19 useId() arity + ToastDispatchOptions.toasterId removal.
+- Gate: scripts/verify-all.sh end-to-end "all checks passed" — typecheck ×2 clean; cargo
+  fmt/clippy -D warnings clean; cargo test 268 (unchanged, by design — zero core surface
+  beyond the version constant); contracts vitest 102 (was 90); desktop vitest 223 + 1
+  skip (was 201 + 1); renderer build green.
+
+Stage Summary:
+- The app now talks to the user on all three surfaces: finished/failed downloads, media
+  jobs and torrents raise native Windows notifications (click focuses the window,
+  settings-gated, canceled never notified, torrents fire on seeding), the same events
+  surface as Fluent toasts in-app with engine interruptions (restarting/unavailable)
+  mapped once, and the tray keeps a live count with Start/Pause all plus close-to-tray
+  that only engages while a real tray icon exists. All transition semantics live in one
+  tested classifier in contracts v1.12.0; storage stays v9; the core stays settings-free.
+- Next: Phase 18 (auto-update channel) per docs/PHASES.md.
