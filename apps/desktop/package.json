@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@unidm/contracts": "*",
+    "electron-updater": "6.8.10",
     "lzma-native": "8.0.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",

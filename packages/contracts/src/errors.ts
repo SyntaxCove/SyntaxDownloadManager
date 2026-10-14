@@ -61,6 +61,12 @@ export const ErrorCodes = [
   // library reveal (v1.9, Phase 14) — append-only
   "entry_path_unavailable",
   "file_missing",
+  // auto-update channel (v1.13, Phase 18) — append-only
+  "update_feed_invalid",
+  "update_check_failed",
+  "update_download_failed",
+  "update_install_failed",
+  "update_not_downloaded",
 ] as const;
 
 export const ErrorCode = z.enum(ErrorCodes);

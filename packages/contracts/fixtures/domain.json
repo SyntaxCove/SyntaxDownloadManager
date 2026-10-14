@@ -54,7 +54,8 @@
     "defaultProxyProfileId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "notifyOnComplete": true,
     "notifyOnFailure": false,
-    "closeToTray": true
+    "closeToTray": true,
+    "updateAutoCheck": true
   },
   "mediaManifest": {
     "sourceUrl": "https://example.com/watch/abc",
@@ -392,5 +393,22 @@
     "lastResultMessage": "created download job 01JD8W3G5XQ9V4M2K7PZ6N8S0T",
     "createdAt": 1735603200000,
     "updatedAt": 1735689600000
+  },
+  "updateState": {
+    "status": "downloaded",
+    "unavailableReason": null,
+    "currentVersion": "0.5.0",
+    "availableVersion": "0.6.0",
+    "releaseDate": "2026-10-14T00:00:00.000Z",
+    "releaseNotes": "Recovery engine hardening; torrent UI polish.",
+    "progress": {
+      "percent": 100,
+      "transferredBytes": 104857600,
+      "totalBytes": 104857600,
+      "bytesPerSecond": 0
+    },
+    "errorCode": null,
+    "message": null,
+    "lastCheckedAt": 1791000000000
   }
 }

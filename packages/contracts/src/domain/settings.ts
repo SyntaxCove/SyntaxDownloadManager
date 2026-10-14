@@ -8,6 +8,7 @@ import { Ulid } from "../ids.js";
  * v1.11 (Phase 16) adds the app-level default proxy for new downloads.
  * v1.12 (Phase 17) adds notification + tray preferences (main-consumed only; the core
  * never learns settings).
+ * v1.13 (Phase 18) adds the auto-update check preference (main-consumed only).
  */
 
 export const ThemeMode = z.enum(["system", "light", "dark"]);
@@ -66,6 +67,13 @@ export const AppSettings = z.object({
    * the engine and the user's only way back in).
    */
   closeToTray: z.boolean().optional().default(true),
+  // ---- v1.13 (Phase 18): auto-update channel ----
+  /**
+   * false: the background update checks (startup + 12 h periodic) are suppressed; a
+   * manual check from the Settings page remains available (the updater itself is still
+   * consent-gated end to end: check never downloads, download never installs).
+   */
+  updateAutoCheck: z.boolean().optional().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -86,6 +94,7 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   notifyOnComplete: true,
   notifyOnFailure: true,
   closeToTray: true,
+  updateAutoCheck: true,
 });
 
 export const SettingsGetParams = z.object({});

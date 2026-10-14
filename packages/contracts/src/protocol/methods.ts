@@ -49,6 +49,10 @@ import {
   SchedulerRemoveResult, SchedulerRunNowResult, SchedulerSetClockParams,
   SchedulerSetClockResult,
 } from "../domain/scheduler.js";
+import {
+  UpdateGetStateParams, UpdateGetStateResult, UpdateCheckParams, UpdateCheckResult,
+  UpdateDownloadParams, UpdateDownloadResult, UpdateInstallParams, UpdateInstallResult,
+} from "../domain/update.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -205,6 +209,14 @@ export const METHODS = {
   "toolkit.ensureAll": { server: "main", params: ToolkitEnsureAllParams, result: ToolkitEnsureAllResult },
   "toolkit.ensure": { server: "main", params: ToolkitEnsureParams, result: ToolkitEnsureResult },
   "toolkit.cancel": { server: "main", params: ToolkitCancelParams, result: ToolkitCancelResult },
+  // ---- main (v1.13, Phase 18): auto-update channel ----
+  "update.getState": { server: "main", params: UpdateGetStateParams, result: UpdateGetStateResult },
+  /** Manual check (Settings page); background checks fire without this method. */
+  "update.check": { server: "main", params: UpdateCheckParams, result: UpdateCheckResult },
+  /** Consent point: downloads a found update. */
+  "update.download": { server: "main", params: UpdateDownloadParams, result: UpdateDownloadResult },
+  /** Consent point: quits and installs a downloaded update (teardown runs first). */
+  "update.install": { server: "main", params: UpdateInstallParams, result: UpdateInstallResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;
 
 export type MethodName = keyof typeof METHODS;

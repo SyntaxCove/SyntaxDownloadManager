@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Notification, nativeImage, safeStorage, Tray, shell } from "electron";
+import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { EVENTS } from "@unidm/contracts";
 import { IpcRouter } from "./ipc/router.js";
@@ -17,6 +18,8 @@ import { registerBrowserDataDomain } from "./domains/browser-data.js";
 import { registerAppDomain } from "./domains/app-reveal.js";
 import { registerAppDialogs, electronDirectoryPicker } from "./domains/app-dialogs.js";
 import { registerNotifyEngine, type OsNotificationPort } from "./domains/notify.js";
+import { createElectronUpdater } from "./domains/updates-adapter.js";
+import { registerUpdateDomain } from "./domains/updates.js";
 import {
   TrayController,
   countsFromStatuses,
@@ -275,6 +278,29 @@ if (!gotLock) {
       tray = null;
     }
 
+    // ---- Phase 18: auto-update channel ----
+    // Feed: UNIDM_UPDATE_FEED_URL (https) or the packaged resources/app-update.yml
+    // (electron-builder, Phase 19). Unpackaged runs resolve to unavailable/not_packaged.
+    const updateController = createElectronUpdater({
+      isPackaged: app.isPackaged,
+      envFeedUrl: process.env.UNIDM_UPDATE_FEED_URL,
+      resourcesAppUpdateYmlExists: existsSync(join(process.resourcesPath, "app-update.yml")),
+      currentVersion: app.getVersion(),
+      autoCheckEnabled: () => settingsStore.settings.updateAutoCheck,
+      emit: (state) => router.emit("update.state", EVENTS["update.state"].payload, state),
+      // Same teardown as a real quit, BEFORE the installer spawns — quitAndInstall may
+      // not run before-quit on every electron-updater version, and the close-to-tray
+      // handler must never hide the window during an install restart.
+      onQuitForInstall: () => {
+        quitting = true;
+        tray?.destroy();
+        tray = null;
+        void supervisor.stop(4_000);
+      },
+    });
+    registerUpdateDomain(router, updateController);
+    updateController.startAutoChecks();
+
     supervisor.start();
 
     router.onEvent((name, payload) => {
@@ -298,7 +324,10 @@ if (!gotLock) {
       applyCorePolicy();
       applySchedulerClock();
     }, 10 * 60 * 1000);
-    app.on("before-quit", () => clearInterval(policyTimer));
+    app.on("before-quit", () => {
+      clearInterval(policyTimer);
+      updateController.stopAutoChecks();
+    });
 
     app.on("before-quit", () => {
       // Quitting must never be intercepted by close-to-tray; tear the tray down first

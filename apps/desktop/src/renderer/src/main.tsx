@@ -9,6 +9,7 @@ import { subscribeToolkitProgress } from "./stores/toolkit.js";
 import { subscribeMediaEvents } from "./stores/media.js";
 import { subscribeTorrentEvents } from "./stores/torrent.js";
 import { subscribeSchedulerEvents } from "./stores/scheduler.js";
+import { subscribeUpdateState } from "./stores/updates.js";
 import { subscribeStatusToasts } from "./app/toasts.js";
 
 /**
@@ -25,6 +26,7 @@ async function boot(): Promise<void> {
   subscribeMediaEvents();
   subscribeTorrentEvents();
   subscribeSchedulerEvents();
+  subscribeUpdateState();
   // Phase 17: job-end + engine-interruption toasts ride the same validated events.
   subscribeStatusToasts();
   const root = createRoot(document.getElementById("app") ?? document.body);

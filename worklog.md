@@ -626,3 +626,57 @@ Stage Summary:
   that only engages while a real tray icon exists. All transition semantics live in one
   tested classifier in contracts v1.12.0; storage stays v9; the core stays settings-free.
 - Next: Phase 18 (auto-update channel) per docs/PHASES.md.
+
+---
+Task ID: 18
+Agent: Super Z (main agent)
+Task: Phase 18 — Auto-update channel ("فاز ۱۸"): verify Phases 0–17, then
+Plan → Implement → Test → Fix → Document → Review → Commit.
+
+Work Log:
+- Verified Phase 0–17 from git history (all delivered; Phase 17 = 5639945); repaired the
+  sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 11th reset) before
+  the gates ran.
+- Ground truth: electron-updater 6.8.10 is the latest stable (npm dist-tag v26, pairs with
+  the electron-builder 26 line Phase 19 will use); its 6.x event semantics and
+  quitAndInstall behavior drove the design. Pinned exact via --save-exact.
+- Plan: docs/phase-18-plan.md — electron-updater as TRANSPORT, our controller as POLICY;
+  consent-gated end to end (check never downloads, download never installs); fail-closed
+  feed resolution; install teardown-before-spawn ordering pinned by test.
+- Contracts v1.13.0 (additive): domain/update.ts (UpdateStatus ×9, UpdateUnavailableReason,
+  UpdateProgress, UpdateState), settings.updateAutoCheck (default true), 5 append-only
+  error codes (update_feed_invalid/check_failed/download_failed/install_failed/
+  not_downloaded), update.getState/check/download/install (main), update.state event,
+  updateState fixture + appSettings extension; dc-protocol mirror 1.13.0 (zero Rust surface
+  otherwise — cargo stays 268).
+- Main: domains/updates.ts (resolveUpdateFeed fail-closed matrix + UpdateController state
+  machine + 500ms progress throttle + notes sanitization + registerUpdateDomain);
+  domains/updates-adapter.ts (electron-updater glue: autoDownload=false,
+  autoInstallOnAppQuit=true, allowDowngrade=false, disableWebInstaller=true; env feed via
+  setFeedURL, packaged app-update.yml implicit; no-feed port throws classified UniDmError);
+  main.ts wiring (controller after tray, emit via router, auto-checks 2min+12h,
+  stopAutoChecks on before-quit, install teardown: quitting flag + tray destroy +
+  supervisor.stop BEFORE port.install).
+- Renderer: stores/updates.ts (dumb mirror), main.tsx subscribeUpdateState, SettingsPage
+  "Updates" section (version/status/progress/release notes/error bar + Check now /
+  Download update / Restart to update + auto-check switch + honest consent copy).
+- Fixed during Test/Fix: TS2783 literal-then-spread in snapshot() (initialState now builds
+  full snapshots; patch merge is total); missing status in onProgress setState; junk type
+  parameter in test harness; auto-check interval test needed a round-closing
+  onNotAvailable (the in-flight guard correctly skipped round 2 from a stuck `checking`);
+  review-stage hardening: check/download now reject while `installing` (no lifecycle churn
+  mid-teardown) with a pinning test.
+- Gate: scripts/verify-all.sh end-to-end "all checks passed" — typecheck ×2 clean; cargo
+  fmt/clippy -D warnings clean; cargo test 268 (unchanged, by design); contracts vitest
+  109 (was 102); desktop vitest 260 + 1 skip (was 223 + 1); vite build green.
+
+Stage Summary:
+- The auto-update channel is complete and honest: feed resolution is fail-closed
+  (env https > packaged app-update.yml > classified unavailable), the lifecycle is
+  consent-gated at three points, stale checks can't clobber a downloaded update, the
+  install path reuses the real quit teardown before spawning the installer (closing the
+  close-to-tray trap), dev builds never self-update, and the Settings surface claims
+  exactly what is verified (sha512 integrity; authenticity = signing in Phase 19+).
+  Contracts 1.13.0; storage stays v9; the core stays settings-free and update-free.
+- Next: Phase 19 (packaging — electron-builder NSIS installer, user-side build) per
+  docs/PHASES.md.

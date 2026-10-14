@@ -6,6 +6,7 @@ import { ToolkitToolStatus } from "../domain/toolkit.js";
 import { MediaProgress, MediaJob } from "../domain/media.js";
 import { TorrentProgress, TorrentJob } from "../domain/torrent.js";
 import { SchedulerUpdatedEvent } from "../domain/scheduler.js";
+import { UpdateStateEvent } from "../domain/update.js";
 
 /**
  * Event registry: event name → payload schema. Sources: core→main over stdio, main→renderer
@@ -51,6 +52,9 @@ export const EVENTS = {
   // v1.10 (Phase 15): scheduler — authoritative snapshot whenever a job row changes
   // (create / update / fire with outcome / clock recompute).
   "scheduler.updated": { source: "core", payload: SchedulerUpdatedEvent },
+  // v1.13 (Phase 18): auto-update channel — full snapshot on every updater transition
+  // (progress throttled to a 500 ms floor). Main-served only.
+  "update.state": { source: "main", payload: UpdateStateEvent },
 } satisfies Record<string, EventEntry>;
 
 export type EventName = keyof typeof EVENTS;

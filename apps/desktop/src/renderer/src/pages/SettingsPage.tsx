@@ -24,13 +24,14 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { FolderOpenRegular, ArrowCounterclockwiseRegular } from "@fluentui/react-icons";
-import type { AppLanguage, ThemeMode, ToolkitToolStatus } from "@unidm/contracts";
+import { FolderOpenRegular, ArrowCounterclockwiseRegular, ArrowSyncRegular, ArrowClockwiseRegular } from "@fluentui/react-icons";
+import type { AppLanguage, ThemeMode, ToolkitToolStatus, UpdateState, UpdateStatus } from "@unidm/contracts";
 import { SETTINGS_DEFAULTS } from "@unidm/contracts";
 import { rpc } from "../bridge.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useToolkitStore } from "../stores/toolkit.js";
+import { useUpdateStore } from "../stores/updates.js";
 
 /**
  * Settings page — writes go through the optimistic zustand store → main → settings.json.
@@ -280,6 +281,8 @@ export function SettingsPage(): ReactNode {
         </Text>
       </section>
 
+      <UpdatesSection />
+
       <section className={styles.section} aria-labelledby="maintenance-title">
         <Text id="maintenance-title" className={styles.sectionTitle}>
           Maintenance
@@ -492,5 +495,137 @@ function MediaToolsAutoFetchToggle(): ReactNode {
         onChange={(_, data) => void update({ mediaToolsAutoFetch: data.checked })}
       />
     </Field>
+  );
+}
+
+/**
+ * Updates (Phase 18): a dumb mirror of the main-process updater snapshot. Every lifecycle
+ * decision lives main-side; this surface only renders state and issues the three consent
+ * points (check / download / restart-to-apply). No feed URLs and no paths are ever shown —
+ * main sends sanitized state shapes only.
+ */
+function updateStatusLine(state: UpdateState): string {
+  switch (state.status as UpdateStatus) {
+    case "idle":
+      return "Ready to check for updates.";
+    case "checking":
+      return "Checking for updates…";
+    case "available":
+      return `Version ${state.availableVersion ?? "?"} is available.`;
+    case "not-available":
+      return "UniDM is up to date.";
+    case "downloading": {
+      const p = state.progress;
+      const speed = p && p.bytesPerSecond > 0 ? ` — ${(p.bytesPerSecond / 1048576).toFixed(1)} MB/s` : "";
+      return `Downloading update…${p ? ` ${Math.floor(p.percent)}%` : ""}${speed}`;
+    }
+    case "downloaded":
+      return `Version ${state.availableVersion ?? "?"} downloaded — restart to apply it.`;
+    case "installing":
+      return "Restarting to apply the update…";
+    case "error":
+      return "The last update action failed.";
+    case "unavailable":
+      return state.unavailableReason === "not_packaged"
+        ? "Updates are disabled in this development build."
+        : "No update feed is configured for this install.";
+    default:
+      return "";
+  }
+}
+
+function UpdatesSection(): ReactNode {
+  const styles = useStyles();
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.update);
+  const state = useUpdateStore((s) => s.state);
+  const loaded = useUpdateStore((s) => s.loaded);
+  const load = useUpdateStore((s) => s.load);
+  const check = useUpdateStore((s) => s.check);
+  const download = useUpdateStore((s) => s.download);
+  const install = useUpdateStore((s) => s.install);
+
+  useEffect(() => {
+    if (!loaded) void load();
+  }, [loaded, load]);
+
+  if (!settings) return null;
+  const busy = state !== null && ["checking", "downloading", "installing"].includes(state.status);
+
+  return (
+    <section className={styles.section} aria-labelledby="updates-title">
+      <Text id="updates-title" className={styles.sectionTitle}>
+        Updates
+      </Text>
+      {state ? (
+        <>
+          <Text className={styles.hint}>
+            This install: UniDM {state.currentVersion}
+            {state.lastCheckedAt
+              ? ` — last checked ${new Date(state.lastCheckedAt).toLocaleString()}`
+              : ""}
+          </Text>
+          <Text>{updateStatusLine(state)}</Text>
+        </>
+      ) : (
+        <Spinner size="tiny" label="Loading updater state…" />
+      )}
+      {state?.status === "downloading" && state.progress ? (
+        <ProgressBar
+          value={Math.min(1, state.progress.percent / 100)}
+          shape="rounded"
+        />
+      ) : null}
+      {state?.releaseNotes ? (
+        <Text className={styles.hint} style={{ whiteSpace: "pre-wrap" }}>
+          {state.releaseNotes}
+        </Text>
+      ) : null}
+      {state?.status === "error" ? (
+        <MessageBar intent="error">
+          <MessageBarBody>
+            Update failed — {state.errorCode ?? "unknown error"}
+            {state.message ? `: ${state.message}` : ""}
+          </MessageBarBody>
+        </MessageBar>
+      ) : null}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <Button
+          icon={<ArrowSyncRegular />}
+          disabled={!state || busy || state.status === "unavailable"}
+          onClick={() => void check()}
+        >
+          Check now
+        </Button>
+        {state?.status === "available" ? (
+          <Button appearance="primary" onClick={() => void download()}>
+            Download update
+          </Button>
+        ) : null}
+        {state?.status === "downloaded" ? (
+          <Button
+            appearance="primary"
+            icon={<ArrowClockwiseRegular />}
+            onClick={() => void install()}
+          >
+            Restart to update
+          </Button>
+        ) : null}
+      </div>
+      <Field
+        label="Check for updates automatically"
+        hint="Runs at startup and every 12 hours; a manual check stays available"
+      >
+        <Switch
+          checked={settings.updateAutoCheck}
+          onChange={(_, data) => void updateSettings({ updateAutoCheck: data.checked })}
+        />
+      </Field>
+      <Text className={styles.hint}>
+        A downloaded update applies when you quit UniDM. Update packages are verified
+        against the feed's published checksum before install; checks never download and
+        downloads never install without your click.
+      </Text>
+    </section>
   );
 }

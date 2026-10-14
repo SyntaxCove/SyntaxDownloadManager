@@ -17,6 +17,7 @@ import {
   SchedulerJob, SchedulerAction, SchedulerRepeat, SchedulerCreateParams, SchedulerUpdateParams,
   SCHEDULER_PAYLOAD_SCHEMAS, SETTINGS_DEFAULTS,
   JobEndTracker, jobEndLabel, coreStateToast,
+  UpdateState, UpdateStatus, UpdateUnavailableReason,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1061,5 +1062,73 @@ describe("job end transitions (Phase 17)", () => {
     const down = coreStateToast("ready", "unavailable");
     expect(down?.intent).toBe("error");
     expect(coreStateToast("unavailable", "unavailable")).toBeNull(); // no-op
+  });
+});
+
+describe("v1.13 auto-update channel (Phase 18)", () => {
+  it("contract version advanced to at least 1.13.0 (Phase 18 updates are additive)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    expect(maj).toBe(1);
+    expect(min).toBeGreaterThanOrEqual(13);
+  });
+
+  it("updateState fixture parses with the full snapshot shape", () => {
+    const state = UpdateState.parse(domainFixture.updateState);
+    expect(state.status).toBe("downloaded");
+    expect(state.currentVersion).toBe("0.5.0");
+    expect(state.availableVersion).toBe("0.6.0");
+    expect(state.progress?.percent).toBe(100);
+    expect(state.errorCode).toBeNull();
+    expect(state.unavailableReason).toBeNull();
+  });
+
+  it("update.state event is main-sourced; the four methods are main-served", () => {
+    expect(EVENTS["update.state"].source).toBe("main");
+    for (const m of ["update.getState", "update.check", "update.download", "update.install"] as const) {
+      expect(METHODS[m].server).toBe("main");
+    }
+  });
+
+  it("update error codes are registered and append-only at the tail", () => {
+    const tail = ErrorCodes.slice(-5);
+    expect(tail).toEqual([
+      "update_feed_invalid",
+      "update_check_failed",
+      "update_download_failed",
+      "update_install_failed",
+      "update_not_downloaded",
+    ]);
+  });
+
+  it("appSettings fixture gains updateAutoCheck; legacy settings default to true", () => {
+    expect(domainFixture.appSettings.updateAutoCheck).toBe(true);
+    const legacy = AppSettings.parse({ ...domainFixture.appSettings, updateAutoCheck: undefined });
+    expect(legacy.updateAutoCheck).toBe(true);
+    expect(SETTINGS_DEFAULTS.updateAutoCheck).toBe(true);
+  });
+
+  it("releaseNotes are capped at 4000 chars; statuses/reasons are closed enums", () => {
+    expect(UpdateState.shape.releaseNotes.parse("x".repeat(4000))).toHaveLength(4000);
+    expect(() => UpdateState.shape.releaseNotes.parse("x".repeat(4001))).toThrow();
+    expect(UpdateStatus.options).toContain("downloaded");
+    expect(UpdateUnavailableReason.options).toEqual(["not_packaged", "no_feed"]);
+  });
+
+  it("progress values are bounded; lastCheckedAt is a non-negative epoch", () => {
+    const base = {
+      status: "downloading",
+      unavailableReason: null,
+      currentVersion: "0.5.0",
+      availableVersion: null,
+      releaseDate: null,
+      releaseNotes: null,
+      progress: { percent: 50, transferredBytes: 10, totalBytes: 20, bytesPerSecond: 5 },
+      errorCode: null,
+      message: null,
+      lastCheckedAt: 1791000000000,
+    };
+    expect(UpdateState.parse(base).status).toBe("downloading");
+    expect(() => UpdateState.parse({ ...base, progress: { ...base.progress, percent: 101 } })).toThrow();
+    expect(() => UpdateState.parse({ ...base, lastCheckedAt: -1 })).toThrow();
   });
 });

@@ -45,7 +45,7 @@
 | 15 | Scheduler jobs + automation | delivered (2026-10-13) |
 | 16 | Settings domain completion | delivered (2026-10-13) |
 | 17 | Notifications, toasts, tray integration | delivered (2026-10-13) |
-| 18 | Auto-update channel | pending |
+| 18 | Auto-update channel | delivered (2026-10-14) |
 | 19 | Packaging — electron-builder NSIS installer (user-side build) | pending |
 | 20 | Diagnostics — structured logs, log export, health report | pending |
 | 21 | Accessibility + i18n (fa / en) | pending |
