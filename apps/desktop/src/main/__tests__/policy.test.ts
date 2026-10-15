@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS_DEFAULTS, type AppSettings } from "@unidm/contracts";
+import { SETTINGS_DEFAULTS, type AppSettings } from "@syntaxdm/contracts";
 import { buildSetPolicyPayload, parseHhMm } from "../policy.js";
 
 /** Phase 8 — queue/scheduler policy translation (settings → download.setPolicy). */

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ToolkitStatusResult, ToolkitToolStatus } from "@unidm/contracts";
+import type { ToolkitStatusResult, ToolkitToolStatus } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
 /**

@@ -293,7 +293,7 @@ pub fn encode_extended_handshake(ut_metadata: u8, metadata_size: Option<u64>) ->
     let mut pairs: Vec<(Vec<u8>, BValue)> = vec![
         (b"m".to_vec(), BValue::Dict(m)),
         (b"p".to_vec(), bint(0)),
-        (b"v".to_vec(), bstr("UniDM 1.0")),
+        (b"v".to_vec(), bstr("Syntax Download Manager 1.0")),
     ];
     if let Some(size) = metadata_size {
         pairs.push((b"metadata_size".to_vec(), bint(size as i64)));
@@ -452,7 +452,7 @@ mod tests {
         let hs = parse_extended_handshake(&payload).unwrap();
         assert_eq!(hs.ut_metadata, 1);
         assert_eq!(hs.metadata_size, Some(12345));
-        assert_eq!(hs.client.as_deref(), Some("UniDM 1.0"));
+        assert_eq!(hs.client.as_deref(), Some("Syntax Download Manager 1.0"));
     }
 
     #[test]

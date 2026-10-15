@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DownloadJob, QueueDirection } from "@unidm/contracts";
+import type { DownloadJob, QueueDirection } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
 /**

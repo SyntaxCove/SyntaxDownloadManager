@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BrowserTab } from "@unidm/contracts";
+import type { BrowserTab } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
 /**

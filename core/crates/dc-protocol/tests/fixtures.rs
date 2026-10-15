@@ -273,8 +273,8 @@ fn parses_and_round_trips_history_entry_fixture() {
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let entry: dc_protocol::HistoryEntry =
         serde_json::from_value(doc["historyEntry"].clone()).unwrap();
-    assert_eq!(entry.url, "https://example.com/articles/unidm");
-    assert_eq!(entry.title.as_deref(), Some("UniDM release notes"));
+    assert_eq!(entry.url, "https://example.com/articles/syntaxdm");
+    assert_eq!(entry.title.as_deref(), Some("Syntax Download Manager release notes"));
     assert_eq!(entry.visited_at, 1735689600000);
     let out: serde_json::Value = serde_json::to_value(&entry).unwrap();
     assert_eq!(
@@ -305,7 +305,7 @@ fn parses_and_round_trips_bookmark_fixture() {
     let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
     let bookmark: dc_protocol::Bookmark = serde_json::from_value(doc["bookmark"].clone()).unwrap();
-    assert_eq!(bookmark.title, "UniDM release notes");
+    assert_eq!(bookmark.title, "Syntax Download Manager release notes");
     assert_eq!(bookmark.position, 0);
     let out: serde_json::Value = serde_json::to_value(&bookmark).unwrap();
     assert_eq!(

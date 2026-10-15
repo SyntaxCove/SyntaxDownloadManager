@@ -1,4 +1,4 @@
-import type { DownloadJob, MediaJob, TorrentJob } from "@unidm/contracts";
+import type { DownloadJob, MediaJob, TorrentJob } from "@syntaxdm/contracts";
 
 /**
  * Downloads library projection (Phase 14) — one merged, filterable view over the three

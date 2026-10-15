@@ -1,4 +1,4 @@
-# UniDM — Architecture
+# Syntax Download Manager — Architecture
 
 Unified Browser + Advanced Download Manager for Windows 11 x64 (also runs on Linux/macOS for
 development). No AI features. Data integrity first.
@@ -9,7 +9,7 @@ development). No AI features. Data integrity first.
 ┌───────────────────────────── Electron ─────────────────────────────┐
 │                                                                    │
 │  Renderer (React 19 + Fluent UI v9 + Zustand, per-domain stores)   │
-│      │  typed contextBridge API (window.unidm)                     │
+│      │  typed contextBridge API (window.syntaxdm)                     │
 │      ▼                                                             │
 │  Main process                                                      │
 │   ├─ IpcRouter — request/response + events, zod-validated          │
@@ -79,7 +79,7 @@ development). No AI features. Data integrity first.
 packages/contracts     TS contracts (zod schemas + inferred types) + fixtures
 apps/desktop
   src/main             Electron main process (router, tab manager, supervisor, settings, proxy profiles)
-  src/preload          contextBridge exposing the typed window.unidm API
+  src/preload          contextBridge exposing the typed window.syntaxdm API
   src/renderer         React app (Fluent UI v9, Zustand stores, views)
 core/                  Rust workspace
   crates/dc-protocol   wire types mirroring packages/contracts (serde)

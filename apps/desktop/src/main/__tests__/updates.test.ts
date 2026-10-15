@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { UpdateState, makeRequest } from "@unidm/contracts";
+import { UpdateState, makeRequest } from "@syntaxdm/contracts";
 import {
   AUTO_CHECK_DELAY_MS,
   AUTO_CHECK_INTERVAL_MS,
@@ -116,16 +116,16 @@ describe("resolveUpdateFeed (fail-closed)", () => {
   it("an https env override wins over app-update.yml", () => {
     const feed = resolveUpdateFeed({
       isPackaged: true,
-      envFeedUrl: "https://feed.unidm.app/latest/",
+      envFeedUrl: "https://feed.syntaxdm.app/latest/",
       resourcesAppUpdateYmlExists: true,
     });
-    expect(feed).toEqual({ kind: "env", url: "https://feed.unidm.app/latest/" });
+    expect(feed).toEqual({ kind: "env", url: "https://feed.syntaxdm.app/latest/" });
   });
 
   it("an http env override is classified invalid — never a silent direct fallback", () => {
     const feed = resolveUpdateFeed({
       isPackaged: true,
-      envFeedUrl: "http://feed.unidm.app/latest/",
+      envFeedUrl: "http://feed.syntaxdm.app/latest/",
       resourcesAppUpdateYmlExists: false,
     });
     expect(feed.kind).toBe("invalid");
@@ -197,7 +197,7 @@ describe("UpdateController", () => {
 
   it("an invalid feed is an honest error state with the classified code", () => {
     const h = make({
-      feedKind: { kind: "invalid", code: "update_feed_invalid", detail: "UNIDM_UPDATE_FEED_URL must be an https URL" },
+      feedKind: { kind: "invalid", code: "update_feed_invalid", detail: "SYNTAXDM_UPDATE_FEED_URL must be an https URL" },
     });
     expect(h.controller.getState().status).toBe("error");
     expect(h.controller.getState().errorCode).toBe("update_feed_invalid");

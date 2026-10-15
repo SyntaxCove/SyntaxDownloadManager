@@ -29,7 +29,7 @@ import {
 import { useSchedulerStore, epochMsToLocalInput, type SchedulerActionChoice } from "../stores/scheduler.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
-import type { SchedulerJob } from "@unidm/contracts";
+import type { SchedulerJob } from "@syntaxdm/contracts";
 
 /**
  * Scheduler page (Phase 15): persistent automation jobs fired by the core's 1 s tick.

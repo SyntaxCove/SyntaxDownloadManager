@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { platformKey, parseManifest, loadManifest } from "../toolkit/manifest.js";
 import { safeJoin } from "../toolkit/extract.js";
-import { UniDmError } from "@unidm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 
 /**
  * Manifest validation + path-safety unit tests (Phase 10). The end-to-end pipeline lives
@@ -54,12 +54,12 @@ describe("parseManifest", () => {
     expect(parseManifest(JSON.stringify(validManifest)).tools).toHaveLength(1);
   });
   it("rejects non-JSON with toolkit_manifest_invalid", () => {
-    expect(() => parseManifest("{nope")).toThrowError(UniDmError);
+    expect(() => parseManifest("{nope")).toThrowError(SyntaxDmError);
     try {
       parseManifest("{nope");
       expect.unreachable();
     } catch (err) {
-      expect((err as UniDmError).code).toBe("toolkit_manifest_invalid");
+      expect((err as SyntaxDmError).code).toBe("toolkit_manifest_invalid");
     }
   });
   it("rejects duplicate tool ids", () => {
@@ -70,14 +70,14 @@ describe("parseManifest", () => {
   it("rejects an http (non-https) artifact URL", () => {
     const bad = structuredClone(validManifest);
     bad.tools[0]!.platforms["win32-x64"].url = "http://example.com/yt-dlp.exe";
-    expect(() => parseManifest(JSON.stringify(bad))).toThrowError(UniDmError);
+    expect(() => parseManifest(JSON.stringify(bad))).toThrowError(SyntaxDmError);
   });
 });
 
 describe("loadManifest", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "unidm-manifest-"));
+    dir = await mkdtemp(join(tmpdir(), "syntaxdm-manifest-"));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -105,12 +105,12 @@ describe("safeJoin (escape guards)", () => {
   });
   it("rejects .. traversal, absolute paths and drive paths", () => {
     for (const evil of ["../escape", "a/../../escape", "/etc/passwd", "C:\\Windows\\evil", "C:/x", "..\\win"]) {
-      expect(() => safeJoin("/root/tools", evil)).toThrowError(UniDmError);
+      expect(() => safeJoin("/root/tools", evil)).toThrowError(SyntaxDmError);
       try {
         safeJoin("/root/tools", evil);
         expect.unreachable();
       } catch (err) {
-        expect((err as UniDmError).code).toBe("toolkit_extract_failed");
+        expect((err as SyntaxDmError).code).toBe("toolkit_extract_failed");
       }
     }
   });

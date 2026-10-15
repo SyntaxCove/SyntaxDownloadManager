@@ -25,8 +25,8 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { FolderOpenRegular, ArrowCounterclockwiseRegular, ArrowSyncRegular, ArrowClockwiseRegular } from "@fluentui/react-icons";
-import type { AppLanguage, ThemeMode, ToolkitToolStatus, UpdateState, UpdateStatus } from "@unidm/contracts";
-import { SETTINGS_DEFAULTS } from "@unidm/contracts";
+import type { AppLanguage, ThemeMode, ToolkitToolStatus, UpdateState, UpdateStatus } from "@syntaxdm/contracts";
+import { SETTINGS_DEFAULTS } from "@syntaxdm/contracts";
 import { rpc } from "../bridge.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
@@ -513,7 +513,7 @@ function updateStatusLine(state: UpdateState): string {
     case "available":
       return `Version ${state.availableVersion ?? "?"} is available.`;
     case "not-available":
-      return "UniDM is up to date.";
+      return "Syntax Download Manager is up to date.";
     case "downloading": {
       const p = state.progress;
       const speed = p && p.bytesPerSecond > 0 ? ` — ${(p.bytesPerSecond / 1048576).toFixed(1)} MB/s` : "";
@@ -560,7 +560,7 @@ function UpdatesSection(): ReactNode {
       {state ? (
         <>
           <Text className={styles.hint}>
-            This install: UniDM {state.currentVersion}
+            This install: Syntax Download Manager {state.currentVersion}
             {state.lastCheckedAt
               ? ` — last checked ${new Date(state.lastCheckedAt).toLocaleString()}`
               : ""}
@@ -622,7 +622,7 @@ function UpdatesSection(): ReactNode {
         />
       </Field>
       <Text className={styles.hint}>
-        A downloaded update applies when you quit UniDM. Update packages are verified
+        A downloaded update applies when you quit Syntax Download Manager. Update packages are verified
         against the feed's published checksum before install; checks never download and
         downloads never install without your click.
       </Text>

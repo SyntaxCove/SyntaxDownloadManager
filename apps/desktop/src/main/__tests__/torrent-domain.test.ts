@@ -4,11 +4,11 @@ import {
   TorrentAddResult,
   ErrorEnvelope,
   SuccessEnvelope,
-  UniDmError,
+  SyntaxDmError,
   makeRequest,
   newUlid,
   type TorrentJob,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import { registerTorrentDomain } from "../domains/torrent.js";
 import { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
@@ -116,7 +116,7 @@ describe("torrent domain (Phase 13)", () => {
 
   it("propagates classified core errors untouched", async () => {
     const { router } = makeRouterWithFakeCore(async () => {
-      throw new UniDmError("torrent_invalid_metainfo", "bad bencode");
+      throw new SyntaxDmError("torrent_invalid_metainfo", "bad bencode");
     });
     const res = await router.handleRequest(
       makeRequest(newUlid(), "torrent.add", {

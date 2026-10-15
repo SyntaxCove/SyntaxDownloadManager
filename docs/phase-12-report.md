@@ -16,13 +16,13 @@ one audio format and/or subtitle tracks, picks the mux container (mkv/mp4), and 
    no silent never-completing download.
 2. **Stream downloads** — one bundled-yt-dlp run per selected stream (`-f <formatId> -o
    <work>/<label>.%(ext)s`, `--newline`, machine progress via `--progress-template
-   download:UNIDM …`). Streams already completed are detected on disk and skipped; yt-dlp's
+   download:SYNTAXDM …`). Streams already completed are detected on disk and skipped; yt-dlp's
    `--continue` resumes `.part` bytes across runs. A single `--skip-download` run fetches all
    selected subtitle tracks (`--write-subs --write-auto-subs --sub-langs … --sub-format
    <exts>/best`).
 3. **Mux** — the bundled FFmpeg stream-copies video+audio+subtitles into the target
    container (`-f matroska` + `-c:s srt`, or `-f mp4` + `-c:s mov_text`; never a re-encode).
-   Output goes to `<dest>/<base>.<container>.tmp-unidm` and is renamed only after a clean
+   Output goes to `<dest>/<base>.<container>.tmp-syntaxdm` and is renamed only after a clean
    exit and a non-empty size check — a partial mux is never presented as finished.
    Audio-only jobs skip the mux: the audio file moves to the destination untouched.
 4. **Lifecycle** — `media.download/list/get/pause/resume/cancel/remove` (all core-served),
@@ -58,7 +58,7 @@ one audio format and/or subtitle tracks, picks the mux container (mkv/mp4), and 
 
 - `Engine::new` signature grew the shared maps — the three test harnesses (engine, queue,
   recover) construct their own `Arc` maps now.
-- The UNIDM progress template is fixed-width (5 tokens, `NA` = unknown); the first parser
+- The SYNTAXDM progress template is fixed-width (5 tokens, `NA` = unknown); the first parser
   draft consumed the estimate slot conditionally and mis-parsed speed — now the estimate is
   always consumed and `total = exact.or(estimate)`.
 - `run_child` pipes have different concrete types — erased to `Box<dyn AsyncRead>` pairs;

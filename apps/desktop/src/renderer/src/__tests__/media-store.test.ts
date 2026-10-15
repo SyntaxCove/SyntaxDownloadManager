@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useMediaStore } from "../stores/media.js";
-import type { MediaJob, MediaManifest } from "@unidm/contracts";
+import type { MediaJob, MediaManifest } from "@syntaxdm/contracts";
 
 /**
  * Phase 11/12 — media store against a stubbed preload bridge: inspect lifecycle
@@ -99,7 +99,7 @@ beforeEach(() => {
     selection: { videoFormatId: null, audioFormatId: null, subtitles: [], container: "mkv" },
   });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         if (method === "media.inspect") {

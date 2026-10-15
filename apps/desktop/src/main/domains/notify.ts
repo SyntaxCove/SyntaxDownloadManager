@@ -1,5 +1,5 @@
-import type { JobDomain, JobEndKind, DownloadJob, MediaJob, TorrentJob } from "@unidm/contracts";
-import { JobEndTracker, jobEndLabel } from "@unidm/contracts";
+import type { JobDomain, JobEndKind, DownloadJob, MediaJob, TorrentJob } from "@syntaxdm/contracts";
+import { JobEndTracker, jobEndLabel } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { SettingsStore } from "./settings.js";
 

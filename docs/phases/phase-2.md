@@ -2,7 +2,7 @@
 **Plan**: single-instance lock → `app.enableSandbox()` before ready → shell window
 (titleBarOverlay on Win32) → transport-agnostic `IpcRouter` bound to `ipcMain.handle` with a
 sender firewall (only our own renderer/dev origin may call RPC). Preload is a sandboxed CJS
-esbuild bundle exposing exactly `window.unidm.rpc/onEvent`. Strict CSP both as meta tag and as a
+esbuild bundle exposing exactly `window.syntaxdm.rpc/onEvent`. Strict CSP both as meta tag and as a
 header hook. Feature domains register on the router in their own phases (3/4/5) — the shell never
 grows feature-specific code.
 **Electron 44 API verification**: `BrowserWindow.getAllWindows()` (not app.*), session-level

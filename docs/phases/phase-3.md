@@ -5,7 +5,7 @@ structural from day one; string localization is Phase 21). Zustand settings stor
 update + rollback; settings domain in main persists to userData/settings.json atomically
 (tmp+rename), merges contract defaults for forward compatibility, quarantines corrupt/invalid
 files and reinstates defaults. `settings.get` / `settings.setAll` + `settings.changed` event on
-the validated router. Contracts gained SETTINGS_DEFAULTS and the UnidmBridge type.
+the validated router. Contracts gained SETTINGS_DEFAULTS and the SyntaxDmBridge type.
 **Test**: 24 cases (11 settings-domain): defaults/first-run, atomic persist without tmp leftovers,
 reload round-trip, default-merge, corrupt-JSON quarantine, schema-invalid quarantine, invalid
 patch rejection, RPC get/setAll/invalid_params, settings.changed emission.

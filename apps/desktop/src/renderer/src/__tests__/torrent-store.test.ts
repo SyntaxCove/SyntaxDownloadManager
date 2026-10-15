@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useTorrentStore, subscribeTorrentEvents } from "../stores/torrent.js";
-import type { TorrentJob } from "@unidm/contracts";
+import type { TorrentJob } from "@syntaxdm/contracts";
 
 /**
  * Phase 13 — torrent store against a stubbed preload bridge: the add lifecycle
@@ -70,7 +70,7 @@ beforeEach(() => {
     addError: null,
   });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         if (coreError) return Promise.reject(coreError);
@@ -156,7 +156,7 @@ describe("torrent store (Phase 13)", () => {
 
   it("torrent.updated events replace the job; torrent.progress patches live fields", () => {
     const unsubscribe = subscribeTorrentEvents();
-    // The bridge stub routes events through window.unidm (delivery itself is covered by
+    // The bridge stub routes events through window.syntaxdm (delivery itself is covered by
     // the bridge layer), so here we exercise the store reducers directly.
     useTorrentStore.getState().upsertJob(jobFixture({ status: "downloading" }));
     useTorrentStore.getState().upsertJob(

@@ -38,7 +38,7 @@ import {
 import { useDownloadsStore, compareQueueDisplay, type CoreStatus } from "../stores/downloads.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
-import type { DownloadJob, QueueDirection } from "@unidm/contracts";
+import type { DownloadJob, QueueDirection } from "@syntaxdm/contracts";
 
 /** Downloads page: create-by-URL, live progress, and lifecycle controls per job. */
 

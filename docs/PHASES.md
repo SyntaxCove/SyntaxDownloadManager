@@ -1,4 +1,4 @@
-# UniDM — Phase Map (Authoritative)
+# Syntax Download Manager — Phase Map (Authoritative)
 
 > Reconstruction note: the original 65-section master prompt chunks and the phase documents of the
 > previous sandbox session were lost to a sandbox reset. This file is the authoritative phase map

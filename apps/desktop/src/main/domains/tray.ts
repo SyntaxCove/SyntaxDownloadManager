@@ -42,16 +42,16 @@ export interface QueueCounts {
 }
 
 export function buildTrayTooltip(counts: QueueCounts): string {
-  return `UniDM — ${counts.active} active · ${counts.queued} queued`;
+  return `Syntax Download Manager — ${counts.active} active · ${counts.queued} queued`;
 }
 
 export function buildTrayMenuModel(counts: QueueCounts): TrayMenuItem[] {
   return [
-    { id: "open", label: "Open UniDM", enabled: true },
+    { id: "open", label: "Open Syntax Download Manager", enabled: true },
     { id: null, label: buildTrayTooltip(counts), enabled: false },
     { id: "startAll", label: "Start all downloads", enabled: counts.queued > 0 },
     { id: "pauseAll", label: "Pause all downloads", enabled: counts.active > 0 },
-    { id: "quit", label: "Quit UniDM", enabled: true },
+    { id: "quit", label: "Quit Syntax Download Manager", enabled: true },
   ];
 }
 

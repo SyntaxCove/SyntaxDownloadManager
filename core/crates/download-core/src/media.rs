@@ -857,7 +857,7 @@ mod tests {
     fn tempfile_dir(tag: &str) -> std::path::PathBuf {
         // Unique per test: cargo runs test threads in parallel inside one process.
         let dir =
-            std::env::temp_dir().join(format!("unidm-media-test-{}-{tag}", std::process::id()));
+            std::env::temp_dir().join(format!("syntaxdm-media-test-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

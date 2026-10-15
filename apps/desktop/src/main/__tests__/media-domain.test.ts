@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   METHODS, MediaInspectResult, MediaDownloadResult, ErrorEnvelope, SuccessEnvelope,
-  UniDmError,
+  SyntaxDmError,
   makeRequest, newUlid, type MediaManifest, type MediaJob,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import { registerMediaDomain } from "../domains/media.js";
 import { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
@@ -108,9 +108,9 @@ describe("media domain (Phase 11)", () => {
 
   it("propagates classified core errors untouched", async () => {
     const { router } = makeRouterWithFakeCore(async () => {
-      // Classified wire errors arrive at the router as UniDmError instances (CoreClient
+      // Classified wire errors arrive at the router as SyntaxDmError instances (CoreClient
       // constructs them from the envelope) — the code must survive the forward.
-      throw new UniDmError("media_tool_missing", "no yt-dlp");
+      throw new SyntaxDmError("media_tool_missing", "no yt-dlp");
     });
     const res = await router.handleRequest(
       makeRequest(newUlid(), "media.inspect", { url: "https://example.com/watch/abc" }),

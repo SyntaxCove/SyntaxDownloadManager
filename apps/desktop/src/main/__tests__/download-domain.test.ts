@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   METHODS, SETTINGS_DEFAULTS, SuccessEnvelope, makeRequest, newUlid,
   type DownloadCreateParams, type DownloadJob,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import { applyDefaultProxy, registerDownloadDomain } from "../domains/download.js";
 import { SettingsStore } from "../domains/settings.js";
 import { IpcRouter } from "../ipc/router.js";

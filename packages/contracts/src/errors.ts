@@ -81,13 +81,13 @@ export const ContractError = z.object({
 export type ContractError = z.infer<typeof ContractError>;
 
 /** Error thrown/returned by TS-side boundary implementations; mirrors ContractError. */
-export class UniDmError extends Error implements ContractError {
+export class SyntaxDmError extends Error implements ContractError {
   readonly code: ErrorCode;
   readonly data?: unknown;
 
   constructor(code: ErrorCode, message: string, data?: unknown) {
     super(message);
-    this.name = "UniDmError";
+    this.name = "SyntaxDmError";
     this.code = code;
     this.data = data;
   }
@@ -96,9 +96,9 @@ export class UniDmError extends Error implements ContractError {
     return { code: this.code, message: this.message, data: this.data };
   }
 
-  static from(err: unknown): UniDmError {
-    if (err instanceof UniDmError) return err;
-    if (err instanceof Error) return new UniDmError("internal_error", err.message);
-    return new UniDmError("internal_error", String(err));
+  static from(err: unknown): SyntaxDmError {
+    if (err instanceof SyntaxDmError) return err;
+    if (err instanceof Error) return new SyntaxDmError("internal_error", err.message);
+    return new SyntaxDmError("internal_error", String(err));
   }
 }

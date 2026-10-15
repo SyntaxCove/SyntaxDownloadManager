@@ -1,10 +1,10 @@
 /**
- * The renderer↔preload API surface (exposed as `window.unidm`).
+ * The renderer↔preload API surface (exposed as `window.syntaxdm`).
  * Declared here so preload implements it and the renderer consumes the same type.
  * Runtime input/output validation lives on both ends (preload envelope checks + renderer
  * zod re-validation) — this interface is the compile-time shape.
  */
-export interface UnidmBridge {
+export interface SyntaxDmBridge {
   /**
    * Invoke a registered main-process method. Rejects with a ContractError-shaped object
    * (`{ code, message, data? }`) when the main process returns an error envelope.

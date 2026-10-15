@@ -64,7 +64,7 @@ queue policies (Phase 8).
 - `DownloadCreateParams` + optional `checksum: { algorithm: sha256|sha1|md5, value }`
   (hex length validated: 64/40/32).
 - `settings` + `maxConnectionsPerDownload` (1..16, default 4); `download.setConcurrency`
-  params gain optional `maxConnectionsPerDownload`; core reads `UNIDM_MAX_CONNECTIONS`.
+  params gain optional `maxConnectionsPerDownload`; core reads `SYNTAXDM_MAX_CONNECTIONS`.
 - Fixtures: add a segmented `downloadJobSegmented` fixture consumed by vitest + cargo.
 
 ### Wiring

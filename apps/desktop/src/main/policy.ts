@@ -1,4 +1,4 @@
-import type { AppSettings } from "@unidm/contracts";
+import type { AppSettings } from "@syntaxdm/contracts";
 
 /**
  * Phase 8 — engine operating policy payload. Pure helpers so the queue/scheduler

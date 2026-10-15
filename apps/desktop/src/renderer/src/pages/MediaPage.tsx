@@ -27,7 +27,7 @@ import { useMediaStore } from "../stores/media.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { formatBytes } from "./DownloadsPage.js";
-import type { AudioFormat, MediaJob, SubtitleTrack, VideoFormat } from "@unidm/contracts";
+import type { AudioFormat, MediaJob, SubtitleTrack, VideoFormat } from "@syntaxdm/contracts";
 
 /**
  * Media page — Phase 11 inspection + Phase 12 pipeline: pick a video format, an audio

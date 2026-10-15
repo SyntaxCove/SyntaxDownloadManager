@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ProxyProfilePublic } from "@unidm/contracts";
+import type { ProxyProfilePublic } from "@syntaxdm/contracts";
 import { rpc } from "../bridge.js";
 import { describeError } from "./settings.js";
 

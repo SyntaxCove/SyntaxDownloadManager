@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SchedulerJob } from "@unidm/contracts";
+import type { SchedulerJob } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 import { describeError } from "./settings.js";
 

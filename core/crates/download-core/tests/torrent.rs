@@ -538,7 +538,7 @@ impl TestEnv {
 
 fn tempdir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "unidm-torrent-test-{tag}-{}-{}",
+        "syntaxdm-torrent-test-{tag}-{}-{}",
         std::process::id(),
         dc_protocol::new_ulid()
     ));

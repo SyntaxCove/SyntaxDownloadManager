@@ -1,4 +1,4 @@
-import type { UpdateProgress, UpdateState, UpdateStatus, UpdateUnavailableReason } from "@unidm/contracts";
+import type { UpdateProgress, UpdateState, UpdateStatus, UpdateUnavailableReason } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 
 /**
@@ -56,7 +56,7 @@ export function resolveUpdateFeed(opts: {
       return {
         kind: "invalid",
         code: "update_feed_invalid",
-        detail: "UNIDM_UPDATE_FEED_URL must be an https URL",
+        detail: "SYNTAXDM_UPDATE_FEED_URL must be an https URL",
       };
     }
     try {
@@ -69,7 +69,7 @@ export function resolveUpdateFeed(opts: {
       return {
         kind: "invalid",
         code: "update_feed_invalid",
-        detail: "UNIDM_UPDATE_FEED_URL is not a valid URL",
+        detail: "SYNTAXDM_UPDATE_FEED_URL is not a valid URL",
       };
     }
   }

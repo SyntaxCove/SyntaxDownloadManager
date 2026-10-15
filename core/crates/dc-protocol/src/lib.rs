@@ -1,4 +1,4 @@
-//! dc-protocol — Rust mirror of `packages/contracts` (the UniDM wire contract).
+//! dc-protocol — Rust mirror of `packages/contracts` (the Syntax Download Manager wire contract).
 //!
 //! Both sides must agree byte-for-byte on the JSON shapes; shared fixtures in
 //! `packages/contracts/fixtures/` are parsed by tests on both languages.

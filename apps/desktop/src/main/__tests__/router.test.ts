@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { IpcRouter, toContractError } from "../ipc/router.js";
-import { UniDmError, makeRequest, newUlid, PROTOCOL_VERSION } from "@unidm/contracts";
+import { SyntaxDmError, makeRequest, newUlid, PROTOCOL_VERSION } from "@syntaxdm/contracts";
 
 function setup() {
   const sent: unknown[] = [];
@@ -14,7 +14,7 @@ function setup() {
   });
   router.handle("fail.uni", {
     handler: async () => {
-      throw new UniDmError("storage_error", "db locked");
+      throw new SyntaxDmError("storage_error", "db locked");
     },
   });
   router.handle("fail.plain", {
@@ -103,7 +103,7 @@ describe("IpcRouter", () => {
 
   it("toContractError normalizes unknown throwables", () => {
     expect(toContractError("oops")).toEqual({ code: "internal_error", message: "oops" });
-    expect(toContractError(new UniDmError("io_error", "disk"))).toEqual({
+    expect(toContractError(new SyntaxDmError("io_error", "disk"))).toEqual({
       code: "io_error", message: "disk",
     });
   });

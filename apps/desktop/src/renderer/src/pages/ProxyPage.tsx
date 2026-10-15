@@ -26,7 +26,7 @@ import {
   PlugConnectedRegular,
 } from "@fluentui/react-icons";
 import { useProxyStore, type ProxyDraft, type ProxySchemeChoice } from "../stores/proxy.js";
-import type { ProxyProfilePublic } from "@unidm/contracts";
+import type { ProxyProfilePublic } from "@syntaxdm/contracts";
 
 /**
  * Proxy page (Phase 9): profile management for per-tab and per-job routing.

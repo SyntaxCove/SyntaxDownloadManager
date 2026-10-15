@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron";
-import { EVENTS, METHODS, UniDmError, type BrowserTab } from "@unidm/contracts";
+import { EVENTS, METHODS, SyntaxDmError, type BrowserTab } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import { TabManager, type ProxyResolver } from "./tab-manager.js";
 import type { RecordedVisit } from "./history-recorder.js";
@@ -28,7 +28,7 @@ export function registerBrowserDomain(
 
   const assertProfile = (id: string | null | undefined): void => {
     if (id && !(proxyContext?.hasProfile(id) ?? false)) {
-      throw new UniDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
+      throw new SyntaxDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
     }
   };
 

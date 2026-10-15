@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "unidm",
+      "name": "syntaxdm",
       "devDependencies": {
         "@types/node": "24.9.1",
         "typescript": "5.9.3",
@@ -11,10 +11,10 @@
       },
     },
     "apps/desktop": {
-      "name": "@unidm/desktop",
+      "name": "@syntaxdm/desktop",
       "version": "0.5.0",
       "dependencies": {
-        "@unidm/contracts": "*",
+        "@syntaxdm/contracts": "*",
         "lzma-native": "8.0.6",
         "react": "19.3.0",
         "react-dom": "19.3.0",
@@ -39,7 +39,7 @@
       },
     },
     "packages/contracts": {
-      "name": "@unidm/contracts",
+      "name": "@syntaxdm/contracts",
       "version": "1.6.0",
       "dependencies": {
         "zod": "4.6.5",
@@ -320,9 +320,9 @@
 
     "@types/yazl": ["@types/yazl@3.3.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-mFL6lGkk2N5u5nIxpNV/K5LW3qVSbxhJrMxYGOOxZndWxMgCamr/iCsq/1t9kd8pEwhuNP91LC5qZm/qS9pOEw=="],
 
-    "@unidm/contracts": ["@unidm/contracts@workspace:packages/contracts"],
+    "@syntaxdm/contracts": ["@syntaxdm/contracts@workspace:packages/contracts"],
 
-    "@unidm/desktop": ["@unidm/desktop@workspace:apps/desktop"],
+    "@syntaxdm/desktop": ["@syntaxdm/desktop@workspace:apps/desktop"],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.1.2", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.1" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "oxc-transform-react": "^0.152.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler", "oxc-transform-react"] }, "sha512-fhJNGUdscQa4HkI0xFxwonWyhnVReCPDbXI7FH7jmzpnVCrFQI7PRrhWecO263610vOrs9tr2Y4xcf8uAdFxbw=="],
 

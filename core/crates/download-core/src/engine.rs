@@ -215,7 +215,7 @@ impl Engine {
         inspect_limiter: Arc<Semaphore>,
     ) -> Self {
         let client = reqwest::Client::builder()
-            .user_agent(concat!("UniDM/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Syntax Download Manager/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(20))
             .build()
             .expect("reqwest client builds");
@@ -340,7 +340,7 @@ impl Engine {
             );
         }
         reqwest::Client::builder()
-            .user_agent(concat!("UniDM/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Syntax Download Manager/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(20))
             .proxy(proxy)
             .build()
@@ -382,7 +382,7 @@ impl Engine {
             );
         }
         let client = reqwest::Client::builder()
-            .user_agent(concat!("UniDM/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Syntax Download Manager/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(12))
             .timeout(Duration::from_secs(12))
             .proxy(proxy)

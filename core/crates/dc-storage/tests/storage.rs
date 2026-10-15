@@ -246,9 +246,9 @@ fn sample_media_job(id: &str, status: &str) -> dc_protocol::MediaJob {
             is_auto_generated: false,
         }],
         container: dc_protocol::MediaContainer::Mkv,
-        destination_dir: "/tmp/unidm-media-test".into(),
+        destination_dir: "/tmp/syntaxdm-media-test".into(),
         destination_path: None,
-        work_dir: Some(format!("/tmp/unidm-media-test/.unidm-media/{id}")),
+        work_dir: Some(format!("/tmp/syntaxdm-media-test/.syntaxdm-media/{id}")),
         status: status.into(),
         total_bytes: Some(121_400_000),
         received_bytes: 0,
@@ -303,7 +303,7 @@ fn media_jobs_crud_round_trip() {
     let mut updated = live;
     updated.title = Some("Renamed".into());
     updated.status = "completed".into();
-    updated.destination_path = Some("/tmp/unidm-media-test/Sample Video.mkv".into());
+    updated.destination_path = Some("/tmp/syntaxdm-media-test/Sample Video.mkv".into());
     updated.updated_at = 1_735_689_900_000;
     store.update_media_job(&updated).unwrap();
     let done = store
@@ -314,7 +314,7 @@ fn media_jobs_crud_round_trip() {
     assert_eq!(done.title.as_deref(), Some("Renamed"));
     assert_eq!(
         done.destination_path.as_deref(),
-        Some("/tmp/unidm-media-test/Sample Video.mkv")
+        Some("/tmp/syntaxdm-media-test/Sample Video.mkv")
     );
 
     assert!(store
@@ -631,7 +631,7 @@ fn history_search_matches_url_and_title_case_insensitively() {
     let store = JobStore::open_in_memory().unwrap();
     store
         .insert_history_entry(&history_entry(
-            "https://example.com/UniDM-Docs",
+            "https://example.com/Syntax Download Manager-Docs",
             Some("Framework docs"),
             1000,
         ))
@@ -644,9 +644,9 @@ fn history_search_matches_url_and_title_case_insensitively() {
         ))
         .unwrap();
 
-    let by_url = store.list_history(Some("unidm"), 10, 0).unwrap();
+    let by_url = store.list_history(Some("syntaxdm"), 10, 0).unwrap();
     assert_eq!(by_url.len(), 1);
-    assert_eq!(by_url[0].url, "https://example.com/UniDM-Docs");
+    assert_eq!(by_url[0].url, "https://example.com/Syntax Download Manager-Docs");
 
     let by_title = store.list_history(Some("RELEASE"), 10, 0).unwrap();
     assert_eq!(by_title.len(), 1);

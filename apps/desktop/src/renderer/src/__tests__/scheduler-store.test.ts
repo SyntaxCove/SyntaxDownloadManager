@@ -5,7 +5,7 @@ import {
   localInputToEpochMs,
   epochMsToLocalInput,
 } from "../stores/scheduler.js";
-import type { SchedulerJob } from "@unidm/contracts";
+import type { SchedulerJob } from "@syntaxdm/contracts";
 
 /**
  * Phase 15 — scheduler store against a stubbed preload bridge: the create lifecycle
@@ -75,7 +75,7 @@ beforeEach(() => {
   eventSink = null;
   useSchedulerStore.setState({ jobs: [], jobsLoaded: false, error: null });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         if (coreError) return Promise.reject(coreError);

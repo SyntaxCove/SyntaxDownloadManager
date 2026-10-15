@@ -30,7 +30,7 @@ one audio format and/or subtitle tracks; the app creates a **persistent media jo
    ours. A single extra `--skip-download` run fetches all selected subtitle tracks at once.
 3. **The final mux is ours (FFmpeg, `-c copy` — never a re-encode).** Inputs: video, audio,
    subtitle files. `-f matroska` (mkv, `-c:s srt`) or `-f mp4` (`-c:s mov_text`). Output is
-   written to `<dest>/<base>.<container>.tmp-unidm` and renamed only after a clean exit —
+   written to `<dest>/<base>.<container>.tmp-syntaxdm` and renamed only after a clean exit —
    a partial mux is never presented as finished. Audio-only jobs skip the mux: the audio
    file moves to the destination untouched.
 4. **Fail-closed everywhere.** yt-dlp/ffmpeg resolve through the shared `ToolkitMap` only
@@ -41,7 +41,7 @@ one audio format and/or subtitle tracks; the app creates a **persistent media jo
    that vanished from the fresh extraction is `media_format_not_found` (the site changed;
    the user re-inspects and re-selects — bytes stay on disk).
 5. **Progress is parsed, not guessed.** yt-dlp runs carry
-   `--progress-template download:UNIDM %(progress.downloaded_bytes)s …` (machine tokens on
+   `--progress-template download:SYNTAXDM %(progress.downloaded_bytes)s …` (machine tokens on
    stderr; human lines never parsed); ffmpeg runs carry `-progress pipe:1 -nostats`
    (`out_time_ms` microseconds vs manifest duration). A 500 ms ticker emits throttled
    `media.progress` events and persists the row; every state change emits `media.updated`.
@@ -76,7 +76,7 @@ one audio format and/or subtitle tracks; the app creates a **persistent media jo
 - **dc-protocol (cargo)**: `MediaJob` round-trip + `mediaJob` fixture byte-parity.
 - **dc-storage (cargo)**: media CRUD, progress update, boot reset of active rows, migration v6.
 - **download-core (cargo)**: unit — validation table (url/format-id/subtitle/lang hygiene),
-  yt-dlp UNIDM token parsing, ffmpeg `out_time_ms` parsing, stream-file discovery, mux arg
+  yt-dlp SYNTAXDM token parsing, ffmpeg `out_time_ms` parsing, stream-file discovery, mux arg
   building (mkv/mp4 × video/audio/subtitle combinations), plan derivation; **integration**
   via fake `yt-dlp`/`ffmpeg` executables (cfg(unix), pushed through `toolkit.setPaths`):
   happy path (video+audio+subs → completed, work dir cleaned), audio-only move, missing

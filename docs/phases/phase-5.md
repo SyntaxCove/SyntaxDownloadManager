@@ -17,7 +17,7 @@
   `download.setConcurrency`), queued jobs pumped as slots free; pause/cancel/resume
   transitions validated against job status; failures map to typed contract error codes
   (network_error/http_error/range_not_satisfiable/io_error/disk_full/…).
-- **Supervisor (main)**: spawn with UNIDM_DB/UNIDM_MAX_CONCURRENT, exponential backoff
+- **Supervisor (main)**: spawn with SYNTAXDM_DB/SYNTAXDM_MAX_CONCURRENT, exponential backoff
   restart (500ms→15s, give up after 8 consecutive failures, healthy stretch resets streak),
   `core.state` events to the renderer, graceful stop (shutdown request → SIGTERM → SIGKILL).
 - **Renderer**: Downloads page — create-by-URL (save dir from settings), live progress bars

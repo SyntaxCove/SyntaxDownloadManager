@@ -13,7 +13,7 @@ a real quit. The Rust core learns nothing about updates; the whole domain is mai
 
 ## Architecture
 
-- **`domains/updates.ts` (pure, fully tested)** — `resolveUpdateFeed` (env `UNIDM_UPDATE_FEED_URL`
+- **`domains/updates.ts` (pure, fully tested)** — `resolveUpdateFeed` (env `SYNTAXDM_UPDATE_FEED_URL`
   https-validated → packaged `resources/app-update.yml` → classified `none`), the
   `UpdateController` state machine (`idle → checking → available|not-available →
   downloading → downloaded → installing`, plus `error`/`unavailable`), progress throttling
@@ -24,7 +24,7 @@ a real quit. The Rust core learns nothing about updates; the whole domain is mai
   configured `autoDownload=false`, `autoInstallOnAppQuit=true`, `allowDowngrade=false`,
   `disableWebInstaller=true`; its events drive the controller; the env feed goes through
   `setFeedURL({ provider: "generic", url })`, the packaged `app-update.yml` is implicit.
-  A no-feed install gets a port that throws classified `UniDmError`s — defense in depth
+  A no-feed install gets a port that throws classified `SyntaxDmError`s — defense in depth
   behind the controller's guards.
 - **`main.ts` wiring** — controller constructed after the tray (the install teardown needs
   both), methods registered, snapshots emitted through `router.emit` (zod-validated,
@@ -65,7 +65,7 @@ a real quit. The Rust core learns nothing about updates; the whole domain is mai
   publisher verification) is a Phase 19 / release-engineering concern; the Settings copy
   claims exactly what is verified, nothing more.
 - **No release channels, no force updates, no silent restarts.** One stable feed;
-  `autoInstallOnAppQuit` is surfaced in the UI copy ("applies when you quit UniDM").
+  `autoInstallOnAppQuit` is surfaced in the UI copy ("applies when you quit Syntax Download Manager").
 - **The `installing` event may never reach the renderer** (the IPC channel dies with the
   app); the UI treats the `update.install → { accepted: true }` response as the terminal
   signal.

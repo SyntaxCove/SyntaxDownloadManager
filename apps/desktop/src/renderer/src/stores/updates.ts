@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { UpdateState } from "@unidm/contracts";
+import type { UpdateState } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
 /**

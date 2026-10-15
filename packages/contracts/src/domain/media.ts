@@ -120,7 +120,7 @@ export const MediaJob = z.object({
   destinationDir: z.string().min(1),
   /** Final file path; null until the mux renames it into place. */
   destinationPath: z.string().min(1).nullable(),
-  /** Private scratch dir (`<destinationDir>/.unidm-media/<id>/`); null until first run. */
+  /** Private scratch dir (`<destinationDir>/.syntaxdm-media/<id>/`); null until first run. */
   workDir: z.string().min(1).nullable(),
   status: MediaJobStatus,
   /** Sum of the selected stream sizes from the fresh manifest; null while unknown. */

@@ -74,7 +74,7 @@ export function AppShell(): ReactNode {
   return (
     <div className={styles.root}>
       <div className={styles.titlebar} style={dragStyle}>
-        <Text className={styles.titleText}>UniDM</Text>
+        <Text className={styles.titleText}>Syntax Download Manager</Text>
       </div>
       <div className={styles.body}>
         <nav className={styles.nav} aria-label="Primary" style={noDragStyle}>

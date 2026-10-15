@@ -3,24 +3,24 @@ import type { Readable, Writable } from "node:stream";
 import { createInterface } from "node:readline";
 import {
   EVENTS,
-  UniDmError,
+  SyntaxDmError,
   makeRequest,
   type ContractError,
   type EventName,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import type { z } from "zod";
 
 /**
  * CoreClient — JSONL framing over the core's stdio streams.
  *  - requests carry a ULID-ish id and are resolved/rejected by matching response envelopes;
- *  - requests time out (default 30s) → `timeout` UniDmError;
+ *  - requests time out (default 30s) → `timeout` SyntaxDmError;
  *  - events are validated against the contracts event registry before dispatch;
  *  - malformed lines are logged and skipped (the protocol is line-delimited JSON).
  */
 
 export interface PendingRequest {
   resolve: (result: unknown) => void;
-  reject: (err: UniDmError) => void;
+  reject: (err: SyntaxDmError) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -41,7 +41,7 @@ export class CoreClient extends EventEmitter {
     lines.on("line", (line) => this.onLine(line));
     lines.on("close", () => {
       this.closed = true;
-      this.rejectAll(new UniDmError("core_unavailable", "core stream closed"));
+      this.rejectAll(new SyntaxDmError("core_unavailable", "core stream closed"));
       this.emit("closed");
     });
   }
@@ -49,13 +49,13 @@ export class CoreClient extends EventEmitter {
   /** Send a request and await the matching response envelope. */
   request<T = unknown>(method: string, params?: unknown, timeoutMs = this.defaultTimeoutMs): Promise<T> {
     if (this.closed) {
-      return Promise.reject(new UniDmError("core_unavailable", "core is not running"));
+      return Promise.reject(new SyntaxDmError("core_unavailable", "core is not running"));
     }
     const id = `r-${Date.now().toString(36)}-${this.pending.size}-${Math.random().toString(36).slice(2, 8)}`;
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new UniDmError("timeout", `core request ${method} timed out after ${timeoutMs}ms`));
+        reject(new SyntaxDmError("timeout", `core request ${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (r: unknown) => void, reject, timer });
       const envelope = makeRequest(id, method, params);
@@ -63,13 +63,13 @@ export class CoreClient extends EventEmitter {
         if (err) {
           clearTimeout(timer);
           this.pending.delete(id);
-          reject(new UniDmError("core_unavailable", `write failed: ${err.message}`));
+          reject(new SyntaxDmError("core_unavailable", `write failed: ${err.message}`));
         }
       });
     });
   }
 
-  rejectAll(err: UniDmError): void {
+  rejectAll(err: SyntaxDmError): void {
     for (const [id, pending] of this.pending) {
       clearTimeout(pending.timer);
       pending.reject(err);
@@ -122,7 +122,7 @@ export class CoreClient extends EventEmitter {
         pending.resolve(message.result);
       } else {
         const err = message.error as ContractError | undefined;
-        pending.reject(new UniDmError(err?.code ?? "internal_error", err?.message ?? "core error", err?.data));
+        pending.reject(new SyntaxDmError(err?.code ?? "internal_error", err?.message ?? "core error", err?.data));
       }
       return;
     }

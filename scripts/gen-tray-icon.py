@@ -1,4 +1,4 @@
-"""Generate the UniDM tray icon (Phase 17): rounded dark tile + download arrow.
+"""Generate the Syntax Download Manager tray icon (Phase 17): rounded dark tile + download arrow.
 
 Matches the shell window's dark aesthetic (#202020 tile) with a Fluent-style accent
 arrow. Drawn once at build time; the PNG is committed as a real asset, not generated
@@ -44,6 +44,6 @@ d.rounded_rectangle(
     fill=ARROW,
 )
 
-out = "/home/z/my-project/apps/desktop/resources/icons/unidm-tray.png"
+out = "/home/z/my-project/apps/desktop/resources/icons/syntaxdm-tray.png"
 img.save(out)
 print("wrote", out, img.size)

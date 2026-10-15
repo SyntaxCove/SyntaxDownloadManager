@@ -75,7 +75,7 @@ fn write_exec(dir: &std::path::Path, name: &str, body: &str) -> String {
     path.to_string_lossy().to_string()
 }
 
-/// A fake yt-dlp: `--dump-single-json` prints the manifest; a stream run prints UNIDM
+/// A fake yt-dlp: `--dump-single-json` prints the manifest; a stream run prints SYNTAXDM
 /// progress lines and lands `<label>.mp4`; the subtitle run writes `<base>.<lang>.vtt`.
 fn fake_ytdlp(dir: &std::path::Path, manifest: &str, mode: &str) -> String {
     let sleep = if mode == "slow" { "sleep 30\n" } else { "" };
@@ -111,8 +111,8 @@ if [ "${{skip:-0}}" = "1" ]; then
   exit 0
 fi
 {sleep}
-echo "UNIDM 40 100 100 10 1" >&2
-echo "UNIDM 100 100 100 10 0" >&2
+echo "SYNTAXDM 40 100 100 10 1" >&2
+echo "SYNTAXDM 100 100 100 10 0" >&2
 case "$fmt" in
   140) ext="m4a";;
   *) ext="mp4";;
@@ -169,7 +169,7 @@ async fn wait_status(
 
 fn tempdir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "unidm-media-test-{tag}-{}-{}",
+        "syntaxdm-media-test-{tag}-{}-{}",
         std::process::id(),
         dc_protocol::new_ulid()
     ));

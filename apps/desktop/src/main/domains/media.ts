@@ -1,4 +1,4 @@
-import { METHODS } from "@unidm/contracts";
+import { METHODS } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
 

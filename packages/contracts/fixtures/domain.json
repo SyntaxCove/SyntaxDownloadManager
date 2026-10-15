@@ -248,7 +248,7 @@
         "id": "yt-dlp",
         "version": "2025.09.26",
         "state": "ready",
-        "path": "/home/u/.config/unidm/tools/yt-dlp/2025.09.26/yt-dlp",
+        "path": "/home/u/.config/syntaxdm/tools/yt-dlp/2025.09.26/yt-dlp",
         "bytesFetched": 20642440,
         "totalBytes": 20642440,
         "errorCode": null,
@@ -271,17 +271,17 @@
       {
         "id": "yt-dlp",
         "version": "2025.09.26",
-        "path": "/opt/unidm/tools/yt-dlp/2025.09.26/yt-dlp"
+        "path": "/opt/syntaxdm/tools/yt-dlp/2025.09.26/yt-dlp"
       },
       {
         "id": "ffmpeg",
         "version": "8.0.1",
-        "path": "/opt/unidm/tools/ffmpeg/8.0.1/ffmpeg"
+        "path": "/opt/syntaxdm/tools/ffmpeg/8.0.1/ffmpeg"
       },
       {
         "id": "deno",
         "version": "2.1.5",
-        "path": "/opt/unidm/tools/deno/2.1.5/deno"
+        "path": "/opt/syntaxdm/tools/deno/2.1.5/deno"
       }
     ]
   },
@@ -302,7 +302,7 @@
     "container": "mkv",
     "destinationDir": "/home/user/Downloads",
     "destinationPath": null,
-    "workDir": "/home/user/Downloads/.unidm-media/01JD8W3G5XQ9V4M2K7PZ6N8S0V",
+    "workDir": "/home/user/Downloads/.syntaxdm-media/01JD8W3G5XQ9V4M2K7PZ6N8S0V",
     "status": "downloading",
     "totalBytes": 121400000,
     "receivedBytes": 60700000,
@@ -363,15 +363,15 @@
   },
   "historyEntry": {
     "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0H",
-    "url": "https://example.com/articles/unidm",
-    "title": "UniDM release notes",
+    "url": "https://example.com/articles/syntaxdm",
+    "title": "Syntax Download Manager release notes",
     "faviconUrl": "https://example.com/favicon.ico",
     "visitedAt": 1735689600000
   },
   "bookmark": {
     "id": "01JD8W3G5XQ9V4M2K7PZ6N8S0B",
-    "url": "https://example.com/articles/unidm",
-    "title": "UniDM release notes",
+    "url": "https://example.com/articles/syntaxdm",
+    "title": "Syntax Download Manager release notes",
     "position": 0,
     "createdAt": 1735689600000,
     "updatedAt": 1735689600000

@@ -8,7 +8,7 @@ surface beyond the mirrored version constant).
 ## Scope
 
 1. **Update feed resolution (main, fail-closed)** — an update source is either the
-   `UNIDM_UPDATE_FEED_URL` env override (must be https) or the `app-update.yml`
+   `SYNTAXDM_UPDATE_FEED_URL` env override (must be https) or the `app-update.yml`
    electron-builder drops into `resources/` at packaging time (Phase 19). No feed → the
    updater reports `unavailable / no_feed`; unpackaged (dev) runs report
    `unavailable / not_packaged`. A non-https env URL is a classified failure

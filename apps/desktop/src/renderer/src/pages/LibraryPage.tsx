@@ -31,7 +31,7 @@ import {
   VideoClipMultipleRegular,
   ArrowSquareDownRegular,
 } from "@fluentui/react-icons";
-import type { LibraryEntryKind } from "@unidm/contracts";
+import type { LibraryEntryKind } from "@syntaxdm/contracts";
 import { useDownloadsStore } from "../stores/downloads.js";
 import { useMediaStore } from "../stores/media.js";
 import { useTorrentStore } from "../stores/torrent.js";

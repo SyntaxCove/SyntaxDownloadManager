@@ -2,14 +2,14 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppSettings, SETTINGS_DEFAULTS } from "@unidm/contracts";
+import { AppSettings, SETTINGS_DEFAULTS } from "@syntaxdm/contracts";
 import { SettingsStore, registerSettingsDomain } from "../domains/settings.js";
 import { IpcRouter } from "../ipc/router.js";
 
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "unidm-settings-"));
+  dir = await mkdtemp(join(tmpdir(), "syntaxdm-settings-"));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });

@@ -20,7 +20,7 @@ const d = LIVE ? it : it.skip;
  *  import.meta (this package compiles to CommonJS). */
 function findShippedManifest(): string {
   const candidates = [
-    process.env.UNIDM_TOOLCHAINS_MANIFEST,
+    process.env.SYNTAXDM_TOOLCHAINS_MANIFEST,
     resolve("apps/desktop/resources/toolchains.json"),
     resolve("resources/toolchains.json"),
   ].filter((p): p is string => !!p);
@@ -34,7 +34,7 @@ describe("toolkit live pipeline (opt-in)", () => {
     expect(manifest.manifestVersion).toBe(1);
     expect(platform).not.toBeNull();
 
-    const root = await mkdtemp(join(tmpdir(), "unidm-live-"));
+    const root = await mkdtemp(join(tmpdir(), "syntaxdm-live-"));
     try {
       const manager = new ToolkitManager({
         manifestPath,

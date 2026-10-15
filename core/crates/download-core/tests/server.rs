@@ -259,7 +259,7 @@ fn spawned_binary_end_to_end() {
     let _ = std::fs::remove_file(&db);
 
     let mut child = std::process::Command::new(exe)
-        .env("UNIDM_DB", &db)
+        .env("SYNTAXDM_DB", &db)
         .stdout(std::process::Stdio::piped())
         .stdin(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())

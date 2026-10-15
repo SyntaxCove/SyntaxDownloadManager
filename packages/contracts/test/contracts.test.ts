@@ -768,7 +768,7 @@ describe("v1.9 browser history, bookmarks and library (Phase 14)", () => {
   });
 
   it("fixtures parse against the new schemas (cross-language parity inputs)", () => {
-    expect(HistoryEntry.parse(domainFixture.historyEntry).url).toBe("https://example.com/articles/unidm");
+    expect(HistoryEntry.parse(domainFixture.historyEntry).url).toBe("https://example.com/articles/syntaxdm");
     expect(Bookmark.parse(domainFixture.bookmark).position).toBe(0);
   });
 });

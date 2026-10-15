@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EVENTS, SETTINGS_DEFAULTS, newUlid, type DownloadJob, type MediaJob, type TorrentJob } from "@unidm/contracts";
+import { EVENTS, SETTINGS_DEFAULTS, newUlid, type DownloadJob, type MediaJob, type TorrentJob } from "@syntaxdm/contracts";
 import { IpcRouter } from "../ipc/router.js";
 import {
   describeTransition,
@@ -51,7 +51,7 @@ const mediaJob = (id: string, status: string): MediaJob => ({
   container: "mkv",
   destinationDir: "/home/user/Downloads",
   destinationPath: null,
-  workDir: `/home/user/Downloads/.unidm-media/${id}`,
+  workDir: `/home/user/Downloads/.syntaxdm-media/${id}`,
   status: status as MediaJob["status"],
   totalBytes: 121400000,
   receivedBytes: 60700000,

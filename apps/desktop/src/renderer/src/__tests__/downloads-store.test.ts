@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { DownloadJob } from "@unidm/contracts";
+import type { DownloadJob } from "@syntaxdm/contracts";
 import { compareQueueDisplay, useDownloadsStore } from "../stores/downloads.js";
 
 /**
@@ -69,7 +69,7 @@ beforeEach(() => {
   calls.length = 0;
   useDownloadsStore.setState({ jobs: [], loaded: true, core: "ready" });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         return Promise.resolve(rpcResult(method, params));

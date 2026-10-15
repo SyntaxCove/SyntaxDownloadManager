@@ -1,5 +1,5 @@
-import type { DownloadJob, JobDomain, MediaJob, TorrentJob } from "@unidm/contracts";
-import { JobEndTracker, coreStateToast, jobEndLabel } from "@unidm/contracts";
+import type { DownloadJob, JobDomain, MediaJob, TorrentJob } from "@syntaxdm/contracts";
+import { JobEndTracker, coreStateToast, jobEndLabel } from "@syntaxdm/contracts";
 import { onEvent } from "../bridge.js";
 
 /**

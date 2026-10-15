@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, Notification, nativeImage, safeStorage, Tray, shell } from "electron";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { EVENTS } from "@unidm/contracts";
+import { EVENTS } from "@syntaxdm/contracts";
 import { IpcRouter } from "./ipc/router.js";
 import { bindElectronRpc } from "./ipc/electron-rpc.js";
 import { createMainWindow } from "./window.js";
@@ -31,7 +31,7 @@ import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
 
 /**
- * UniDM entry point. Lifecycle:
+ * Syntax Download Manager entry point. Lifecycle:
  *  1. single-instance lock (second launch focuses the existing window);
  *  2. renderer process sandbox enabled process-wide before `ready`;
  *  3. shell window + typed IPC router bound to Electron;
@@ -60,11 +60,11 @@ if (!gotLock) {
     // Phase 17: stable Windows notification identity (OS toast grouping + Action Center).
     // Dev caveat: unpackaged runs have no Start-menu shortcut carrying this AUM ID, so
     // Windows may not deliver toasts there; packaged installs (Phase 19) register it.
-    app.setAppUserModelId("com.unidm.desktop");
+    app.setAppUserModelId("com.syntaxdm.desktop");
     const paths = resolveAppPaths({
       appRoot,
       isPackaged: app.isPackaged,
-      envDevServerUrl: process.env.UNIDM_DEV_SERVER_URL,
+      envDevServerUrl: process.env.SYNTAXDM_DEV_SERVER_URL,
     });
 
     const router = new IpcRouter((msg) => console.log(msg));
@@ -125,7 +125,7 @@ if (!gotLock) {
     // Rust download core: supervised subprocess owning the SQLite database.
     // (Constructed before the browser domain so the visit sink below can capture it.)
     const supervisor = new CoreSupervisor({
-      binaryPath: resolveCoreBinaryPath({ appRoot, isPackaged: app.isPackaged, envOverride: process.env.UNIDM_CORE_BIN }),
+      binaryPath: resolveCoreBinaryPath({ appRoot, isPackaged: app.isPackaged, envOverride: process.env.SYNTAXDM_CORE_BIN }),
       dbPath: join(app.getPath("userData"), "downloads.db"),
       maxConcurrent: settingsStore.settings.concurrentDownloads,
       maxConnectionsPerDownload: settingsStore.settings.maxConnectionsPerDownload,
@@ -279,11 +279,11 @@ if (!gotLock) {
     }
 
     // ---- Phase 18: auto-update channel ----
-    // Feed: UNIDM_UPDATE_FEED_URL (https) or the packaged resources/app-update.yml
+    // Feed: SYNTAXDM_UPDATE_FEED_URL (https) or the packaged resources/app-update.yml
     // (electron-builder, Phase 19). Unpackaged runs resolve to unavailable/not_packaged.
     const updateController = createElectronUpdater({
       isPackaged: app.isPackaged,
-      envFeedUrl: process.env.UNIDM_UPDATE_FEED_URL,
+      envFeedUrl: process.env.SYNTAXDM_UPDATE_FEED_URL,
       resourcesAppUpdateYmlExists: existsSync(join(process.resourcesPath, "app-update.yml")),
       currentVersion: app.getVersion(),
       autoCheckEnabled: () => settingsStore.settings.updateAutoCheck,

@@ -1,4 +1,4 @@
-//! dc-bt — BitTorrent protocol toolbox for the UniDM torrent engine (Phase 13).
+//! dc-bt — BitTorrent protocol toolbox for the Syntax Download Manager torrent engine (Phase 13).
 //!
 //! Protocol-pure: codecs and small state machines with no storage, IPC or process deps.
 //! Orchestration (sessions, swarm peers, persistence, events) lives in

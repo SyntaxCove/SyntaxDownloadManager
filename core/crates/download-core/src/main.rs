@@ -4,8 +4,8 @@
 //! stdout: one JSON response/event envelope per line (logs NEVER go here)
 //! stderr: structured logs (tracing)
 //!
-//! The DB path arrives via UNIDM_DB (set by the supervising Electron main process);
-//! UNIDM_MAX_CONCURRENT carries the user's parallel-downloads setting.
+//! The DB path arrives via SYNTAXDM_DB (set by the supervising Electron main process);
+//! SYNTAXDM_MAX_CONCURRENT carries the user's parallel-downloads setting.
 
 use std::sync::Arc;
 
@@ -20,13 +20,13 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    let db_path = std::env::var("UNIDM_DB").unwrap_or_else(|_| "unidm-core.db".into());
-    let max_concurrent = std::env::var("UNIDM_MAX_CONCURRENT")
+    let db_path = std::env::var("SYNTAXDM_DB").unwrap_or_else(|_| "syntaxdm-core.db".into());
+    let max_concurrent = std::env::var("SYNTAXDM_MAX_CONCURRENT")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(3)
         .clamp(1, 8);
-    let max_connections = std::env::var("UNIDM_MAX_CONNECTIONS")
+    let max_connections = std::env::var("SYNTAXDM_MAX_CONNECTIONS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(4)

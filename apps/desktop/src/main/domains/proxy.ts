@@ -4,11 +4,11 @@ import {
   EVENTS,
   METHODS,
   newUlid,
-  UniDmError,
+  SyntaxDmError,
   type ProxyEndpoint,
   type ProxyProfileInput,
   type ProxyProfilePublic,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
 import type { SettingsStore } from "./settings.js";
@@ -147,7 +147,7 @@ export class ProxyProfileStore {
   async update(id: string, patch: Partial<ProxyProfileInput>): Promise<ProxyProfilePublic> {
     const profile = this.profiles.find((p) => p.id === id);
     if (!profile) {
-      throw new UniDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
+      throw new SyntaxDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
     }
     if (patch.name !== undefined) profile.name = patch.name;
     if (patch.scheme !== undefined) profile.scheme = patch.scheme;
@@ -167,7 +167,7 @@ export class ProxyProfileStore {
     const before = this.profiles.length;
     this.profiles = this.profiles.filter((p) => p.id !== id);
     if (this.profiles.length === before) {
-      throw new UniDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
+      throw new SyntaxDmError("proxy_profile_not_found", `proxy profile ${id} not found`);
     }
     await this.persist();
   }
@@ -206,7 +206,7 @@ export class ProxyProfileStore {
   private async encryptPassword(plain: string | null): Promise<string | null> {
     if (plain === null || plain === "") return null;
     if (!this.safeStorage.isEncryptionAvailable()) {
-      throw new UniDmError(
+      throw new SyntaxDmError(
         "proxy_keychain_unavailable",
         "OS keychain is unavailable; refusing to store the proxy password in plaintext",
       );
@@ -214,7 +214,7 @@ export class ProxyProfileStore {
     try {
       return ENC_MARKER + this.safeStorage.encryptString(plain).toString("base64");
     } catch {
-      throw new UniDmError(
+      throw new SyntaxDmError(
         "proxy_keychain_unavailable",
         "the OS keychain refused to encrypt the proxy password",
       );
@@ -247,7 +247,7 @@ export class ProxyProfileStore {
       await rename(tmp, this.filePath);
     } catch (err) {
       await unlink(tmp).catch(() => undefined);
-      throw new UniDmError("io_error", `proxy profiles persist failed: ${String(err)}`);
+      throw new SyntaxDmError("io_error", `proxy profiles persist failed: ${String(err)}`);
     }
   }
 
@@ -321,10 +321,10 @@ export function registerProxyDomain(
         jobCount = jobs.filter((j) => j.proxyProfileId === id).length;
       } catch {
         // Core unavailable: refuse to delete rather than orphan a bound job silently.
-        throw new UniDmError("core_unavailable", "cannot verify proxy usage while the core is unavailable");
+        throw new SyntaxDmError("core_unavailable", "cannot verify proxy usage while the core is unavailable");
       }
       if (jobCount > 0) {
-        throw new UniDmError(
+        throw new SyntaxDmError(
           "proxy_in_use",
           `${jobCount} download job(s) still reference this profile`,
           { jobCount },

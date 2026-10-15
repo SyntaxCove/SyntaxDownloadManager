@@ -8,7 +8,7 @@
 //! - yt-dlp's default `--continue` resumes `.part` files by size across runs, and streams
 //!   that already completed are detected on disk and skipped ("already been downloaded"),
 //!   so a pause/crash/restart costs at most the interrupted stream's tail;
-//! - the final mux is written to a `.tmp-unidm` sidepath and renamed only after ffmpeg
+//! - the final mux is written to a `.tmp-syntaxdm` sidepath and renamed only after ffmpeg
 //!   exits cleanly — a partial mux is never presented as finished;
 //! - tool resolution is fail-closed through the shared `ToolkitMap` (`media_tool_missing`
 //!   → paused, recoverable after the toolkit installs); proxy profiles resolve through the
@@ -146,7 +146,7 @@ pub fn build_ytdlp_stream_args(
         out_template.into(),
         // Machine-readable progress tokens on the stderr stream (NA = unknown).
         "--progress-template".into(),
-        "download:UNIDM %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s".into(),
+        "download:SYNTAXDM %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s %(progress.eta)s".into(),
     ];
     if let Some(endpoint) = proxy {
         args.push("--proxy".into());
@@ -262,12 +262,12 @@ pub fn build_ffmpeg_mux_args(
 // progress parsing (pure, unit-tested)
 // ---------------------------------------------------------------------------
 
-/// Parse one `--progress-template download:UNIDM …` line:
-/// `UNIDM <downloaded> <total> <estimate> <speed> <eta>` (NA = unknown). The template is
+/// Parse one `--progress-template download:SYNTAXDM …` line:
+/// `SYNTAXDM <downloaded> <total> <estimate> <speed> <eta>` (NA = unknown). The template is
 /// fixed-width: every field is always present, so the estimate slot is consumed even when
 /// the exact total is known.
-pub fn parse_unidm_progress(line: &str) -> Option<(u64, Option<u64>, u64, Option<u64>)> {
-    let rest = line.trim().strip_prefix("UNIDM ")?;
+pub fn parse_syntaxdm_progress(line: &str) -> Option<(u64, Option<u64>, u64, Option<u64>)> {
+    let rest = line.trim().strip_prefix("SYNTAXDM ")?;
     let mut it = rest.split_whitespace();
     let num = |t: Option<&str>| -> Option<u64> {
         let t = t?;
@@ -807,7 +807,7 @@ impl MediaJobManager {
         tokio::fs::create_dir_all(&dest)
             .await
             .map_err(contract_io)?;
-        let work_dir = dest.join(".unidm-media").join(job.id.as_str());
+        let work_dir = dest.join(".syntaxdm-media").join(job.id.as_str());
         tokio::fs::create_dir_all(&work_dir)
             .await
             .map_err(contract_io)?;
@@ -957,7 +957,7 @@ impl MediaJobManager {
                 cmd_rx,
                 stop,
                 move |line| {
-                    if let Some((downloaded, total, speed, eta)) = parse_unidm_progress(line) {
+                    if let Some((downloaded, total, speed, eta)) = parse_syntaxdm_progress(line) {
                         let mut s = prog.lock().expect("progress mutex poisoned");
                         s.downloaded = downloaded;
                         s.speed = speed;
@@ -1092,7 +1092,7 @@ impl MediaJobManager {
             }
             _ => self.resolve_final_path(job, job.container.as_str()).await?,
         };
-        let tmp_path = PathBuf::from(format!("{}.tmp-unidm", final_path.display()));
+        let tmp_path = PathBuf::from(format!("{}.tmp-syntaxdm", final_path.display()));
 
         match (&video_file, &audio_file) {
             (None, Some(audio_src)) => {
@@ -1519,7 +1519,7 @@ mod tests {
             audio_format_id: audio.map(str::to_string),
             subtitles: subs,
             container: MediaContainer::Mkv,
-            destination_dir: "/tmp/unidm".into(),
+            destination_dir: "/tmp/syntaxdm".into(),
             filename: None,
             proxy_profile_id: None,
         }
@@ -1598,7 +1598,7 @@ mod tests {
         );
         assert_eq!(args.last().unwrap(), "https://example.com/watch/abc");
         assert!(args.iter().any(|a| a == "137"));
-        assert!(args.iter().any(|a| a.contains("UNIDM")));
+        assert!(args.iter().any(|a| a.contains("SYNTAXDM")));
         assert!(!args.iter().any(|a| a == "--proxy"));
         let proxied = build_ytdlp_stream_args(
             "https://example.com/watch/abc",
@@ -1645,7 +1645,7 @@ mod tests {
             Some(Path::new("/work/video.mp4")),
             Some(Path::new("/work/audio.m4a")),
             &subs,
-            Path::new("/dest/out.mkv.tmp-unidm"),
+            Path::new("/dest/out.mkv.tmp-syntaxdm"),
             MediaContainer::Mkv,
         );
         let join_all = |needle: &str| -> Vec<usize> {
@@ -1668,13 +1668,13 @@ mod tests {
         assert!(args.windows(2).any(|w| w[0] == "-c:a" && w[1] == "copy"));
         assert!(args.windows(2).any(|w| w[0] == "-c:s" && w[1] == "srt"));
         assert!(args.windows(2).any(|w| w[0] == "-f" && w[1] == "matroska"));
-        assert_eq!(args.last().unwrap(), "/dest/out.mkv.tmp-unidm");
+        assert_eq!(args.last().unwrap(), "/dest/out.mkv.tmp-syntaxdm");
         // mp4 selects mov_text; video-only job shifts the audio maps away
         let mp4 = build_ffmpeg_mux_args(
             Some(Path::new("/work/video.webm")),
             None,
             &[],
-            Path::new("/dest/out.mp4.tmp-unidm"),
+            Path::new("/dest/out.mp4.tmp-syntaxdm"),
             MediaContainer::Mp4,
         );
         assert!(mp4.windows(2).any(|w| w[0] == "-c:v" && w[1] == "copy"));
@@ -1688,23 +1688,23 @@ mod tests {
     }
 
     #[test]
-    fn unidm_progress_lines_parse_with_na_fields() {
+    fn syntaxdm_progress_lines_parse_with_na_fields() {
         let (downloaded, total, speed, eta) =
-            parse_unidm_progress("UNIDM 4096 10000 10000 512 12").unwrap();
+            parse_syntaxdm_progress("SYNTAXDM 4096 10000 10000 512 12").unwrap();
         assert_eq!(downloaded, 4096);
         assert_eq!(total, Some(10000));
         assert_eq!(speed, 512);
         assert_eq!(eta, Some(12));
         // NA tokens: exact total unknown → estimate fallback consumed in one step
         let (downloaded, total, speed, eta) =
-            parse_unidm_progress("UNIDM 100 NA 5000 42 NA").unwrap();
+            parse_syntaxdm_progress("SYNTAXDM 100 NA 5000 42 NA").unwrap();
         assert_eq!(downloaded, 100);
         assert_eq!(total, Some(5000));
         assert_eq!(speed, 42);
         assert_eq!(eta, None);
         // non-progress lines never parse
-        assert!(parse_unidm_progress("[download] Destination: /x/y.mp4").is_none());
-        assert!(parse_unidm_progress("").is_none());
+        assert!(parse_syntaxdm_progress("[download] Destination: /x/y.mp4").is_none());
+        assert!(parse_syntaxdm_progress("").is_none());
     }
 
     #[test]

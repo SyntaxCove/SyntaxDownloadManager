@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 
 // Renderer bundle: statically loaded by the Electron main process via file:// in production.
-// All runtime communication goes through the typed preload bridge (window.unidm), never
+// All runtime communication goes through the typed preload bridge (window.syntaxdm), never
 // through raw Node APIs — hence a strict CSP in index.html and base './' for relative assets.
 export default defineConfig({
   root: resolve(here, "src/renderer"),

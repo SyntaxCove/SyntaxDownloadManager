@@ -1,9 +1,9 @@
 {
-  "name": "unidm",
+  "name": "syntax-download-manager",
   "version": "0.5.0",
   "private": true,
-  "description": "UniDM — unified browser + advanced download manager (Electron + Rust core)",
-  "license": "MIT",
+  "description": "Syntax Download Manager — unified browser + advanced download manager (Electron + Rust core)",
+  "license": "SEE LICENSE IN LICENSE",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -15,8 +15,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "build:contracts": "npm run build -w @unidm/contracts",
-    "build:desktop": "npm run build -w @unidm/desktop",
+    "build:contracts": "npm run build -w @syntaxdm/contracts",
+    "build:desktop": "npm run build -w @syntaxdm/desktop",
     "test:core": "cargo test --manifest-path core/Cargo.toml"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppSettings } from "@unidm/contracts";
+import type { AppSettings } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
 /**

@@ -1,8 +1,8 @@
 {
-  "name": "@unidm/desktop",
+  "name": "@syntaxdm/desktop",
   "version": "0.5.0",
   "private": true,
-  "description": "UniDM desktop shell — Electron main, preload bridge, React renderer",
+  "description": "Syntax Download Manager desktop shell — Electron main, preload bridge, React renderer",
   "type": "commonjs",
   "main": "./dist/main/main.js",
   "scripts": {
@@ -15,7 +15,7 @@
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload/preload.cjs --sourcemap=external"
   },
   "dependencies": {
-    "@unidm/contracts": "*",
+    "@syntaxdm/contracts": "*",
     "electron-updater": "6.8.10",
     "lzma-native": "8.0.6",
     "react": "19.3.0",

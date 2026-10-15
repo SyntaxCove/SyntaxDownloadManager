@@ -1,9 +1,9 @@
-import type { ContractError } from "@unidm/contracts";
+import type { ContractError } from "@syntaxdm/contracts";
 import {
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
   makeSuccess, makeError, makeEvent,
-  UniDmError,
-} from "@unidm/contracts";
+  SyntaxDmError,
+} from "@syntaxdm/contracts";
 import type { z } from "zod";
 
 /**
@@ -49,7 +49,7 @@ export class IpcRouter {
    */
   handle(method: string, entry: RegisteredHandler): this {
     if (this.handlers.has(method)) {
-      throw new UniDmError("internal_error", `method registered twice: ${method}`);
+      throw new SyntaxDmError("internal_error", `method registered twice: ${method}`);
     }
     this.handlers.set(method, entry);
     return this;
@@ -114,7 +114,7 @@ export class IpcRouter {
       if (registered.paramsSchema) {
         const parsed = registered.paramsSchema.safeParse(params ?? {});
         if (!parsed.success) {
-          throw new UniDmError("invalid_params", "params failed contract validation", {
+          throw new SyntaxDmError("invalid_params", "params failed contract validation", {
             issues: parsed.error.issues,
           });
         }
@@ -124,7 +124,7 @@ export class IpcRouter {
       if (registered.resultSchema) {
         const parsed = registered.resultSchema.safeParse(rawResult);
         if (!parsed.success) {
-          throw new UniDmError("internal_error", "handler result failed contract validation", {
+          throw new SyntaxDmError("internal_error", "handler result failed contract validation", {
             issues: parsed.error.issues,
           });
         }
@@ -161,7 +161,7 @@ function unknownId(raw: unknown): string {
 }
 
 export function toContractError(err: unknown): ContractError {
-  const e = UniDmError.from(err);
+  const e = SyntaxDmError.from(err);
   return { code: e.code, message: e.message, data: e.data };
 }
 

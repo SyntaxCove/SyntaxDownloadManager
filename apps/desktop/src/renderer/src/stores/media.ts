@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { MediaContainer, MediaJob, MediaManifest, MediaSubtitleSelection } from "@unidm/contracts";
+import type { MediaContainer, MediaJob, MediaManifest, MediaSubtitleSelection } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 import { describeError } from "./settings.js";
 

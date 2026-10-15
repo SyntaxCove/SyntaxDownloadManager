@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
-import { UniDmError } from "@unidm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 import { CoreClient } from "./core-client.js";
 import {
   MAX_CONSECUTIVE,
@@ -27,7 +27,7 @@ export type CoreState = "stopped" | "starting" | "ready" | "restarting" | "unava
 export interface SupervisorOptions {
   /** Absolute core binary path (resolved by the app, not by this class). */
   binaryPath: string;
-  /** Absolute SQLite path handed to the core via UNIDM_DB. */
+  /** Absolute SQLite path handed to the core via SYNTAXDM_DB. */
   dbPath: string;
   maxConcurrent: number;
   /** Range connections per download (Phase 6 segmentation ceiling; core clamps 1..16). */
@@ -90,10 +90,10 @@ export class CoreSupervisor extends EventEmitter {
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
-        UNIDM_DB: this.options.dbPath,
-        UNIDM_MAX_CONCURRENT: String(this.options.maxConcurrent),
+        SYNTAXDM_DB: this.options.dbPath,
+        SYNTAXDM_MAX_CONCURRENT: String(this.options.maxConcurrent),
         ...(this.options.maxConnectionsPerDownload !== undefined
-          ? { UNIDM_MAX_CONNECTIONS: String(this.options.maxConnectionsPerDownload) }
+          ? { SYNTAXDM_MAX_CONNECTIONS: String(this.options.maxConnectionsPerDownload) }
           : {}),
       },
     });
@@ -133,7 +133,7 @@ export class CoreSupervisor extends EventEmitter {
 
   private handleExit(): void {
     this.child = null;
-    this.client?.rejectAll(new UniDmError("core_unavailable", "core exited"));
+    this.client?.rejectAll(new SyntaxDmError("core_unavailable", "core exited"));
     this.client?.removeAllListeners();
     this.client = null;
 
@@ -165,18 +165,18 @@ export class CoreSupervisor extends EventEmitter {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (this.state === "unavailable") {
-        throw new UniDmError("core_unavailable", "download core is unavailable");
+        throw new SyntaxDmError("core_unavailable", "download core is unavailable");
       }
       if (this.isReady) return;
       await new Promise((r) => setTimeout(r, 50));
     }
-    throw new UniDmError("timeout", `core did not become ready within ${timeoutMs}ms`);
+    throw new SyntaxDmError("timeout", `core did not become ready within ${timeoutMs}ms`);
   }
 
   /** RPC passthrough; routes through the live client with its own timeouts. */
   request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T> {
     if (!this.client || !this.isReady) {
-      return Promise.reject(new UniDmError("core_unavailable", "download core is not ready"));
+      return Promise.reject(new SyntaxDmError("core_unavailable", "download core is not ready"));
     }
     return this.client.request<T>(method, params, timeoutMs);
   }
@@ -230,6 +230,6 @@ export function resolveCoreBinaryPath(opts: {
     return join(opts.appRoot, "bin", "download-core", exe);
   }
   // dev layout: built by `cargo build` inside the monorepo
-  const profile = process.env.UNIDM_CORE_PROFILE ?? "debug";
+  const profile = process.env.SYNTAXDM_CORE_PROFILE ?? "debug";
   return join(opts.appRoot, "core", "target", profile, exe);
 }

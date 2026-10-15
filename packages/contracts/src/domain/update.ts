@@ -7,7 +7,7 @@ import { ErrorCode } from "../errors.js";
  * constant).
  *
  * Posture:
- *  - the update source is either the UNIDM_UPDATE_FEED_URL env override (https only) or
+ *  - the update source is either the SYNTAXDM_UPDATE_FEED_URL env override (https only) or
  *    the app-update.yml electron-builder drops into resources/ at packaging time; no
  *    feed is a classified `unavailable` state, never a direct-HTTP fallback;
  *  - consent-gated lifecycle: a check NEVER downloads, download happens only via

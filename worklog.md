@@ -1,4 +1,4 @@
-# Worklog — UniDM (Unified Browser + Advanced Download Manager)
+# Worklog — Syntax Download Manager (Unified Browser + Advanced Download Manager)
 
 Shared multi-agent work log. Append-only. Product: production-grade Windows 11 x64 desktop app
 (Electron shell + React/Fluent renderer + Rust `download-core` supervised subprocess).
@@ -62,7 +62,7 @@ Work Log:
   writes, bounded retries + bounded clean restarts, pause/cancel cursor flush, streaming
   SHA-256 + expected-checksum verdict + fsync-before-rename), dc-storage migration v2
   (segments table + job integrity columns + transactional segment API), server/manager/main
-  wiring (download.setConcurrency gains maxConnectionsPerDownload, UNIDM_MAX_CONNECTIONS).
+  wiring (download.setConcurrency gains maxConnectionsPerDownload, SYNTAXDM_MAX_CONNECTIONS).
 - Contracts v1.1.0: DownloadJob integrity/segmentation fields with pinned wire rules
   (nullable = always serialized; nullish = omitted), setConcurrency extension, settings
   maxConnectionsPerDownload, segmented + legacy fixtures; npm package version 1.1.0.
@@ -281,8 +281,8 @@ Work Log:
 - Fixed during Test/Fix: parallel test threads shared one temp dir (fake-binary tests
   raced, cross-classified errors) -> per-test tagged temp dirs; fixture fps int vs Rust f64
   wire divergence (fixture now true float); import.meta banned in CJS-compiled main tests
-  (inline fixture); UniDmError.from maps plain Errors to internal_error (classified codes
-  must be UniDmError — now explicitly tested); TS delete on non-optional -> Record cast.
+  (inline fixture); SyntaxDmError.from maps plain Errors to internal_error (classified codes
+  must be SyntaxDmError — now explicitly tested); TS delete on non-optional -> Record cast.
 - Verification gate: cargo fmt/clippy clean, cargo test 132 passed (was 115), vitest
   54 contracts + 105 main/renderer = 159 passed (was 48+94), typecheck x4 clean, vite build
   green. Commit: phase(11). Report: docs/phase-11-report.md.
@@ -322,8 +322,8 @@ Work Log:
 - download-core: src/media_job.rs — MediaJobManager (create/pump(2 slots)/run_job/drive),
   extraction reuses the Phase 11 inspector (fail-closed tools + proxy, pause-aware select),
   strict format resolution (vanished id -> media_format_not_found), per-stream yt-dlp runs
-  with UNIDM progress-template parsing (fixed 5-token rule), completed-stream disk skip,
-  single --skip-download subtitle run, ffmpeg mux to .tmp-unidm then rename-after-clean-exit
+  with SYNTAXDM progress-template parsing (fixed 5-token rule), completed-stream disk skip,
+  single --skip-download subtitle run, ffmpeg mux to .tmp-syntaxdm then rename-after-clean-exit
   (+ empty-output guard), audio-only moves untouched, 500ms ticker (durable row + throttled
   events) with an active-status guard, pause/cancel runner-ack (bounded wait), bounded
   diagnostics tails, argv-array spawns only; Engine/JobManager now share Arc<ToolkitMap>/
@@ -516,7 +516,7 @@ Implement → Test → Fix → Document → Review → Commit.
 Work Log:
 - Verified Phase 0–15 from git history (all delivered; Phase 15 = e209412) and repaired the
   sandbox-wiped Rust toolchain again (rustup 1.99.0 + rustfmt/clippy; 9th reset). Rebuilt
-  @unidm/contracts dist (workspace link lost with the reset).
+  @syntaxdm/contracts dist (workspace link lost with the reset).
 - Plan: docs/phase-16-plan.md — scope taken from the two DOCUMENTED deferrals into this
   phase (Phase 3: directory picker; Phase 9 plan: settings-level default proxy) plus the
   domain's coherence gaps (settings liveness on core restart, dangling default after
@@ -591,13 +591,13 @@ Work Log:
   router.onEvent listener; live settings gates; click → restore/show/focus window);
   domains/tray.ts (TrayPort + TrayController with 1s-throttled menu/tooltip pushes,
   buildTrayMenuModel with disabled count line and count-gated Start/Pause all,
-  countsFromStatuses, shouldHideOnClose); main.ts (setAppUserModelId com.unidm.desktop,
+  countsFromStatuses, shouldHideOnClose); main.ts (setAppUserModelId com.syntaxdm.desktop,
   notify engine wiring, guarded Tray creation via nativeImage.isEmpty + try/catch,
   shell close handler, tray-count mirror seeded from download.list on every core ready
   transition, before-quit flips quitting + destroys tray, second-instance now also
   win.show()); paths.ts trayIcon resolution (dev resources/icons vs packaged resourcesPath).
 - Tray icon: real 256×256 PNG asset generated once by scripts/gen-tray-icon.py (rounded
-  #202020 tile + accent-blue download arrow, committed as resources/icons/unidm-tray.png).
+  #202020 tile + accent-blue download arrow, committed as resources/icons/syntaxdm-tray.png).
 - Renderer: app/toasts.ts (pub/sub bus with a 5-slot concurrency budget — non-error
   toasts dropped over cap, errors always pass; slots release on the 6s/10s intent
   timeouts; subscribeStatusToasts wires download/media/torrent updated + core.state),
@@ -653,7 +653,7 @@ Work Log:
   machine + 500ms progress throttle + notes sanitization + registerUpdateDomain);
   domains/updates-adapter.ts (electron-updater glue: autoDownload=false,
   autoInstallOnAppQuit=true, allowDowngrade=false, disableWebInstaller=true; env feed via
-  setFeedURL, packaged app-update.yml implicit; no-feed port throws classified UniDmError);
+  setFeedURL, packaged app-update.yml implicit; no-feed port throws classified SyntaxDmError);
   main.ts wiring (controller after tray, emit via router, auto-checks 2min+12h,
   stopAutoChecks on before-quit, install teardown: quitting flag + tray destroy +
   supervisor.stop BEFORE port.install).

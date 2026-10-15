@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DownloadJob, MediaJob, TorrentJob } from "@unidm/contracts";
+import type { DownloadJob, MediaJob, TorrentJob } from "@syntaxdm/contracts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -65,7 +65,7 @@ beforeEach(() => {
   handlers.clear();
   resetToastBudgetForTests();
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: () => Promise.resolve({}),
       onEvent: (name: string, cb: EventSink) => {
         handlers.set(name, cb);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * UniDM maintainer tool: pin the bundled media toolkit (Phase 10).
+ * Syntax Download Manager maintainer tool: pin the bundled media toolkit (Phase 10).
  *
  * Resolves the current stable release of each tool (GitHub atom feeds — the REST API is
  * rate-limited), downloads the artifacts for BOTH platforms (win32-x64 + linux-x64),
@@ -28,12 +28,12 @@ import { Readable } from "node:stream";
 
 const CACHE = (() => {
   const i = process.argv.indexOf("--cache");
-  return i > -1 ? process.argv[i + 1] : join(tmpdir(), "unidm-pin-cache");
+  return i > -1 ? process.argv[i + 1] : join(tmpdir(), "syntaxdm-pin-cache");
 })();
 const MANIFEST_OUT = fileURLToPath(new URL("../apps/desktop/resources/toolchains.json", import.meta.url));
 
 async function fetchText(url) {
-  const res = await fetch(url, { headers: { "user-agent": "UniDM pin tool" } });
+  const res = await fetch(url, { headers: { "user-agent": "Syntax Download Manager pin tool" } });
   if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
   return res.text();
 }
@@ -69,7 +69,7 @@ async function fetchToCache(url, name) {
     /* not cached yet */
   }
   console.log(`  [fetch ] ${name} …`);
-  const res = await fetch(url, { redirect: "follow", headers: { "user-agent": "UniDM pin tool" } });
+  const res = await fetch(url, { redirect: "follow", headers: { "user-agent": "Syntax Download Manager pin tool" } });
   if (!res.ok) throw new Error(`download ${url} → ${res.status}`);
   await pipeline(Readable.fromWeb(res.body), createWriteStream(file));
   return file;

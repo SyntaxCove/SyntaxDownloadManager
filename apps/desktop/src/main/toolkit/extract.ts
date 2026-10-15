@@ -1,6 +1,6 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { UniDmError } from "@unidm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 
 /**
  * Archive extraction (Phase 10) — the security boundary between downloaded bytes and the
@@ -54,20 +54,20 @@ export async function extractArtifact(opts: ExtractOptions): Promise<void> {
 /** Validate an entry name and return its safe absolute destination inside `destDir`. */
 export function safeJoin(destDir: string, entryName: string): string {
   if (entryName.length === 0) {
-    throw new UniDmError("toolkit_extract_failed", "archive entry has an empty name");
+    throw new SyntaxDmError("toolkit_extract_failed", "archive entry has an empty name");
   }
   const normalized = entryName.replace(/\\/g, "/");
   if (isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized)) {
-    throw new UniDmError("toolkit_extract_failed", `archive entry escapes the root: ${entryName}`);
+    throw new SyntaxDmError("toolkit_extract_failed", `archive entry escapes the root: ${entryName}`);
   }
   const parts = normalized.split("/").filter((p) => p.length > 0 && p !== ".");
   if (parts.some((p) => p === "..")) {
-    throw new UniDmError("toolkit_extract_failed", `archive entry escapes the root: ${entryName}`);
+    throw new SyntaxDmError("toolkit_extract_failed", `archive entry escapes the root: ${entryName}`);
   }
   const target = resolve(destDir, ...parts);
   const root = resolve(destDir);
   if (target !== root && !target.startsWith(root + sep)) {
-    throw new UniDmError("toolkit_extract_failed", `archive entry escapes the root: ${entryName}`);
+    throw new SyntaxDmError("toolkit_extract_failed", `archive entry escapes the root: ${entryName}`);
   }
   return target;
 }
@@ -80,8 +80,8 @@ async function extractZip(opts: ExtractOptions): Promise<void> {
   const yauzl = (await import("yauzl")) as typeof import("yauzl");
   await new Promise<void>((res, rej) => {
     yauzl.open(opts.archivePath, { lazyEntries: true, autoClose: true }, (err, zipfile) => {
-      if (err || !zipfile) return rej(new UniDmError("toolkit_extract_failed", `zip open failed: ${err}`));
-      const fail = (e: Error) => rej(new UniDmError("toolkit_extract_failed", `zip extract failed: ${e.message}`));
+      if (err || !zipfile) return rej(new SyntaxDmError("toolkit_extract_failed", `zip open failed: ${err}`));
+      const fail = (e: Error) => rej(new SyntaxDmError("toolkit_extract_failed", `zip extract failed: ${e.message}`));
       zipfile.on("error", fail);
       zipfile.readEntry();
       zipfile.on("entry", (entry) => {
@@ -139,7 +139,7 @@ async function extractTarXz(opts: ExtractOptions): Promise<void> {
       if (header.type === "symlink" || header.type === "link") {
         // Hardlinks/symlinks from pinned archives are not needed; resolving an in-root
         // link target is not worth the risk surface — reject outright.
-        throw new UniDmError("toolkit_extract_failed", `archive link entry rejected: ${name}`);
+        throw new SyntaxDmError("toolkit_extract_failed", `archive link entry rejected: ${name}`);
       }
       if (header.type !== "file" && header.type !== "directory") {
         stream.resume();
@@ -152,7 +152,7 @@ async function extractTarXz(opts: ExtractOptions): Promise<void> {
       }
       // Directory traversal double-check on the resolved path.
       if (!target.startsWith(root + sep) && target !== root) {
-        throw new UniDmError("toolkit_extract_failed", `archive entry escapes the root: ${name}`);
+        throw new SyntaxDmError("toolkit_extract_failed", `archive entry escapes the root: ${name}`);
       }
       await mkdirp(target.slice(0, target.lastIndexOf(sep)));
       const mode = opts.platform !== "win32" ? 0o755 : undefined;

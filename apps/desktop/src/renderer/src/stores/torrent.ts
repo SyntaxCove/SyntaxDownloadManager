@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { TorrentJob } from "@unidm/contracts";
+import type { TorrentJob } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 import { describeError } from "./settings.js";
 

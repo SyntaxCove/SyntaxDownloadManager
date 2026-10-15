@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreClient } from "../core/core-client.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "../core/core-supervisor.js";
-import { makeSuccess, makeError, makeEvent } from "@unidm/contracts";
+import { makeSuccess, makeError, makeEvent } from "@syntaxdm/contracts";
 
 /**
  * The core is simulated at the *stream* level (a real duplex JSONL peer) — this exercises the
@@ -50,7 +50,7 @@ describe("CoreClient", () => {
     client.removeAllListeners();
   });
 
-  it("rejects with a UniDmError carrying the contract code", async () => {
+  it("rejects with a SyntaxDmError carrying the contract code", async () => {
     const { client, coreIn, coreOut } = makePair();
     readLines(coreIn, (line) => {
       const req = JSON.parse(line);

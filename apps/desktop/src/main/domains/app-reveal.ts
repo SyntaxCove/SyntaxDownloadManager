@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { UniDmError, METHODS } from "@unidm/contracts";
-import type { LibraryEntryKind } from "@unidm/contracts";
+import { SyntaxDmError, METHODS } from "@syntaxdm/contracts";
+import type { LibraryEntryKind } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
 
@@ -40,10 +40,10 @@ type JobRow = {
 /** Resolve the artifact path for a job row; throws `entry_path_unavailable` when unset. */
 export function resolveEntryPath(kind: LibraryEntryKind, row: JobRow): string {
   const job = row.job;
-  if (!job) throw new UniDmError("invalid_state", "job not found");
+  if (!job) throw new SyntaxDmError("invalid_state", "job not found");
   if (kind === "torrent") {
     if (!job.destinationDir || !job.name) {
-      throw new UniDmError(
+      throw new SyntaxDmError(
         "entry_path_unavailable",
         "torrent content path is not resolved yet (no metadata)",
       );
@@ -51,7 +51,7 @@ export function resolveEntryPath(kind: LibraryEntryKind, row: JobRow): string {
     return join(job.destinationDir, job.name);
   }
   if (!job.destinationPath) {
-    throw new UniDmError(
+    throw new SyntaxDmError(
       "entry_path_unavailable",
       "the artifact path is not resolved yet (probe/mux has not placed the file)",
     );
@@ -78,7 +78,7 @@ export function registerAppDomain(
       const row = (await supervisor.request(sourceMethod, { id })) as JobRow;
       const path = resolveEntryPath(kind, row);
       if (!existsSync(path)) {
-        throw new UniDmError(
+        throw new SyntaxDmError(
           "file_missing",
           `the artifact is gone from disk: ${path}`,
         );
@@ -88,7 +88,7 @@ export function registerAppDomain(
       } else {
         const error = await shell.openPath(path);
         if (error) {
-          throw new UniDmError("io_error", `shell could not open the path: ${error}`);
+          throw new SyntaxDmError("io_error", `shell could not open the path: ${error}`);
         }
       }
       return { path };

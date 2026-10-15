@@ -4,7 +4,7 @@ import { unlink } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import { pipeline } from "node:stream/promises";
-import { UniDmError } from "@unidm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 
 /**
  * Streamed artifact fetcher (Phase 10).
@@ -53,27 +53,27 @@ export async function fetchArtifact(opts: FetchOptions): Promise<FetchResult> {
 
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    if (opts.signal?.aborted) throw new UniDmError("canceled", "toolkit fetch canceled");
+    if (opts.signal?.aborted) throw new SyntaxDmError("canceled", "toolkit fetch canceled");
     try {
       return await fetchOnce(opts, cap, doFetch);
     } catch (err) {
       lastError = err;
       // Cancellation and hard-cap violations are terminal — never retried.
-      if (opts.signal?.aborted) throw new UniDmError("canceled", "toolkit fetch canceled");
-      if (err instanceof UniDmError && (err.code === "disk_full" || err.code === "file_exists")) throw err;
+      if (opts.signal?.aborted) throw new SyntaxDmError("canceled", "toolkit fetch canceled");
+      if (err instanceof SyntaxDmError && (err.code === "disk_full" || err.code === "file_exists")) throw err;
       if (attempt < retries) {
         await sleep(250 * 2 ** attempt);
       }
     }
   }
-  throw new UniDmError(
+  throw new SyntaxDmError(
     "toolkit_fetch_failed",
     `artifact download failed after ${retries + 1} attempt(s): ${describe(lastError)}`,
   );
 }
 
 function describe(err: unknown): string {
-  if (err instanceof UniDmError) return `${err.code}: ${err.message}`;
+  if (err instanceof SyntaxDmError) return `${err.code}: ${err.message}`;
   return String(err);
 }
 
@@ -90,16 +90,16 @@ async function fetchOnce(
     res = await doFetch(opts.url, {
       signal: opts.signal,
       redirect: "follow",
-      headers: { "user-agent": "UniDM-Toolkit/1.0 (+https://github.com/)" },
+      headers: { "user-agent": "Syntax Download Manager-Toolkit/1.0 (+https://github.com/)" },
     });
     if (!res.ok) {
-      throw new UniDmError(
+      throw new SyntaxDmError(
         "toolkit_fetch_failed",
         `artifact endpoint answered HTTP ${res.status}`,
       );
     }
     if (!res.body) {
-      throw new UniDmError("toolkit_fetch_failed", "artifact endpoint returned an empty body");
+      throw new SyntaxDmError("toolkit_fetch_failed", "artifact endpoint returned an empty body");
     }
     const total = res.headers.has("content-length") ? Number(res.headers.get("content-length")) : null;
     // Adapt the undici web stream to a Node stream (backpressure-preserving).
@@ -109,7 +109,7 @@ async function fetchOnce(
         const buf = chunk as Buffer;
         size += buf.length;
         if (size > cap) {
-          throw new UniDmError(
+          throw new SyntaxDmError(
             "toolkit_fetch_failed",
             `artifact exceeds the pinned size cap (${cap} bytes) — aborting`,
           );

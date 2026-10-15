@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useBrowserDataStore } from "../stores/browser-data.js";
-import type { Bookmark, HistoryEntry } from "@unidm/contracts";
+import type { Bookmark, HistoryEntry } from "@syntaxdm/contracts";
 
 /**
  * Phase 14 — browser data store against a stubbed preload bridge: history
@@ -12,8 +12,8 @@ const calls: RpcCall[] = [];
 
 const historyEntry = (patch: Partial<HistoryEntry> = {}): HistoryEntry => ({
   id: "01JD8W3G5XQ9V4M2K7PZ6N8S0H",
-  url: "https://example.com/articles/unidm",
-  title: "UniDM release notes",
+  url: "https://example.com/articles/syntaxdm",
+  title: "Syntax Download Manager release notes",
   faviconUrl: null,
   visitedAt: 1735689600000,
   ...patch,
@@ -21,8 +21,8 @@ const historyEntry = (patch: Partial<HistoryEntry> = {}): HistoryEntry => ({
 
 const bookmark = (patch: Partial<Bookmark> = {}): Bookmark => ({
   id: "01JD8W3G5XQ9V4M2K7PZ6N8S0B",
-  url: "https://example.com/articles/unidm",
-  title: "UniDM release notes",
+  url: "https://example.com/articles/syntaxdm",
+  title: "Syntax Download Manager release notes",
   position: 0,
   createdAt: 1735689600000,
   updatedAt: 1735689600000,
@@ -82,7 +82,7 @@ beforeEach(() => {
     bookmarksError: null,
   });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         return Promise.resolve(rpcResult(method, params));
@@ -150,7 +150,7 @@ describe("browser data store — bookmark star", () => {
     bookmarksTable.push(bookmark());
     useBrowserDataStore.setState({ bookmarks: [...bookmarksTable] });
     (globalThis as Record<string, unknown>).window = {
-      unidm: {
+      syntaxdm: {
         rpc: (method: string, params: unknown) => {
           calls.push({ method, params });
           if (method === "browser.bookmark.update") {

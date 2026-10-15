@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { METHODS, makeRequest, newUlid } from "@unidm/contracts";
+import { METHODS, makeRequest, newUlid } from "@syntaxdm/contracts";
 import { registerBrowserDataDomain } from "../domains/browser-data.js";
 import { registerAppDomain, resolveEntryPath } from "../domains/app-reveal.js";
 import type { RevealShell } from "../domains/app-reveal.js";

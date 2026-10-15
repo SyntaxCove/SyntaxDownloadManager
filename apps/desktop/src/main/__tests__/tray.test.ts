@@ -41,7 +41,7 @@ describe("menu model + counts", () => {
   });
 
   it("tooltip carries the counts", () => {
-    expect(buildTrayTooltip({ active: 2, queued: 1 })).toBe("UniDM — 2 active · 1 queued");
+    expect(buildTrayTooltip({ active: 2, queued: 1 })).toBe("Syntax Download Manager — 2 active · 1 queued");
   });
 
   it("start/pause enable strictly by count; info lines are disabled; open/quit always on", () => {
@@ -54,7 +54,7 @@ describe("menu model + counts", () => {
     expect(byAction("open")?.enabled).toBe(true);
     expect(byAction("quit")?.enabled).toBe(true);
     expect(info?.enabled).toBe(false);
-    expect(info?.label).toBe("UniDM — 0 active · 3 queued");
+    expect(info?.label).toBe("Syntax Download Manager — 0 active · 3 queued");
 
     const idle = buildTrayMenuModel({ active: 0, queued: 0 });
     expect(idle.find((i) => i.id === "startAll")?.enabled).toBe(false);
@@ -113,14 +113,14 @@ describe("TrayController", () => {
       });
       expect(tray.ready).toBe(true);
       expect(port.menus.length).toBe(1); // initial push
-      expect(port.tooltips).toEqual(["UniDM — 0 active · 0 queued"]);
+      expect(port.tooltips).toEqual(["Syntax Download Manager — 0 active · 0 queued"]);
 
       // A change landing right after the initial push batches into the 1s window.
       tray.updateCounts({ active: 1, queued: 0 });
       expect(port.menus.length).toBe(1);
       vi.advanceTimersByTime(1_100);
       expect(port.menus.length).toBe(2);
-      expect(port.tooltips.at(-1)).toBe("UniDM — 1 active · 0 queued");
+      expect(port.tooltips.at(-1)).toBe("Syntax Download Manager — 1 active · 0 queued");
 
       tray.updateCounts({ active: 1, queued: 0 }); // equal → ignored
       expect(port.menus.length).toBe(2);
@@ -128,7 +128,7 @@ describe("TrayController", () => {
       vi.advanceTimersByTime(1_100); // leave the 1s throttle window entirely
       tray.updateCounts({ active: 2, queued: 0 }); // → immediate
       expect(port.menus.length).toBe(3);
-      expect(port.tooltips.at(-1)).toBe("UniDM — 2 active · 0 queued");
+      expect(port.tooltips.at(-1)).toBe("Syntax Download Manager — 2 active · 0 queued");
     } finally {
       vi.useRealTimers();
     }

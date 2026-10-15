@@ -1,4 +1,4 @@
-import { METHODS, type ToolkitPathEntry } from "@unidm/contracts";
+import { METHODS, type ToolkitPathEntry } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
 import type { ToolkitManager } from "../toolkit/manager.js";

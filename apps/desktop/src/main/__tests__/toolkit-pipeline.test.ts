@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { Writable } from "node:stream";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolkitManager } from "../toolkit/manager.js";
-import { UniDmError, type ToolkitPathEntry, type ToolkitToolStatus } from "@unidm/contracts";
+import { SyntaxDmError, type ToolkitPathEntry, type ToolkitToolStatus } from "@syntaxdm/contracts";
 
 /**
  * Toolkit pipeline integration tests (Phase 10): a real local HTTPS server serves real
@@ -199,7 +199,7 @@ async function writeManifest(
 }
 
 async function makeFixture(): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "unidm-toolkit-"));
+  const root = await mkdtemp(join(tmpdir(), "syntaxdm-toolkit-"));
   const manifestPath = join(root, "toolchains.json");
   const statePath = join(root, "toolkit-state.json");
   const toolsRoot = join(root, "tools");
@@ -255,7 +255,7 @@ let tlsDir: string;
 
 beforeAll(() => {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-  tlsDir = mkdtempSync(join(tmpdir(), "unidm-tls-"));
+  tlsDir = mkdtempSync(join(tmpdir(), "syntaxdm-tls-"));
   execFileSync("openssl", [
     "req", "-x509", "-newkey", "rsa:2048", "-nodes",
     "-keyout", join(tlsDir, "key.pem"), "-out", join(tlsDir, "cert.pem"),
@@ -656,7 +656,7 @@ describe("toolkit pipeline (Phase 10)", () => {
       manager.ensure("yt-dlp");
       expect.unreachable();
     } catch (err) {
-      expect((err as UniDmError).code).toBe("toolkit_unsupported_platform");
+      expect((err as SyntaxDmError).code).toBe("toolkit_unsupported_platform");
     }
     expect(manager.getStatus().platform).toBeNull();
     expect(manager.ensureAll()).toEqual([]);

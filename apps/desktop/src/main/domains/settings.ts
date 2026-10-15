@@ -5,9 +5,9 @@ import {
   EVENTS,
   METHODS,
   SETTINGS_DEFAULTS,
-  UniDmError,
+  SyntaxDmError,
   type AppSettings as AppSettingsT,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import { IpcRouter } from "../ipc/router.js";
 
 /**
@@ -73,7 +73,7 @@ export class SettingsStore {
       await rename(tmp, this.filePath);
     } catch (err) {
       await unlink(tmp).catch(() => undefined);
-      throw new UniDmError("io_error", `settings persist failed: ${String(err)}`);
+      throw new SyntaxDmError("io_error", `settings persist failed: ${String(err)}`);
     }
   }
 

@@ -40,7 +40,7 @@ const unavailableSafeStorage = (): SafeStorageLike => ({
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "unidm-proxy-"));
+  dir = await mkdtemp(join(tmpdir(), "syntaxdm-proxy-"));
 });
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
@@ -179,7 +179,7 @@ describe("registerProxyDomain", () => {
     method: string,
     params: unknown,
   ): Promise<Env> => {
-    const { makeRequest, newUlid } = await import("@unidm/contracts");
+    const { makeRequest, newUlid } = await import("@syntaxdm/contracts");
     return (await router.handleRequest(makeRequest(newUlid(), method, params), {})) as Env;
   };
 
@@ -260,7 +260,7 @@ describe("registerProxyDomain × settings default (Phase 16)", () => {
     method: string,
     params: unknown,
   ): Promise<Env> => {
-    const { makeRequest, newUlid } = await import("@unidm/contracts");
+    const { makeRequest, newUlid } = await import("@syntaxdm/contracts");
     return (await router.handleRequest(makeRequest(newUlid(), method, params), {})) as Env;
   };
 

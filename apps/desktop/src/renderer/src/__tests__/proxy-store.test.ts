@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ProxyProfilePublic } from "@unidm/contracts";
+import type { ProxyProfilePublic } from "@syntaxdm/contracts";
 import { useProxyStore } from "../stores/proxy.js";
 import { useDownloadsStore } from "../stores/downloads.js";
 import { useBrowserStore } from "../stores/browser.js";
-import type { BrowserTab, DownloadJob } from "@unidm/contracts";
+import type { BrowserTab, DownloadJob } from "@syntaxdm/contracts";
 
 /**
  * Phase 9 — renderer stores against a stubbed preload bridge: proxy CRUD + per-profile
@@ -108,7 +108,7 @@ beforeEach(() => {
   useDownloadsStore.setState({ jobs: [], loaded: true, core: "ready" });
   useBrowserStore.setState({ tabs: [], activeTabId: null });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         return Promise.resolve(rpcResult(method, params));

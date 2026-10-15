@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, stat, writeFile, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  UniDmError,
+  SyntaxDmError,
   type PlatformKey,
   type ToolkitManifest as ToolkitManifestT,
   type ToolkitPathEntry,
   type ToolkitToolState,
   type ToolkitToolStatus,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import { loadManifest, platformKey, resolveArtifact } from "./manifest.js";
 import { fetchArtifact } from "./fetcher.js";
 import { verifyArtifact } from "./verify.js";
@@ -141,10 +141,10 @@ export class ToolkitManager {
   ensure(id: ToolkitPathEntry["id"]): boolean {
     const spec = this.manifest?.tools.find((t) => t.id === id);
     if (!spec) {
-      throw new UniDmError("toolkit_manifest_invalid", `tool ${id} is not in the manifest`);
+      throw new SyntaxDmError("toolkit_manifest_invalid", `tool ${id} is not in the manifest`);
     }
     if (!this.platformKey) {
-      throw new UniDmError(
+      throw new SyntaxDmError(
         "toolkit_unsupported_platform",
         `${this.opts.platform ?? process.platform}-${this.opts.arch ?? process.arch} has no bundled media tool artifacts`,
       );
@@ -238,7 +238,7 @@ export class ToolkitManager {
           this.throttledProgress(id, bytesFetched, totalBytes);
         },
       });
-      if (abort.signal.aborted) throw new UniDmError("canceled", "toolkit fetch canceled");
+      if (abort.signal.aborted) throw new SyntaxDmError("canceled", "toolkit fetch canceled");
 
       this.emit(id, { state: "verifying", bytesFetched: fetched.sizeBytes, totalBytes: fetched.sizeBytes });
       const verified = await verifyArtifact({
@@ -254,7 +254,7 @@ export class ToolkitManager {
         execPaths: [artifact.execPath, ...(artifact.extraExecs ?? [])],
         platform: this.opts.platform ?? process.platform,
       });
-      if (abort.signal.aborted) throw new UniDmError("canceled", "toolkit fetch canceled");
+      if (abort.signal.aborted) throw new SyntaxDmError("canceled", "toolkit fetch canceled");
 
       // Activate: atomic rename into the versioned home, then supersede older versions.
       const home = join(this.opts.toolsRoot, id, version);
@@ -277,13 +277,13 @@ export class ToolkitManager {
       this.opts.onReadyToolsChanged(this.readyToolPaths());
     } catch (err) {
       await rm(jobDir, { recursive: true, force: true }).catch(() => undefined);
-      if (err instanceof UniDmError && err.code === "canceled") {
+      if (err instanceof SyntaxDmError && err.code === "canceled") {
         this.setRuntime(id, { state: "missing", bytesFetched: 0, totalBytes: null, errorCode: null, message: null });
         this.emit(id, { state: "missing", bytesFetched: 0, totalBytes: null });
         return;
       }
       const code =
-        err instanceof UniDmError
+        err instanceof SyntaxDmError
           ? err.code
           : "toolkit_fetch_failed";
       const message = err instanceof Error ? err.message : String(err);
@@ -373,7 +373,7 @@ export class ToolkitManager {
       await rename(tmp, this.registryPath());
     } catch (err) {
       await unlink(tmp).catch(() => undefined);
-      throw new UniDmError("io_error", `toolkit registry persist failed: ${String(err)}`);
+      throw new SyntaxDmError("io_error", `toolkit registry persist failed: ${String(err)}`);
     }
   }
 

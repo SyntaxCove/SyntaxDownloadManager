@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
-import { UniDmError } from "@unidm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 
 /**
  * Post-download verification (Phase 10) — the integrity gate before ANY byte is activated.
@@ -29,11 +29,11 @@ export async function verifyArtifact(opts: VerifyOptions): Promise<VerifyResult>
   try {
     size = (await stat(opts.file)).size;
   } catch (err) {
-    throw new UniDmError("toolkit_fetch_failed", `staged artifact vanished before verify: ${String(err)}`);
+    throw new SyntaxDmError("toolkit_fetch_failed", `staged artifact vanished before verify: ${String(err)}`);
   }
   if (size !== opts.expectedSizeBytes) {
     await unlink(opts.file).catch(() => undefined);
-    throw new UniDmError(
+    throw new SyntaxDmError(
       "toolkit_checksum_mismatch",
       `staged artifact is ${size} bytes, manifest pins ${opts.expectedSizeBytes}`,
     );
@@ -45,7 +45,7 @@ export async function verifyArtifact(opts: VerifyOptions): Promise<VerifyResult>
   const actual = hash.digest("hex");
   if (actual !== opts.expectedSha256.toLowerCase()) {
     await unlink(opts.file).catch(() => undefined);
-    throw new UniDmError(
+    throw new SyntaxDmError(
       "toolkit_checksum_mismatch",
       `sha256 mismatch: staged ${actual}, manifest pins ${opts.expectedSha256.toLowerCase()}`,
     );

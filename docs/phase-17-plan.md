@@ -60,7 +60,7 @@ All classifier rules are unit-tested in contracts; both consumers prove the wiri
 - Titles/bodies are plain strings built from job fields
   (`destinationPath`/`filename`/`url`, media `title`/`destinationPath`, torrent `name`
   /`infoHash`), basename-extracted, truncated to 120 chars. No i18n (Phase 21).
-- `app.setAppUserModelId("com.unidm.desktop")` at startup (Windows notification identity).
+- `app.setAppUserModelId("com.syntaxdm.desktop")` at startup (Windows notification identity).
 
 ### Tray (main)
 
@@ -81,7 +81,7 @@ All classifier rules are unit-tested in contracts; both consumers prove the wiri
   quits via tray Quit (or `window-all-closed`, which still fires when the window is
   destroyed by other means).
 - Icon: a real 256×256 PNG asset generated for this phase
-  (`resources/icons/unidm-tray.png` — rounded dark tile + download arrow), loaded via
+  (`resources/icons/syntaxdm-tray.png` — rounded dark tile + download arrow), loaded via
   `nativeImage.createFromPath` with an empty-image fallback if unreadable (then
   `trayReady` stays false and close-to-tray self-disables).
 
@@ -109,7 +109,7 @@ them live; the core never learns settings (zero Rust surface beyond the version 
 |---|---|
 | contracts | `src/domain/settings.ts`, `src/domain/transitions.ts` (new), `src/index.ts`, `src/version.ts`, `fixtures/domain.json`, `test/contracts.test.ts`, `package.json` |
 | dc-protocol | `src/lib.rs` (version constant) |
-| main | `domains/notify.ts` (new), `domains/tray.ts` (new), `main.ts` (wiring, close handler, before-quit tray destroy), `resources/icons/unidm-tray.png` (new) |
+| main | `domains/notify.ts` (new), `domains/tray.ts` (new), `main.ts` (wiring, close handler, before-quit tray destroy), `resources/icons/syntaxdm-tray.png` (new) |
 | renderer | `app/toasts.ts` (new), `app/ToastHost.tsx` (new), `app/AppShell.tsx` (mount host), `main.tsx` (engine subscribe), `pages/SettingsPage.tsx` (new section) |
 
 ## Tests

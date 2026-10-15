@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import {
-  ToolkitManifest, UniDmError,
+  ToolkitManifest, SyntaxDmError,
   type ToolkitArtifact, type ToolkitManifest as ToolkitManifestT, type PlatformKey,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 
 /**
  * Manifest loading + validation (Phase 10).
@@ -32,11 +32,11 @@ export function parseManifest(raw: string): ToolkitManifestT {
   try {
     doc = JSON.parse(raw);
   } catch {
-    throw new UniDmError("toolkit_manifest_invalid", "toolchains manifest is not valid JSON");
+    throw new SyntaxDmError("toolkit_manifest_invalid", "toolchains manifest is not valid JSON");
   }
   const parsed = ToolkitManifest.safeParse(doc);
   if (!parsed.success) {
-    throw new UniDmError(
+    throw new SyntaxDmError(
       "toolkit_manifest_invalid",
       `toolchains manifest failed validation: ${parsed.error.issues
         .slice(0, 3)
@@ -47,7 +47,7 @@ export function parseManifest(raw: string): ToolkitManifestT {
   // Duplicate tool ids would make status reporting ambiguous — reject early.
   const ids = parsed.data.tools.map((t) => t.id);
   if (new Set(ids).size !== ids.length) {
-    throw new UniDmError("toolkit_manifest_invalid", "toolchains manifest has duplicate tool ids");
+    throw new SyntaxDmError("toolkit_manifest_invalid", "toolchains manifest has duplicate tool ids");
   }
   return parsed.data;
 }
@@ -58,7 +58,7 @@ export async function loadManifest(manifestPath: string): Promise<LoadedManifest
   try {
     raw = await readFile(manifestPath, "utf8");
   } catch (err) {
-    throw new UniDmError("toolkit_manifest_invalid", `toolchains manifest unreadable: ${String(err)}`);
+    throw new SyntaxDmError("toolkit_manifest_invalid", `toolchains manifest unreadable: ${String(err)}`);
   }
   return { manifest: parseManifest(raw), platform: platformKey() };
 }
@@ -71,17 +71,17 @@ export function resolveArtifact(
 ): { artifact: ToolkitArtifact; version: string } {
   const tool = manifest.tools.find((t) => t.id === toolId);
   if (!tool) {
-    throw new UniDmError("toolkit_manifest_invalid", `tool ${toolId} is not in the manifest`);
+    throw new SyntaxDmError("toolkit_manifest_invalid", `tool ${toolId} is not in the manifest`);
   }
   if (platform === null) {
-    throw new UniDmError(
+    throw new SyntaxDmError(
       "toolkit_unsupported_platform",
       `${process.platform}-${process.arch} has no bundled media tool artifacts`,
     );
   }
   const artifact = tool.platforms[platform];
   if (!artifact) {
-    throw new UniDmError(
+    throw new SyntaxDmError(
       "toolkit_unsupported_platform",
       `tool ${toolId} has no pinned artifact for ${platform}`,
     );

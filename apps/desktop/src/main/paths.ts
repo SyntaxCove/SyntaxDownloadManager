@@ -15,7 +15,7 @@ export interface AppPaths {
 }
 
 /**
- * dev:  UNIDM_DEV_SERVER_URL (set by the dev launcher) wins; renderer loads from Vite.
+ * dev:  SYNTAXDM_DEV_SERVER_URL (set by the dev launcher) wins; renderer loads from Vite.
  * prod: files relative to app root (apps/desktop) — dist/renderer/index.html and
  *       dist/preload/preload.cjs (bundled CJS because sandboxed preloads cannot require
  *       arbitrary modules).
@@ -29,8 +29,8 @@ export function resolveAppPaths(opts: {
     ? resolve(opts.appRoot, "toolchains.json")
     : resolve(opts.appRoot, "resources/toolchains.json");
   const trayIcon = opts.isPackaged
-    ? resolve(opts.appRoot, "unidm-tray.png")
-    : resolve(opts.appRoot, "resources/icons/unidm-tray.png");
+    ? resolve(opts.appRoot, "syntaxdm-tray.png")
+    : resolve(opts.appRoot, "resources/icons/syntaxdm-tray.png");
   const devServerUrl = opts.envDevServerUrl?.trim() ? opts.envDevServerUrl.trim() : null;
   if (devServerUrl) {
     return {

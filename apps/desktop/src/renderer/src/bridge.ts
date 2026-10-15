@@ -1,5 +1,5 @@
-import type { UnidmBridge, MethodName, MethodParams, MethodResult } from "@unidm/contracts";
-import { METHODS, EVENTS, UniDmError } from "@unidm/contracts";
+import type { SyntaxDmBridge, MethodName, MethodParams, MethodResult } from "@syntaxdm/contracts";
+import { METHODS, EVENTS, SyntaxDmError } from "@syntaxdm/contracts";
 import type { z } from "zod";
 
 /**
@@ -10,16 +10,16 @@ import type { z } from "zod";
 
 declare global {
   interface Window {
-    unidm: UnidmBridge;
+    syntaxdm: SyntaxDmBridge;
   }
 }
 
 export type EventPayload<E extends keyof typeof EVENTS> = z.infer<(typeof EVENTS)[E]["payload"]>;
 
-export function getBridge(): UnidmBridge {
-  const bridge = typeof window !== "undefined" ? window.unidm : undefined;
+export function getBridge(): SyntaxDmBridge {
+  const bridge = typeof window !== "undefined" ? window.syntaxdm : undefined;
   if (!bridge) {
-    throw new UniDmError("internal_error", "UniDM bridge is unavailable (preload not loaded)");
+    throw new SyntaxDmError("internal_error", "Syntax Download Manager bridge is unavailable (preload not loaded)");
   }
   return bridge;
 }

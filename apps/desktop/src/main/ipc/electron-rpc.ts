@@ -1,11 +1,11 @@
 import { ipcMain } from "electron";
 import type { BrowserWindow } from "electron";
 import { IpcRouter } from "./router.js";
-import { UniDmError } from "@unidm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 
 /** Single channel namespace — keeps the preload surface auditable. */
-export const RPC_CHANNEL = "unidm.rpc";
-export const EVENT_CHANNEL = "unidm.event";
+export const RPC_CHANNEL = "syntaxdm.rpc";
+export const EVENT_CHANNEL = "syntaxdm.event";
 
 /**
  * Binds the transport-agnostic IpcRouter to Electron IPC:
@@ -21,7 +21,7 @@ export function bindElectronRpc(router: IpcRouter, getWindow: () => BrowserWindo
   ipcMain.handle(RPC_CHANNEL, async (event, raw: unknown) => {
     if (!isTrustedSender(event.senderFrame?.url ?? "")) {
       // Refuse without echoing details into the untrusted frame.
-      throw new UniDmError("invalid_params", "untrusted sender");
+      throw new SyntaxDmError("invalid_params", "untrusted sender");
     }
     return router.handleRequest(raw, { senderId: event.sender.id });
   });
@@ -35,7 +35,7 @@ export function bindElectronRpc(router: IpcRouter, getWindow: () => BrowserWindo
 
 export function isTrustedSender(frameUrl: string): boolean {
   if (frameUrl.startsWith("file://") && frameUrl.includes("/dist/renderer/index.html")) return true;
-  const dev = process.env.UNIDM_DEV_SERVER_URL;
+  const dev = process.env.SYNTAXDM_DEV_SERVER_URL;
   if (dev && frameUrl.startsWith(dev)) return true;
   return false;
 }

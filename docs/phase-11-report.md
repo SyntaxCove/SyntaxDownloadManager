@@ -96,7 +96,7 @@ deliberately not loaded (strict renderer CSP; no mixed-content surface).
     the URL, `--dump-single-json` and `--no-playlist` all reach the extractor.
 - **main (vitest)**: media domain forwards params untouched, enforces the 120 s budget,
   rejects junk params before the core is touched, rejects wire drift (missing `isLive`),
-  preserves classified error codes (`UniDmError` round-trip).
+  preserves classified error codes (`SyntaxDmError` round-trip).
 - **renderer (vitest)**: media store lifecycle — ready with trimmed URL, proxy id
   forwarded only when chosen, classified failure → error phase, no double-fire in flight,
   empty URL never touches the bridge.
@@ -117,8 +117,8 @@ cargo fmt ✓ · clippy `-D warnings` ✓ · cargo test **132 passed** ✓ · vi
   media domain test inlines its manifest fixture.
 - Fluent UI icon `MoviesRegular` does not exist in the pinned icon set →
   `VideoClipMultipleRegular`.
-- `UniDmError.from` maps plain Errors to `internal_error` — classified codes must be thrown
-  as `UniDmError` to survive the boundary (tested explicitly now).
+- `SyntaxDmError.from` maps plain Errors to `internal_error` — classified codes must be thrown
+  as `SyntaxDmError` to survive the boundary (tested explicitly now).
 
 ## Security review notes
 

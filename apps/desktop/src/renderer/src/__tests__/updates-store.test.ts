@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { UpdateState } from "@unidm/contracts";
+import type { UpdateState } from "@syntaxdm/contracts";
 import { useUpdateStore, subscribeUpdateState } from "../stores/updates.js";
 
 /**
@@ -35,7 +35,7 @@ beforeEach(() => {
   respondWith = stateFixture();
   useUpdateStore.setState({ state: null, loaded: false });
   (globalThis as Record<string, unknown>).window = {
-    unidm: {
+    syntaxdm: {
       rpc: (method: string, params: unknown) => {
         calls.push({ method, params });
         return Promise.resolve(method === "update.getState" ? { state: respondWith } : { started: true, accepted: true });

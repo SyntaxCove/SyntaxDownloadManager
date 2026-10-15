@@ -1,6 +1,6 @@
 import { WebContentsView, session } from "electron";
 import type { BrowserWindow } from "electron";
-import { newUlid, type BrowserTab } from "@unidm/contracts";
+import { newUlid, type BrowserTab } from "@syntaxdm/contracts";
 import { titleForUrl, clampViewportBounds } from "./url-input.js";
 import { VisitRecorder, type RecordedVisit } from "./history-recorder.js";
 import type { ResolvedTabProxy } from "./proxy.js";

@@ -7,7 +7,7 @@ import {
   makeRequest,
   newUlid,
   type SchedulerJob,
-} from "@unidm/contracts";
+} from "@syntaxdm/contracts";
 import { registerSchedulerDomain } from "../domains/scheduler.js";
 import { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
@@ -131,7 +131,7 @@ describe("scheduler domain (Phase 15)", () => {
 
   it("surfaces core errors as typed envelopes", async () => {
     const { router } = makeRouterWithFakeCore(async () => {
-      throw new (await import("@unidm/contracts")).UniDmError(
+      throw new (await import("@syntaxdm/contracts")).SyntaxDmError(
         "invalid_state",
         "scheduler job is already firing",
       );

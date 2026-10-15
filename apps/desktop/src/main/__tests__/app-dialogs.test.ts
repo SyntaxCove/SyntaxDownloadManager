@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { METHODS, SuccessEnvelope, makeRequest, newUlid } from "@unidm/contracts";
+import { METHODS, SuccessEnvelope, makeRequest, newUlid } from "@syntaxdm/contracts";
 import { registerAppDialogs, type DirectoryPicker } from "../domains/app-dialogs.js";
 import { IpcRouter } from "../ipc/router.js";
 

@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@unidm/contracts": resolve(here, "../../packages/contracts/src/index.ts"),
+      "@syntaxdm/contracts": resolve(here, "../../packages/contracts/src/index.ts"),
     },
   },
   test: {

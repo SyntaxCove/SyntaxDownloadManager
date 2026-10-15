@@ -8,7 +8,7 @@ import {
   mergeLibrary,
   type LibraryEntry,
 } from "../app/library-projection.js";
-import type { DownloadJob, MediaJob, TorrentJob } from "@unidm/contracts";
+import type { DownloadJob, MediaJob, TorrentJob } from "@syntaxdm/contracts";
 
 /**
  * Phase 14 — the downloads library projection: one merged, filterable view over the three

@@ -1,5 +1,5 @@
-import { EVENTS, METHODS } from "@unidm/contracts";
-import type { DownloadCreateParams } from "@unidm/contracts";
+import { EVENTS, METHODS } from "@syntaxdm/contracts";
+import type { DownloadCreateParams } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { CoreSupervisor } from "../core/core-supervisor.js";
 import type { SettingsStore } from "./settings.js";

@@ -30,14 +30,14 @@ mod tests {
             tools: vec![ToolkitPathEntry {
                 id: "yt-dlp".into(),
                 version: "2025.09.26".into(),
-                path: "/opt/unidm/tools/yt-dlp/2025.09.26/yt-dlp".into(),
+                path: "/opt/syntaxdm/tools/yt-dlp/2025.09.26/yt-dlp".into(),
             }],
         };
         let json = serde_json::to_value(&params).unwrap();
         assert_eq!(json["tools"][0]["id"], "yt-dlp");
         assert_eq!(
             json["tools"][0]["path"],
-            "/opt/unidm/tools/yt-dlp/2025.09.26/yt-dlp"
+            "/opt/syntaxdm/tools/yt-dlp/2025.09.26/yt-dlp"
         );
         let back: ToolkitSetPathsParams = serde_json::from_value(json).unwrap();
         assert_eq!(back, params);

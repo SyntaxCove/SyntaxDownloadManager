@@ -118,8 +118,8 @@ async fn download_create_fire_creates_a_real_queued_download_job() {
     let mut params = create_params(
         "download.create",
         serde_json::json!({
-            "url": "http://127.0.0.1:1/unidm-scheduler-test.bin",
-            "destinationDir": "/tmp/unidm-scheduler-test"
+            "url": "http://127.0.0.1:1/syntaxdm-scheduler-test.bin",
+            "destinationDir": "/tmp/syntaxdm-scheduler-test"
         }),
         start,
     );
@@ -140,7 +140,7 @@ async fn download_create_fire_creates_a_real_queued_download_job() {
     let downloads = manager.list().unwrap();
     assert!(downloads
         .iter()
-        .any(|j| j.url == "http://127.0.0.1:1/unidm-scheduler-test.bin"));
+        .any(|j| j.url == "http://127.0.0.1:1/syntaxdm-scheduler-test.bin"));
 }
 
 #[tokio::test]

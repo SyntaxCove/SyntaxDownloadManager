@@ -25,7 +25,7 @@ import { useTorrentStore } from "../stores/torrent.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { formatBytes } from "./DownloadsPage.js";
-import type { TorrentJob, TorrentStatus } from "@unidm/contracts";
+import type { TorrentJob, TorrentStatus } from "@syntaxdm/contracts";
 
 /**
  * Torrents page — Phase 13: add .torrent files or magnet URIs into the native engine,

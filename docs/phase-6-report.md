@@ -60,7 +60,7 @@
   declares `.nullable()` are ALWAYS serialized (null, never omitted); `.nullish()` fields are
   omitted when unset. This also removed a latent Phase 5 divergence on `destinationPath`.
 - `download.setConcurrency` accepts optional `maxConnectionsPerDownload` (1..16);
-  `settings.maxConnectionsPerDownload` (default 4) added; core reads `UNIDM_MAX_CONNECTIONS`
+  `settings.maxConnectionsPerDownload` (default 4) added; core reads `SYNTAXDM_MAX_CONNECTIONS`
   at startup and live via the RPC.
 
 ### 5. Electron wiring + UI

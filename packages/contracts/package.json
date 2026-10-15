@@ -1,8 +1,8 @@
 {
-  "name": "@unidm/contracts",
+  "name": "@syntaxdm/contracts",
   "version": "1.13.0",
   "private": true,
-  "description": "UniDM contract-first schemas: domain types, protocol envelopes, error codes. Single source of truth for the IPC and core boundaries.",
+  "description": "Syntax Download Manager contract-first schemas: domain types, protocol envelopes, error codes. Single source of truth for the IPC and core boundaries.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

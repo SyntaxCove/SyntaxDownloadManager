@@ -24,7 +24,7 @@ Prior state: Phases 0–16 delivered (git `4c19393`).
 - Bodies are basenames of `destinationPath`/`filename`/`url` (media: `title`, torrent:
   `name`/`infoHash`), failures carry the classified error code, everything clipped to
   120 chars.
-- `app.setAppUserModelId("com.unidm.desktop")` for the Windows notification identity
+- `app.setAppUserModelId("com.syntaxdm.desktop")` for the Windows notification identity
   (documented dev caveat: unpackaged runs have no shortcut carrying the AUM ID, so
   Windows may not deliver toasts in dev; Phase 19 packaging registers it).
 
@@ -52,9 +52,9 @@ Prior state: Phases 0–16 delivered (git `4c19393`).
 
 ### 4. Tray integration (main)
 - New `domains/tray.ts`: `TrayController` over an injectable `TrayPort` (tooltip /
-  context menu / click / destroy), a pure `buildTrayMenuModel` (Open UniDM; disabled
-  info line "UniDM — N active · M queued"; Start all downloads — enabled iff queued > 0;
-  Pause all downloads — enabled iff active > 0; Quit UniDM), `countsFromStatuses`
+  context menu / click / destroy), a pure `buildTrayMenuModel` (Open Syntax Download Manager; disabled
+  info line "Syntax Download Manager — N active · M queued"; Start all downloads — enabled iff queued > 0;
+  Pause all downloads — enabled iff active > 0; Quit Syntax Download Manager), `countsFromStatuses`
   (probing/downloading = active, queued = queued) and `shouldHideOnClose`.
 - Menu rebuilds are throttled to one per second (progress events are ~500 ms); counts
   come from a job-status mirror in main, **seeded from `download.list` on every core
@@ -72,7 +72,7 @@ Prior state: Phases 0–16 delivered (git `4c19393`).
   guard), closing keeps the Phase 2 quit behavior: an app that vanishes with no tray icon
   would strand the engine and the user's only way back in. `before-quit` flips the
   quitting flag first and destroys the tray so the icon never lingers.
-- Icon: a real 256×256 PNG asset (`resources/icons/unidm-tray.png`, generated once by
+- Icon: a real 256×256 PNG asset (`resources/icons/syntaxdm-tray.png`, generated once by
   `scripts/gen-tray-icon.py` — rounded dark tile + accent download arrow matching the
   shell window), resolved by `paths.ts` (dev: `resources/icons/…`, packaged:
   resourcesPath, wired for Phase 19 `extraResources`).
@@ -95,7 +95,7 @@ Prior state: Phases 0–16 delivered (git `4c19393`).
 |---|---|
 | contracts | `src/domain/settings.ts`, `src/domain/transitions.ts` (new), `src/index.ts`, `src/version.ts`, `fixtures/domain.json`, `test/contracts.test.ts`, `package.json` |
 | dc-protocol | `src/lib.rs` (version constant) |
-| main | `domains/notify.ts` (new), `domains/tray.ts` (new), `main.ts` (AUM id, engine + tray wiring, close handler, counts seed, before-quit), `paths.ts` (trayIcon), `resources/icons/unidm-tray.png` (new), `scripts/gen-tray-icon.py` (new) |
+| main | `domains/notify.ts` (new), `domains/tray.ts` (new), `main.ts` (AUM id, engine + tray wiring, close handler, counts seed, before-quit), `paths.ts` (trayIcon), `resources/icons/syntaxdm-tray.png` (new), `scripts/gen-tray-icon.py` (new) |
 | renderer | `app/toasts.ts` (new), `app/ToastHost.tsx` (new), `app/AppShell.tsx` (host mount), `main.tsx` (status subscription), `pages/SettingsPage.tsx` (Notifications & tray section) |
 
 ## Tests

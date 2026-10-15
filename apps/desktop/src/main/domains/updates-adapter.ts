@@ -1,6 +1,6 @@
 import { autoUpdater } from "electron-updater";
-import type { UpdateState } from "@unidm/contracts";
-import { UniDmError } from "@unidm/contracts";
+import type { UpdateState } from "@syntaxdm/contracts";
+import { SyntaxDmError } from "@syntaxdm/contracts";
 import { resolveUpdateFeed, UpdateController, type UpdatePort } from "./updates.js";
 
 /**
@@ -84,16 +84,16 @@ export function createElectronUpdater(options: UpdateAdapterOptions): UpdateCont
           },
         }
       : // Defense in depth: the controller's guards make this unreachable; if a guard
-        // ever regresses, the failure is a classified UniDmError, not a mystery call.
+        // ever regresses, the failure is a classified SyntaxDmError, not a mystery call.
         {
           check: () => {
-            throw new UniDmError("invalid_state", "updater has no feed configured");
+            throw new SyntaxDmError("invalid_state", "updater has no feed configured");
           },
           download: () => {
-            throw new UniDmError("invalid_state", "updater has no feed configured");
+            throw new SyntaxDmError("invalid_state", "updater has no feed configured");
           },
           install: () => {
-            throw new UniDmError("invalid_state", "updater has no feed configured");
+            throw new SyntaxDmError("invalid_state", "updater has no feed configured");
           },
         };
 
