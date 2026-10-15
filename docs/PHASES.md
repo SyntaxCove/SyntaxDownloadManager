@@ -46,7 +46,7 @@
 | 16 | Settings domain completion | delivered (2026-10-13) |
 | 17 | Notifications, toasts, tray integration | delivered (2026-10-13) |
 | 18 | Auto-update channel | delivered (2026-10-14) |
-| 19 | Packaging — electron-builder NSIS installer (user-side build) | pending |
+| 19 | Packaging — electron-builder NSIS installer (user-side build) | delivered (2026-10-15) |
 | 20 | Diagnostics — structured logs, log export, health report | pending |
 | 21 | Accessibility + i18n (fa / en) | pending |
 | 22 | Performance budgets — startup, memory, UI latency | pending |

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.syntaxdm.desktop",
+  "productName": "Syntax Download Manager",
+  "executableName": "SyntaxDownloadManager",
+  "copyright": "Copyright (c) 2026 SyntaxCove",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "package.json",
+    "dist/main/**/*"
+  ],
+  "asarUnpack": [
+    "node_modules/lzma-native/**"
+  ],
+  "extraResources": [
+    { "from": "dist/renderer", "to": "dist/renderer" },
+    { "from": "dist/preload", "to": "dist/preload" },
+    { "from": "resources/toolchains.json", "to": "toolchains.json" },
+    { "from": "resources/icons/syntaxdm-tray.png", "to": "syntaxdm-tray.png" },
+    { "from": "build/core", "to": "bin/download-core" }
+  ],
+  "artifactName": "SyntaxDownloadManager-${version}-portable.${ext}",
+  "win": {
+    "icon": "build/icon.ico",
+    "target": [
+      { "target": "nsis", "arch": ["x64"] },
+      { "target": "zip", "arch": ["x64"] }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "artifactName": "SyntaxDownloadManager-Setup-${version}.${ext}",
+    "shortcutName": "Syntax Download Manager",
+    "uninstallDisplayName": "Syntax Download Manager",
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "SyntaxCove",
+    "repo": "SyntaxDownloadManager"
+  }
+}

@@ -1,8 +1,8 @@
 {
   "name": "@syntaxdm/desktop",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "Syntax Download Manager desktop shell — Electron main, preload bridge, React renderer",
+  "description": "Syntax Download Manager desktop shell \u2014 Electron main, preload bridge, React renderer",
   "type": "commonjs",
   "main": "./dist/main/main.js",
   "scripts": {
@@ -12,18 +12,17 @@
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "test": "vitest run",
     "start": "npm run build && electron .",
+    "dist": "electron-builder --win nsis zip",
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload/preload.cjs --sourcemap=external"
   },
   "dependencies": {
     "@syntaxdm/contracts": "*",
     "electron-updater": "6.8.10",
     "lzma-native": "8.0.6",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
     "tar-stream": "3.2.2",
-    "yauzl": "3.4.0",
-    "zustand": "5.0.15"
+    "yauzl": "3.4.0"
   },
+  "packaging-note": "react/react-dom/zustand are renderer-only and are bundled by Vite; they are devDependencies so the packaged asar carries true runtime dependencies only",
   "devDependencies": {
     "@fluentui/react-components": "9.74.9",
     "@fluentui/react-icons": "2.0.343",
@@ -34,9 +33,14 @@
     "@types/yazl": "3.3.0",
     "@vitejs/plugin-react": "6.1.2",
     "electron": "44.5.1",
+    "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "vite": "8.3.3",
     "vitest": "5.0.3",
-    "yazl": "3.3.1"
-  }
+    "yazl": "3.3.1",
+    "zustand": "5.0.15"
+  },
+  "author": "SyntaxCove"
 }

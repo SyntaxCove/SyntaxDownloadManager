@@ -12,6 +12,7 @@ core/target/
 
 # Electron / packaging
 apps/desktop/release/
+apps/desktop/build/core/
 
 # Runtime artifacts
 *.log

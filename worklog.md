@@ -710,3 +710,43 @@ Work Log:
 Stage Summary:
 - github.com/SyntaxCove/SyntaxDownloadManager is live: 31 commits, Phases 0-18, public,
   licensed, fully documented. Going forward every phase lands on GitHub after its gate.
+
+---
+Task ID: 19
+Agent: main
+Task: Phase 19 — Packaging (electron-builder NSIS installer + portable zip)
+
+Work Log:
+- Plan (docs/phase-19-plan.md): pinned electron-builder 26.15.3 to pair with the Phase 18
+  electron-updater 6.8.10; packaged layout derived from the code's pre-existing contract
+  (appRoot = process.resourcesPath) rather than changing main-process code.
+- Implemented electron-builder.json (NSIS assisted per-user + portable zip + github
+  publish feed for app-update.yml), scripts/gen-app-icon.py (hand-packed multi-size ICO:
+  BMP 16-128 + PNG 256; PIL cannot mix bitmap formats), scripts/build-windows.ps1
+  (canonical user-side one-shot), package.json dep split (react/zustand -> devDeps;
+  asar carries true runtime deps only), version 0.5.0 -> 0.6.0.
+- New drift-guard test package-layout.test.ts (10 tests) locking electron-builder.json to
+  the code contract: appId <=> AppUserModelID, every extraResources path <=> paths.ts /
+  resolveCoreBinaryPath, asar main entry, per-user install, deleteAppDataOnUninstall=false,
+  publish feed, artifact names.
+- Sandbox cross-build validation: llvm-mingw 20261006 toolchain (no root available);
+  rustc windows-gnu needs -lgcc/-lgcc_eh which llvm-mingw does not ship -> compatibility
+  symlinks to libclang_rt.builtins + llvm-mingw libunwind.a; download-core.exe built
+  (PE32+ x86-64 release). electron-builder zip target completed and inventoried
+  programmatically (asar: main entry + contracts + zod + electron-updater; resources:
+  dist/renderer, dist/preload, toolchains.json, tray icon, core exe, app-update.yml).
+- Discovery: electron-builder 26 removed the root "zip" config key (schema); portable zip
+  artifact name moved to root artifactName with nsis.artifactName override. Discovered by
+  schema validation failure, fixed, and asserted in the drift-guard test.
+- Discovery: NSIS on Linux runs makensis under wine; sandbox kernel policy kills wine
+  (SIGSYS at wineboot). NSIS validated up to that boundary; the installer is built
+  user-side by scripts/build-windows.ps1. The partial 276 KB NSIS output was deleted so
+  no broken artifact ships.
+- Gate: typecheck clean; vitest 109 contracts + 271 passed/1 skipped desktop;
+  vite build clean; cargo fmt clean (re-wrapped one renamed fixture line), clippy clean,
+  268 cargo tests passed.
+
+Stage Summary:
+- Phase 19 delivered: real Windows portable zip artifact produced and verified; NSIS
+  installer path fully configured, drift-guarded, and scripted for the user's Windows
+  machine; honest limitations recorded (unsigned build; cross-built core binary note).

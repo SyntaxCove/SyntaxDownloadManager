@@ -344,7 +344,9 @@ mod tests {
             container: MediaContainer::Mkv,
             destination_dir: "/home/user/Downloads".into(),
             destination_path: None,
-            work_dir: Some("/home/user/Downloads/.syntaxdm-media/01JD8W3G5XQ9V4M2K7PZ6N8S0V".into()),
+            work_dir: Some(
+                "/home/user/Downloads/.syntaxdm-media/01JD8W3G5XQ9V4M2K7PZ6N8S0V".into(),
+            ),
             status: "downloading".into(),
             total_bytes: Some(121_400_000),
             received_bytes: 60_700_000,

@@ -274,7 +274,10 @@ fn parses_and_round_trips_history_entry_fixture() {
     let entry: dc_protocol::HistoryEntry =
         serde_json::from_value(doc["historyEntry"].clone()).unwrap();
     assert_eq!(entry.url, "https://example.com/articles/syntaxdm");
-    assert_eq!(entry.title.as_deref(), Some("Syntax Download Manager release notes"));
+    assert_eq!(
+        entry.title.as_deref(),
+        Some("Syntax Download Manager release notes")
+    );
     assert_eq!(entry.visited_at, 1735689600000);
     let out: serde_json::Value = serde_json::to_value(&entry).unwrap();
     assert_eq!(
