@@ -631,7 +631,7 @@ fn history_search_matches_url_and_title_case_insensitively() {
     let store = JobStore::open_in_memory().unwrap();
     store
         .insert_history_entry(&history_entry(
-            "https://example.com/Syntax Download Manager-Docs",
+            "https://example.com/syntax-download-manager-docs",
             Some("Framework docs"),
             1000,
         ))
@@ -644,9 +644,14 @@ fn history_search_matches_url_and_title_case_insensitively() {
         ))
         .unwrap();
 
-    let by_url = store.list_history(Some("syntaxdm"), 10, 0).unwrap();
+    // Query case differs from the stored URL case on purpose: the search must
+    // match URL substrings case-insensitively.
+    let by_url = store.list_history(Some("Download-Manager"), 10, 0).unwrap();
     assert_eq!(by_url.len(), 1);
-    assert_eq!(by_url[0].url, "https://example.com/Syntax Download Manager-Docs");
+    assert_eq!(
+        by_url[0].url,
+        "https://example.com/syntax-download-manager-docs"
+    );
 
     let by_title = store.list_history(Some("RELEASE"), 10, 0).unwrap();
     assert_eq!(by_title.len(), 1);
