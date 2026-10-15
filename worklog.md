@@ -680,3 +680,33 @@ Stage Summary:
   Contracts 1.13.0; storage stays v9; the core stays settings-free and update-free.
 - Next: Phase 19 (packaging — electron-builder NSIS installer, user-side build) per
   docs/PHASES.md.
+
+---
+Task ID: GH-1
+Agent: main
+Task: Publish the repository to GitHub as "Syntax Download Manager" (public, licensed, documented)
+
+Work Log:
+- Verified Phase 0-18 state directly from the repository (28 phase commits, verify-all green
+  at Phase 18) rather than from continuation summaries.
+- Repo hygiene: untracked the sandbox AI-skills tree (1,076 files), the deliverables staging
+  dir, and the sandbox .env; .gitignore now covers all three permanently.
+- Product rename UniDM -> Syntax Download Manager across the whole tree: @syntaxdm/* package
+  scope, SyntaxDmError/SyntaxDmBridge types, SYNTAXDM_* env vars, the yt-dlp
+  --progress-template sentinel (emitter + parser renamed in lockstep), .syntaxdm-media scratch
+  dir, tray icon asset (git mv), AppUserModelID, UI strings, docs, worklog.
+- Rebuilt the gate from a clean sandbox (Rust toolchain reinstalled): npm install, contracts
+  build, npm run typecheck, contracts + desktop vitest, full production build, cargo test.
+- Wrote LICENSE (MIT grant + attribution requirement + project-name reservation) and a
+  complete English README (features, architecture, layout, dev/verify/run instructions,
+  roadmap, security stance, license summary).
+- Committed as three logical commits (hygiene / rename / docs) authored as SyntaxCove.
+- Created the public GitHub repo SyntaxCove/SyntaxDownloadManager via API, pushed the full
+  commit history, set description/topics, tagged v0.5.0, published a release with English
+  notes (source release; installer/portable arrive with the Phase 19 packaging milestone).
+- Security: the provided PAT is used only from the local credential store outside the repo;
+  never committed; rotation recommended since it was shared in chat.
+
+Stage Summary:
+- github.com/SyntaxCove/SyntaxDownloadManager is live: 31 commits, Phases 0-18, public,
+  licensed, fully documented. Going forward every phase lands on GitHub after its gate.
