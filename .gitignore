@@ -1,4 +1,4 @@
-# UniDM monorepo gitignore
+# Syntax Download Manager monorepo gitignore
 
 node_modules/
 dist/
@@ -25,3 +25,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 tool-results/
+
+# Sandbox-only (never part of the product)
+skills/
+tool-results/
+download/
+.env
