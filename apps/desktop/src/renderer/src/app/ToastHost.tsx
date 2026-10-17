@@ -46,7 +46,7 @@ export function ToastHost(): ReactNode {
       dispatchToast(
         <Toast>
           <ToastTitle
-            media={<span className={`${styles.icon} ${styles[t.intent]}`}>{INTENT_ICON[t.intent]}</span>}
+            media={<span aria-hidden="true" className={`${styles.icon} ${styles[t.intent]}`}>{INTENT_ICON[t.intent]}</span>}
           >
             {t.title}
           </ToastTitle>

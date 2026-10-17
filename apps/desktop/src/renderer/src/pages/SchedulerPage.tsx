@@ -29,13 +29,16 @@ import {
 import { useSchedulerStore, epochMsToLocalInput, type SchedulerActionChoice } from "../stores/scheduler.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
+import { useI18n } from "../i18n/context.js";
+import { formatDateTime } from "../i18n/format.js";
 import type { SchedulerJob } from "@syntaxdm/contracts";
 
 /**
  * Scheduler page (Phase 15): persistent automation jobs fired by the core's 1 s tick.
  * The renderer only edits rows — every fire time is computed and recorded by the core.
  * Catch-up semantics are stated honestly: a job whose time passed while the app was
- * closed runs at the next opportunity.
+ * closed runs at the next opportunity. Phase 21: localized strings (dates render in the
+ * interface language — Persian resolves to the Jalali calendar via Intl).
  */
 
 const useStyles = makeStyles({
@@ -53,40 +56,19 @@ const useStyles = makeStyles({
   meta: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
   ok: { color: tokens.colorPaletteGreenForeground1 },
   bad: { color: tokens.colorPaletteRedForeground1 },
-  actions: { display: "flex", gap: "4px", marginLeft: "auto" },
+  actions: { display: "flex", gap: "4px", marginInlineStart: "auto" },
   empty: { color: tokens.colorNeutralForeground3, padding: "24px", textAlign: "center" },
   field: { display: "flex", flexDirection: "column", gap: "4px", marginTop: "8px" },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" },
 });
 
-const ACTION_LABELS: Record<SchedulerActionChoice, string> = {
-  "download.create": "Download a file (URL)",
-  "download.startAll": "Start all paused downloads",
-  "download.pauseAll": "Pause all active downloads",
-  "media.download": "Download media (page URL)",
-  "torrent.add": "Add torrent / magnet",
+const ACTION_KEYS: Record<SchedulerActionChoice, string> = {
+  "download.create": "scheduler.action.download.create",
+  "download.startAll": "scheduler.action.download.startAll",
+  "download.pauseAll": "scheduler.action.download.pauseAll",
+  "media.download": "scheduler.action.media.download",
+  "torrent.add": "scheduler.action.torrent.add",
 };
-
-function describePayload(job: SchedulerJob): string {
-  const p = job.payload as Record<string, unknown>;
-  switch (job.kind) {
-    case "download.create":
-      return typeof p.url === "string" ? p.url : "—";
-    case "media.download":
-      return typeof p.url === "string" ? p.url : "—";
-    case "torrent.add":
-      return typeof p.magnetUri === "string"
-        ? p.magnetUri.slice(0, 72)
-        : "torrent file";
-    default:
-      return "queue-wide action";
-  }
-}
-
-function formatWhen(epoch: number | null): string {
-  if (epoch === null) return "nothing scheduled";
-  return new Date(epoch).toLocaleString();
-}
 
 interface FormState {
   kind: SchedulerActionChoice;
@@ -105,6 +87,7 @@ interface FormState {
 
 export function SchedulerPage(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const jobs = useSchedulerStore((s) => s.jobs);
   const loaded = useSchedulerStore((s) => s.jobsLoaded);
   const loadJobs = useSchedulerStore((s) => s.loadJobs);
@@ -169,23 +152,23 @@ export function SchedulerPage(): ReactNode {
   const buildPayload = (f: FormState): Record<string, unknown> | string => {
     switch (f.kind) {
       case "download.create": {
-        if (!f.url.trim()) return "a URL is required";
+        if (!f.url.trim()) return t("scheduler.error.urlRequired");
         const payload: Record<string, unknown> = { url: f.url.trim(), destinationDir: f.destinationDir };
         // Frozen at save time: scheduler payloads bypass main's app-default injection.
         if (f.proxyProfileId) payload.proxyProfileId = f.proxyProfileId;
         return payload;
       }
       case "media.download": {
-        if (!f.url.trim()) return "a page URL is required";
+        if (!f.url.trim()) return t("scheduler.error.pageUrlRequired");
         if (!f.videoFormatId.trim() && !f.audioFormatId.trim())
-          return "select at least one of video/audio format ids";
+          return t("scheduler.error.formatRequired");
         const payload: Record<string, unknown> = { url: f.url.trim(), destinationDir: f.destinationDir };
         if (f.videoFormatId.trim()) payload.videoFormatId = f.videoFormatId.trim();
         if (f.audioFormatId.trim()) payload.audioFormatId = f.audioFormatId.trim();
         return payload;
       }
       case "torrent.add": {
-        if (!f.magnetUri.trim()) return "a magnet URI is required";
+        if (!f.magnetUri.trim()) return t("scheduler.error.magnetRequired");
         return { magnetUri: f.magnetUri.trim(), destinationDir: f.destinationDir };
       }
       default:
@@ -193,7 +176,7 @@ export function SchedulerPage(): ReactNode {
     }
   };
 
-  const submit = async () => {
+  const submit = async (): Promise<void> => {
     if (!form) return;
     const payload = buildPayload(form);
     if (typeof payload === "string") {
@@ -203,7 +186,7 @@ export function SchedulerPage(): ReactNode {
     if (editing) {
       const startAt = new Date(form.startLocal).getTime();
       if (!Number.isFinite(startAt)) {
-        setPageError("pick a start date and time");
+        setPageError(t("scheduler.error.startRequired"));
         return;
       }
       await updateJob(editing.id, {
@@ -235,31 +218,51 @@ export function SchedulerPage(): ReactNode {
     [setEnabledLocal, updateJob],
   );
 
+  const describePayload = (job: SchedulerJob): string => {
+    const p = job.payload as Record<string, unknown>;
+    switch (job.kind) {
+      case "download.create":
+        return typeof p.url === "string" ? p.url : "—";
+      case "media.download":
+        return typeof p.url === "string" ? p.url : "—";
+      case "torrent.add":
+        return typeof p.magnetUri === "string"
+          ? p.magnetUri.slice(0, 72)
+          : t("scheduler.payload.torrentFile");
+      default:
+        return t("scheduler.payload.queueWide");
+    }
+  };
+
+  const formatWhen = (epoch: number | null): string =>
+    epoch === null ? t("scheduler.when.none") : formatDateTime(epoch, t.lang);
+
+  const repeatLabel = (repeat: "none" | "daily" | "weekly"): string =>
+    repeat === "none" ? t("scheduler.repeat.none") : repeat === "daily" ? t("scheduler.repeat.daily") : t("scheduler.repeat.weekly");
+
   return (
     <div className={styles.page}>
       <div className={styles.row}>
-        <Text weight="semibold">Scheduled jobs</Text>
+        <Text as="h1" weight="semibold" size={500}>
+          {t("scheduler.title")}
+        </Text>
         <div className={styles.actions}>
           <Button appearance="primary" icon={<AddRegular />} onClick={openCreate}>
-            New job
+            {t("scheduler.newJob")}
           </Button>
         </div>
       </div>
-      <Text className={styles.meta}>
-        Automation runs inside the download engine and survives restarts. Repeating jobs
-        keep their local time across daylight-saving changes; a job missed while the app
-        was closed runs at the next opportunity.
-      </Text>
+      <Text className={styles.meta}>{t("scheduler.intro")}</Text>
       {pageError || storeError ? (
         <MessageBar intent="error">
           <MessageBarBody>{pageError ?? storeError}</MessageBarBody>
         </MessageBar>
       ) : null}
 
-      {!loaded ? <Spinner label="Loading schedules" /> : null}
+      {!loaded ? <Spinner label={t("scheduler.loading")} /> : null}
 
       {loaded && jobs.length === 0 ? (
-        <Text className={styles.empty}>No scheduled jobs yet.</Text>
+        <Text className={styles.empty}>{t("scheduler.empty")}</Text>
       ) : null}
 
       {jobs.map((job) => (
@@ -268,18 +271,18 @@ export function SchedulerPage(): ReactNode {
             <Switch
               checked={job.enabled}
               onChange={(_e, data) => void toggle(job, data.checked)}
-              aria-label={`Enable ${job.kind}`}
+              aria-label={t("scheduler.enableAria", { kind: t(ACTION_KEYS[job.kind]) })}
             />
-            <Text className={styles.name}>{ACTION_LABELS[job.kind]}</Text>
+            <Text className={styles.name}>{t(ACTION_KEYS[job.kind])}</Text>
             <div className={styles.actions}>
               <Button
                 appearance="subtle"
                 size="small"
                 icon={<PlayRegular />}
-                title="Run now (does not change the schedule)"
+                title={t("scheduler.runNowTitle")}
                 onClick={() => void runNow(job.id).catch((e) => setPageError(String(e?.message ?? e)))}
               >
-                Run now
+                {t("scheduler.runNow")}
               </Button>
               <Button
                 appearance="subtle"
@@ -287,7 +290,7 @@ export function SchedulerPage(): ReactNode {
                 icon={<EditRegular />}
                 onClick={() => openEdit(job)}
               >
-                Edit
+                {t("scheduler.edit")}
               </Button>
               <Button
                 appearance="subtle"
@@ -295,7 +298,7 @@ export function SchedulerPage(): ReactNode {
                 icon={<DeleteRegular />}
                 onClick={() => void removeJob(job.id).catch((e) => setPageError(String(e?.message ?? e)))}
               >
-                Remove
+                {t("common.remove")}
               </Button>
             </div>
           </div>
@@ -304,21 +307,23 @@ export function SchedulerPage(): ReactNode {
           </Text>
           <div className={styles.row}>
             <Text className={styles.meta}>
-              {job.repeat === "none"
-                ? "one-shot"
-                : job.repeat === "daily"
-                  ? "daily"
-                  : "weekly"}{" "}
-              · anchor {formatWhen(job.startAt)} · next {formatWhen(job.nextRunAt)}
+              {repeatLabel(job.repeat)}{" "}
+              {"· "}
+              {t("scheduler.anchorNext", { anchor: formatWhen(job.startAt), next: formatWhen(job.nextRunAt) })}
             </Text>
           </div>
           {job.lastFiredAt !== null ? (
             <Text className={`${styles.meta} ${job.lastResultCode === "ok" ? styles.ok : styles.bad}`}>
-              last run {formatWhen(job.lastFiredAt)} — {job.lastResultCode}
-              {job.lastResultMessage ? `: ${job.lastResultMessage}` : ""}
+              {job.lastResultMessage
+                ? t("scheduler.lastRunWithMsg", {
+                    when: formatWhen(job.lastFiredAt),
+                    code: job.lastResultCode ?? "",
+                    message: job.lastResultMessage,
+                  })
+                : t("scheduler.lastRun", { when: formatWhen(job.lastFiredAt), code: job.lastResultCode ?? "" })}
             </Text>
           ) : (
-            <Text className={styles.meta}>never fired</Text>
+            <Text className={styles.meta}>{t("scheduler.neverFired")}</Text>
           )}
         </div>
       ))}
@@ -326,24 +331,25 @@ export function SchedulerPage(): ReactNode {
       <Dialog open={editorOpen} onOpenChange={(_e, d) => setEditorOpen(d.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>{editing ? "Edit scheduled job" : "New scheduled job"}</DialogTitle>
+            <DialogTitle>{editing ? t("scheduler.dialog.editTitle") : t("scheduler.dialog.createTitle")}</DialogTitle>
             <DialogContent>
               {form ? (
                 <>
                   <div className={styles.field}>
-                    <Text>Action</Text>
+                    <Text id="scheduler-action-label">{t("scheduler.dialog.action")}</Text>
                     <Dropdown
-                      value={ACTION_LABELS[form.kind]}
+                      value={t(ACTION_KEYS[form.kind])}
                       disabled={editing !== null}
+                      aria-labelledby="scheduler-action-label"
                       onOptionSelect={(_e, d) => {
                         if (typeof d.optionValue === "string") {
                           setForm({ ...form, kind: d.optionValue as SchedulerActionChoice });
                         }
                       }}
                     >
-                      {(Object.keys(ACTION_LABELS) as SchedulerActionChoice[]).map((k) => (
-                        <Option key={k} value={k} text={ACTION_LABELS[k]}>
-                          {ACTION_LABELS[k]}
+                      {(Object.keys(ACTION_KEYS) as SchedulerActionChoice[]).map((k) => (
+                        <Option key={k} value={k} text={t(ACTION_KEYS[k])}>
+                          {t(ACTION_KEYS[k])}
                         </Option>
                       ))}
                     </Dropdown>
@@ -351,11 +357,12 @@ export function SchedulerPage(): ReactNode {
 
                   {form.kind === "download.create" || form.kind === "media.download" ? (
                     <div className={styles.field}>
-                      <Text>{form.kind === "media.download" ? "Page URL" : "URL"}</Text>
+                      <Text id="scheduler-url-label">{form.kind === "media.download" ? t("scheduler.dialog.pageUrl") : t("scheduler.dialog.url")}</Text>
                       <Input
                         value={form.url}
                         onChange={(_e, d) => setForm({ ...form, url: d.value })}
                         placeholder="https://…"
+                        aria-labelledby="scheduler-url-label"
                       />
                     </div>
                   ) : null}
@@ -363,19 +370,21 @@ export function SchedulerPage(): ReactNode {
                   {form.kind === "media.download" ? (
                     <div className={styles.grid2}>
                       <div className={styles.field}>
-                        <Text>Video format id (optional)</Text>
+                        <Text id="scheduler-video-label">{t("scheduler.dialog.videoFormatId")}</Text>
                         <Input
                           value={form.videoFormatId}
                           onChange={(_e, d) => setForm({ ...form, videoFormatId: d.value })}
-                          placeholder="e.g. 137"
+                          placeholder={t("scheduler.dialog.videoFormatIdPlaceholder")}
+                          aria-labelledby="scheduler-video-label"
                         />
                       </div>
                       <div className={styles.field}>
-                        <Text>Audio format id (optional)</Text>
+                        <Text id="scheduler-audio-label">{t("scheduler.dialog.audioFormatId")}</Text>
                         <Input
                           value={form.audioFormatId}
                           onChange={(_e, d) => setForm({ ...form, audioFormatId: d.value })}
-                          placeholder="e.g. 140"
+                          placeholder={t("scheduler.dialog.audioFormatIdPlaceholder")}
+                          aria-labelledby="scheduler-audio-label"
                         />
                       </div>
                     </div>
@@ -383,35 +392,38 @@ export function SchedulerPage(): ReactNode {
 
                   {form.kind === "torrent.add" ? (
                     <div className={styles.field}>
-                      <Text>Magnet URI</Text>
+                      <Text id="scheduler-magnet-label">{t("scheduler.dialog.magnetUri")}</Text>
                       <Input
                         value={form.magnetUri}
                         onChange={(_e, d) => setForm({ ...form, magnetUri: d.value })}
                         placeholder="magnet:?xt=…"
+                        aria-labelledby="scheduler-magnet-label"
                       />
                     </div>
                   ) : null}
 
                   {form.kind !== "download.startAll" && form.kind !== "download.pauseAll" ? (
                     <div className={styles.field}>
-                      <Text>Destination directory</Text>
+                      <Text id="scheduler-dest-label">{t("scheduler.dialog.destinationDir")}</Text>
                       <Input
                         value={form.destinationDir}
                         onChange={(_e, d) => setForm({ ...form, destinationDir: d.value })}
+                        aria-labelledby="scheduler-dest-label"
                       />
                     </div>
                   ) : null}
 
                   {form.kind === "download.create" ? (
                     <div className={styles.field}>
-                      <Text>Proxy (frozen with the job — the app default is not applied here)</Text>
+                      <Text id="scheduler-proxy-label">{t("scheduler.dialog.proxyFrozen")}</Text>
                       <Dropdown
                         value={
                           form.proxyProfileId
-                            ? (proxyProfiles.find((p) => p.id === form.proxyProfileId)?.name ?? "unavailable profile")
-                            : "Direct"
+                            ? (proxyProfiles.find((p) => p.id === form.proxyProfileId)?.name ?? t("scheduler.dialog.unavailableProfile"))
+                            : t("common.direct")
                         }
                         selectedOptions={form.proxyProfileId ? [form.proxyProfileId] : ["__direct"]}
+                        aria-labelledby="scheduler-proxy-label"
                         onOptionSelect={(_e, d) =>
                           setForm({
                             ...form,
@@ -419,7 +431,7 @@ export function SchedulerPage(): ReactNode {
                           })
                         }
                       >
-                        <Option value="__direct">Direct (no proxy)</Option>
+                        <Option value="__direct">{t("common.directNoProxy")}</Option>
                         {proxyProfiles.map((p) => (
                           <Option key={p.id} value={p.id}>
                             {p.name}
@@ -431,42 +443,46 @@ export function SchedulerPage(): ReactNode {
 
                   <div className={styles.grid2}>
                     <div className={styles.field}>
-                      <Text>Start (local time)</Text>
+                      <Text id="scheduler-start-label">{t("scheduler.dialog.start")}</Text>
                       <Input
                         type="datetime-local"
                         value={form.startLocal}
                         onChange={(_e, d) => setForm({ ...form, startLocal: d.value })}
+                        aria-labelledby="scheduler-start-label"
                       />
                     </div>
                     <div className={styles.field}>
-                      <Text>Repeat</Text>
+                      <Text id="scheduler-repeat-label">{t("scheduler.dialog.repeat")}</Text>
                       <Dropdown
-                        value={form.repeat === "none" ? "Once" : form.repeat === "daily" ? "Daily" : "Weekly"}
+                        value={
+                          form.repeat === "none"
+                            ? t("scheduler.dialog.repeat.none")
+                            : form.repeat === "daily"
+                              ? t("scheduler.dialog.repeat.daily")
+                              : t("scheduler.dialog.repeat.weekly")
+                        }
+                        aria-labelledby="scheduler-repeat-label"
                         onOptionSelect={(_e, d) => {
                           if (d.optionValue === "none" || d.optionValue === "daily" || d.optionValue === "weekly") {
                             setForm({ ...form, repeat: d.optionValue });
                           }
                         }}
                       >
-                        <Option value="none" text="Once">Once</Option>
-                        <Option value="daily" text="Daily">Daily</Option>
-                        <Option value="weekly" text="Weekly">Weekly</Option>
+                        <Option value="none" text={t("scheduler.dialog.repeat.none")}>{t("scheduler.dialog.repeat.none")}</Option>
+                        <Option value="daily" text={t("scheduler.dialog.repeat.daily")}>{t("scheduler.dialog.repeat.daily")}</Option>
+                        <Option value="weekly" text={t("scheduler.dialog.repeat.weekly")}>{t("scheduler.dialog.repeat.weekly")}</Option>
                       </Dropdown>
                     </div>
                   </div>
 
                   <div className={styles.field}>
                     <Checkbox
-                      label="Enabled"
+                      label={t("scheduler.dialog.enabled")}
                       checked={form.enabled}
                       onChange={(_e, d) => setForm({ ...form, enabled: d.checked === true })}
                     />
                   </div>
-                  <Text className={styles.meta}>
-                    One-shot jobs run once at the start time (or at the next opportunity if
-                    the app was closed) and then disable themselves. Repeating jobs keep
-                    running even when a run fails — the outcome is always recorded.
-                  </Text>
+                  <Text className={styles.meta}>{t("scheduler.dialog.hint")}</Text>
                 </>
               ) : null}
             </DialogContent>
@@ -476,10 +492,10 @@ export function SchedulerPage(): ReactNode {
                 icon={<ArrowClockwiseRegular />}
                 onClick={() => setEditorOpen(false)}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button appearance="primary" onClick={() => void submit()}>
-                {editing ? "Save changes" : "Create job"}
+                {editing ? t("scheduler.dialog.save") : t("scheduler.dialog.create")}
               </Button>
             </DialogActions>
           </DialogBody>

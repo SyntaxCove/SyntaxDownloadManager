@@ -1,7 +1,8 @@
-import type { JobDomain, JobEndKind, DownloadJob, MediaJob, TorrentJob } from "@syntaxdm/contracts";
+import type { JobDomain, JobEndKind, DownloadJob, MediaJob, TorrentJob, AppLanguage } from "@syntaxdm/contracts";
 import { JobEndTracker, jobEndLabel } from "@syntaxdm/contracts";
 import type { IpcRouter } from "../ipc/router.js";
 import type { SettingsStore } from "./settings.js";
+import { jobEndTitle } from "../i18n.js";
 
 /**
  * Phase 17: OS notifications for job ends. The engine taps the router's already-validated
@@ -31,24 +32,16 @@ export interface NotifyEngineDeps {
   readonly settings: Pick<SettingsStore, "settings">;
 }
 
-const COMPLETED_TITLE: Record<JobDomain, string> = {
-  download: "Download completed",
-  media: "Media ready",
-  torrent: "Torrent finished",
-};
-const FAILED_TITLE: Record<JobDomain, string> = {
-  download: "Download failed",
-  media: "Media job failed",
-  torrent: "Torrent failed",
-};
-
-/** Build the user-facing strings for one transition (exported for tests). */
+/** Build the user-facing strings for one transition (exported for tests).
+ * Phase 21: an optional language localizes the title; the default keeps the pre-i18n
+ * English behavior verbatim, so existing callers and tests stay stable. */
 export function describeTransition(
   domain: JobDomain,
   kind: JobEndKind,
   job: DownloadJob | MediaJob | TorrentJob,
+  lang: AppLanguage = "en",
 ): { title: string; body: string } {
-  const title = kind === "completed" ? COMPLETED_TITLE[domain] : FAILED_TITLE[domain];
+  const title = jobEndTitle(lang, domain, kind);
   const base = jobEndLabel(domain, job);
   const errorCode = (job as { errorCode?: string | null }).errorCode;
   const body = kind === "failed" && typeof errorCode === "string" ? `${base} — ${errorCode}` : base;
@@ -78,7 +71,7 @@ export function registerNotifyEngine(router: IpcRouter, deps: NotifyEngineDeps):
     if (!deps.port.supported()) return;
     if (t.kind === "completed" && !deps.settings.settings.notifyOnComplete) return;
     if (t.kind === "failed" && !deps.settings.settings.notifyOnFailure) return;
-    const { title, body } = describeTransition(domain, t.kind, job);
+    const { title, body } = describeTransition(domain, t.kind, job, deps.settings.settings.language);
     deps.port.show({ title, body });
   });
 }

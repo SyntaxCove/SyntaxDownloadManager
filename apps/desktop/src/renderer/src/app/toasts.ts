@@ -1,6 +1,7 @@
 import type { DownloadJob, JobDomain, MediaJob, TorrentJob } from "@syntaxdm/contracts";
 import { JobEndTracker, coreStateToast, jobEndLabel } from "@syntaxdm/contracts";
 import { onEvent } from "../bridge.js";
+import { currentT } from "../i18n/context.js";
 
 /**
  * Phase 17: in-app toasts. The renderer mirror of the main-side notification engine —
@@ -70,15 +71,20 @@ export function toastBudgetForTests(): number {
   return inFlight;
 }
 
-const COMPLETED_TITLE: Record<JobDomain, string> = {
-  download: "Download completed",
-  media: "Media ready",
-  torrent: "Torrent finished",
+/**
+ * Phase 21: titles resolve through the live translator (module-level, works outside
+ * React); bodies carry the job display name from the shared contracts classifier, which
+ * is user data (paths/titles) plus at most the protocol error code — both stay verbatim.
+ */
+const completedTitleKey: Record<JobDomain, string> = {
+  download: "toast.completed.download",
+  media: "toast.completed.media",
+  torrent: "toast.completed.torrent",
 };
-const FAILED_TITLE: Record<JobDomain, string> = {
-  download: "Download failed",
-  media: "Media job failed",
-  torrent: "Torrent failed",
+const failedTitleKey: Record<JobDomain, string> = {
+  download: "toast.failed.download",
+  media: "toast.failed.media",
+  torrent: "toast.failed.torrent",
 };
 
 /** Wire every job snapshot + core lifecycle event into the toast bus (once per session). */
@@ -88,11 +94,12 @@ export function subscribeStatusToasts(): void {
     const t = tracker.observe(domain, job.id, job.status);
     if (!t) return;
     const base = jobEndLabel(domain, job);
+    const translator = currentT();
     if (t.kind === "completed") {
-      publishToast({ title: COMPLETED_TITLE[domain], body: base, intent: "success" });
+      publishToast({ title: translator(completedTitleKey[domain]), body: base, intent: "success" });
     } else {
       const code = typeof job.errorCode === "string" ? ` — ${job.errorCode}` : "";
-      publishToast({ title: FAILED_TITLE[domain], body: `${base}${code}`, intent: "error" });
+      publishToast({ title: translator(failedTitleKey[domain]), body: `${base}${code}`, intent: "error" });
     }
   };
 
@@ -102,8 +109,24 @@ export function subscribeStatusToasts(): void {
 
   let prevCore: string | undefined;
   onEvent("core.state", ({ status }) => {
-    const toast = coreStateToast(prevCore, status);
+    // The transition decision stays in contracts (one classifier shared with main's OS
+    // notifications); only the copy is localized here, keyed by the already-known state.
+    const decision = coreStateToast(prevCore, status);
     prevCore = status;
-    if (toast) publishToast(toast);
+    if (!decision) return;
+    const translator = currentT();
+    if (status === "restarting") {
+      publishToast({
+        intent: "info",
+        title: translator("coreToast.restarting.title"),
+        body: translator("coreToast.restarting.body"),
+      });
+    } else {
+      publishToast({
+        intent: "error",
+        title: translator("coreToast.unavailable.title"),
+        body: translator("coreToast.unavailable.body"),
+      });
+    }
   });
 }

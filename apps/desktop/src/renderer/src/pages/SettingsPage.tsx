@@ -32,12 +32,15 @@ import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useToolkitStore } from "../stores/toolkit.js";
 import { useUpdateStore } from "../stores/updates.js";
+import { useI18n } from "../i18n/context.js";
+import { formatDateTime, formatNumber } from "../i18n/format.js";
 
 /**
  * Settings page — writes go through the optimistic zustand store → main → settings.json.
  * Phase 16 completed the domain: native directory picker (app.pickDirectory), the
  * app-level default proxy for new downloads (injected by main on download.create), and a
  * confirm-guarded restore-defaults action. Free-text absolute paths stay valid everywhere.
+ * Phase 21: fully localized; the language selector now switches the whole UI live.
  */
 
 const useStyles = makeStyles({
@@ -62,29 +65,37 @@ const useStyles = makeStyles({
   toolName: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 },
 });
 
-const TOOL_LABELS: Record<ToolkitToolStatus["id"], string> = {
-  ffmpeg: "FFmpeg (media muxing)",
-  "yt-dlp": "yt-dlp (media extraction)",
-  deno: "Deno (site script runtime)",
+const TOOL_KEYS: Record<ToolkitToolStatus["id"], string> = {
+  ffmpeg: "settings.toolkit.ffmpeg",
+  "yt-dlp": "settings.toolkit.ytdlp",
+  deno: "settings.toolkit.deno",
 };
 
-function stateBadge(state: ToolkitToolStatus["state"]): ReactNode {
+/** Unknown tool ids (a future additive contract) fall back to the raw id, never throw. */
+function toolLabel(id: ToolkitToolStatus["id"], t: (key: string) => string): string {
+  const key = TOOL_KEYS[id];
+  return key ? t(key) : id;
+}
+
+function StateBadge({ state }: { state: ToolkitToolStatus["state"] }): ReactNode {
+  const { t } = useI18n();
   switch (state) {
     case "ready":
-      return <Badge appearance="filled" color="success">Ready</Badge>;
+      return <Badge appearance="filled" color="success">{t("settings.toolkit.state.ready")}</Badge>;
     case "fetching":
-      return <Badge appearance="tint" color="informative">Fetching…</Badge>;
+      return <Badge appearance="tint" color="informative">{t("settings.toolkit.state.fetching")}</Badge>;
     case "verifying":
-      return <Badge appearance="tint" color="informative">Verifying…</Badge>;
+      return <Badge appearance="tint" color="informative">{t("settings.toolkit.state.verifying")}</Badge>;
     case "failed":
-      return <Badge appearance="filled" color="danger">Failed</Badge>;
+      return <Badge appearance="filled" color="danger">{t("settings.toolkit.state.failed")}</Badge>;
     default:
-      return <Badge appearance="outline">Not installed</Badge>;
+      return <Badge appearance="outline">{t("settings.toolkit.state.missing")}</Badge>;
   }
 }
 
 export function SettingsPage(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const settings = useSettingsStore((s) => s.settings);
   const status = useSettingsStore((s) => s.status);
   const error = useSettingsStore((s) => s.error);
@@ -96,11 +107,13 @@ export function SettingsPage(): ReactNode {
     if (status === "loading") void load();
   }, [status, load]);
 
-  if (status === "loading") return <Spinner label="Loading settings" />;
+  if (status === "loading") return <Spinner label={t("settings.loading")} />;
   if (status === "error" || !settings) {
     return (
       <MessageBar intent="error">
-        <MessageBarBody>Failed to load settings: {error ?? "unknown error"}</MessageBarBody>
+        <MessageBarBody>
+          {t("settings.loadFailed", { error: error ?? t("settings.unknownError") })}
+        </MessageBarBody>
       </MessageBar>
     );
   }
@@ -109,44 +122,44 @@ export function SettingsPage(): ReactNode {
     <div className={styles.page}>
       {error ? (
         <MessageBar intent="error">
-          <MessageBarBody>Settings could not be saved — {error}</MessageBarBody>
+          <MessageBarBody>{t("settings.saveFailed", { error })}</MessageBarBody>
         </MessageBar>
       ) : null}
 
       <MediaToolkitSection />
 
       <section className={styles.section} aria-labelledby="appearance-title">
-        <Text id="appearance-title" className={styles.sectionTitle}>
-          Appearance
+        <Text id="appearance-title" as="h2" className={styles.sectionTitle}>
+          {t("settings.section.appearance")}
         </Text>
-        <Field label="Theme">
+        <Field label={t("settings.theme")}>
           <RadioGroup
             value={settings.theme}
             onChange={(_, data) => void update({ theme: data.value as ThemeMode })}
             layout="horizontal"
           >
-            <Radio value="system" label="System" />
-            <Radio value="light" label="Light" />
-            <Radio value="dark" label="Dark" />
+            <Radio value="system" label={t("settings.theme.system")} />
+            <Radio value="light" label={t("settings.theme.light")} />
+            <Radio value="dark" label={t("settings.theme.dark")} />
           </RadioGroup>
         </Field>
-        <Field label="Interface language (strings localize in a later phase)">
+        <Field label={t("settings.language")}>
           <RadioGroup
             value={settings.language}
             onChange={(_, data) => void update({ language: data.value as AppLanguage })}
             layout="horizontal"
           >
-            <Radio value="en" label="English" />
-            <Radio value="fa" label="فارسی" />
+            <Radio value="en" label={t("settings.language.en")} />
+            <Radio value="fa" label={t("settings.language.fa")} />
           </RadioGroup>
         </Field>
       </section>
 
       <section className={styles.section} aria-labelledby="download-title">
-        <Text id="download-title" className={styles.sectionTitle}>
-          Downloads
+        <Text id="download-title" as="h2" className={styles.sectionTitle}>
+          {t("settings.section.downloads")}
         </Text>
-        <Field label="Default download directory" hint="Absolute path on this machine">
+        <Field label={t("settings.downloadDir")} hint={t("settings.downloadDirHint")}>
           <div style={{ display: "flex", gap: "8px" }}>
             <Input
               value={settings.downloadDir}
@@ -160,8 +173,8 @@ export function SettingsPage(): ReactNode {
         </Field>
         <DefaultProxyField />
         <Field
-          label={`Parallel downloads: ${settings.concurrentDownloads}`}
-          hint="Applied by the download engine when starting new jobs"
+          label={t("settings.parallelDownloads", { n: formatNumber(settings.concurrentDownloads, t.lang) })}
+          hint={t("settings.parallelDownloadsHint")}
         >
           <Slider
             min={1}
@@ -172,8 +185,8 @@ export function SettingsPage(): ReactNode {
           />
         </Field>
         <Field
-          label={`Connections per download: ${settings.maxConnectionsPerDownload}`}
-          hint="Parallel range connections used to accelerate a single download (1 = single stream)"
+          label={t("settings.connectionsPer", { n: formatNumber(settings.maxConnectionsPerDownload, t.lang) })}
+          hint={t("settings.connectionsPerHint")}
         >
           <Slider
             min={1}
@@ -183,7 +196,7 @@ export function SettingsPage(): ReactNode {
             onChange={(_, data) => void update({ maxConnectionsPerDownload: data.value })}
           />
         </Field>
-        <Field label="Speed limit (KiB/s, 0 = unlimited)">
+        <Field label={t("settings.speedLimit")}>
           <Input
             type="number"
             min={0}
@@ -195,8 +208,8 @@ export function SettingsPage(): ReactNode {
           />
         </Field>
         <Field
-          label="Start new downloads automatically"
-          hint="When off, new downloads wait as Paused until you start them"
+          label={t("settings.autoStart")}
+          hint={t("settings.autoStartHint")}
         >
           <Switch
             checked={settings.autoStartNewDownloads}
@@ -204,8 +217,8 @@ export function SettingsPage(): ReactNode {
           />
         </Field>
         <Field
-          label="Scheduled download window"
-          hint="Outside the window, auto-started runs pause; downloads you start manually keep running"
+          label={t("settings.scheduleWindow")}
+          hint={t("settings.scheduleWindowHint")}
         >
           <Switch
             checked={settings.scheduleEnabled}
@@ -213,7 +226,7 @@ export function SettingsPage(): ReactNode {
           />
         </Field>
         {settings.scheduleEnabled ? (
-          <Field label="Daily window (local time, 24h)" hint="Wrap-over windows (e.g. 22:00 → 06:00) are supported">
+          <Field label={t("settings.dailyWindow")} hint={t("settings.dailyWindowHint")}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <Input
                 type="time"
@@ -223,9 +236,9 @@ export function SettingsPage(): ReactNode {
                     void update({ scheduleStart: data.value });
                   }
                 }}
-                aria-label="Window start"
+                aria-label={t("settings.windowStart")}
               />
-              <Text className={styles.hint}>to</Text>
+              <Text className={styles.hint}>{t("settings.to")}</Text>
               <Input
                 type="time"
                 value={settings.scheduleEnd}
@@ -234,23 +247,21 @@ export function SettingsPage(): ReactNode {
                     void update({ scheduleEnd: data.value });
                   }
                 }}
-                aria-label="Window end"
+                aria-label={t("settings.windowEnd")}
               />
             </div>
           </Field>
         ) : null}
-        <Text className={styles.hint}>
-          Changes apply immediately and persist to the application profile.
-        </Text>
+        <Text className={styles.hint}>{t("settings.applyNote")}</Text>
       </section>
 
       <section className={styles.section} aria-labelledby="notifications-title">
-        <Text id="notifications-title" className={styles.sectionTitle}>
-          Notifications &amp; tray
+        <Text id="notifications-title" as="h2" className={styles.sectionTitle}>
+          {t("settings.section.notifications")}
         </Text>
         <Field
-          label="Notify when a job completes"
-          hint="Windows notifications and in-app toasts for finished downloads, media and torrents"
+          label={t("settings.notifyComplete")}
+          hint={t("settings.notifyCompleteHint")}
         >
           <Switch
             checked={settings.notifyOnComplete}
@@ -258,8 +269,8 @@ export function SettingsPage(): ReactNode {
           />
         </Field>
         <Field
-          label="Notify when a job fails"
-          hint="Failures always surface in the job lists; this controls the pop-ups"
+          label={t("settings.notifyFailure")}
+          hint={t("settings.notifyFailureHint")}
         >
           <Switch
             checked={settings.notifyOnFailure}
@@ -267,35 +278,32 @@ export function SettingsPage(): ReactNode {
           />
         </Field>
         <Field
-          label="Close button keeps downloads running in the tray"
-          hint="Closing the window hides it to the notification area; Quit lives in the tray menu. Off: closing exits the app (and pauses active downloads)"
+          label={t("settings.closeToTray")}
+          hint={t("settings.closeToTrayHint")}
         >
           <Switch
             checked={settings.closeToTray}
             onChange={(_, data) => void update({ closeToTray: data.checked })}
           />
         </Field>
-        <Text className={styles.hint}>
-          Close-to-tray needs a live tray icon — if the system has none, the close button
-          exits the app regardless of this switch.
-        </Text>
+        <Text className={styles.hint}>{t("settings.closeToTrayNote")}</Text>
       </section>
 
       <UpdatesSection />
 
       <section className={styles.section} aria-labelledby="maintenance-title">
-        <Text id="maintenance-title" className={styles.sectionTitle}>
-          Maintenance
+        <Text id="maintenance-title" as="h2" className={styles.sectionTitle}>
+          {t("settings.section.maintenance")}
         </Text>
         <Field
-          label="Restore default settings"
-          hint="Every preference returns to its factory value; jobs and files are untouched"
+          label={t("settings.restoreDefaults")}
+          hint={t("settings.restoreDefaultsHint")}
         >
           <Button
             icon={<ArrowCounterclockwiseRegular />}
             onClick={() => setConfirmReset(true)}
           >
-            Restore defaults
+            {t("settings.restoreDefaultsAction")}
           </Button>
         </Field>
       </section>
@@ -303,15 +311,11 @@ export function SettingsPage(): ReactNode {
       <Dialog open={confirmReset} onOpenChange={(_, d) => setConfirmReset(d.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>Restore default settings?</DialogTitle>
-            <DialogContent>
-              Theme, language, download directory, limits, proxy default and every other
-              preference return to their factory values. Downloads, history and profiles are
-              not touched. This cannot be undone.
-            </DialogContent>
+            <DialogTitle>{t("settings.resetDialog.title")}</DialogTitle>
+            <DialogContent>{t("settings.resetDialog.body")}</DialogContent>
             <DialogActions>
               <Button appearance="secondary" onClick={() => setConfirmReset(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 appearance="primary"
@@ -320,7 +324,7 @@ export function SettingsPage(): ReactNode {
                   void update({ ...SETTINGS_DEFAULTS });
                 }}
               >
-                Restore
+                {t("settings.resetDialog.action")}
               </Button>
             </DialogActions>
           </DialogBody>
@@ -332,6 +336,7 @@ export function SettingsPage(): ReactNode {
 
 /** Phase 16: native OS folder picker (app.pickDirectory); null (cancel) changes nothing. */
 function BrowseDirectoryButton(props: { onPicked: (path: string) => void }): ReactNode {
+  const { t } = useI18n();
   const [picking, setPicking] = useState(false);
   return (
     <Button
@@ -347,7 +352,7 @@ function BrowseDirectoryButton(props: { onPicked: (path: string) => void }): Rea
           .finally(() => setPicking(false));
       }}
     >
-      Browse…
+      {t("common.browse")}
     </Button>
   );
 }
@@ -358,6 +363,7 @@ function BrowseDirectoryButton(props: { onPicked: (path: string) => void }): Rea
  * main (proxy.remove), so a stale selection cannot appear here.
  */
 function DefaultProxyField(): ReactNode {
+  const { t } = useI18n();
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   const profiles = useProxyStore((s) => s.profiles);
@@ -371,12 +377,12 @@ function DefaultProxyField(): ReactNode {
   if (!settings) return null;
   const current = settings.defaultProxyProfileId;
   const currentName = current
-    ? (profiles.find((p) => p.id === current)?.name ?? "unavailable profile")
-    : "Direct";
+    ? (profiles.find((p) => p.id === current)?.name ?? t("settings.unavailableProfile"))
+    : t("common.direct");
   return (
     <Field
-      label="Default proxy for new downloads"
-      hint="Applied to downloads created without an explicit proxy; a missing profile pauses the job (never falls back to direct)"
+      label={t("settings.defaultProxy")}
+      hint={t("settings.defaultProxyHint")}
     >
       <Dropdown
         value={currentName}
@@ -386,9 +392,9 @@ function DefaultProxyField(): ReactNode {
             defaultProxyProfileId: d.optionValue === "__direct" ? null : (d.optionValue as string),
           })
         }
-        aria-label="Default proxy for new downloads"
+        aria-label={t("settings.defaultProxy")}
       >
-        <Option value="__direct">Direct (no proxy)</Option>
+        <Option value="__direct">{t("common.directNoProxy")}</Option>
         {profiles.map((p) => (
           <Option key={p.id} value={p.id}>
             {p.name}
@@ -406,6 +412,7 @@ function DefaultProxyField(): ReactNode {
  */
 function MediaToolkitSection(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const status = useToolkitStore((s) => s.status);
   const loaded = useToolkitStore((s) => s.loaded);
   const load = useToolkitStore((s) => s.load);
@@ -419,11 +426,11 @@ function MediaToolkitSection(): ReactNode {
   if (!status) {
     return (
       <section className={styles.section} aria-labelledby="toolkit-title">
-        <Text id="toolkit-title" className={styles.sectionTitle}>
-          Media toolkit
+        <Text id="toolkit-title" as="h2" className={styles.sectionTitle}>
+          {t("settings.section.toolkit")}
         </Text>
         <Text className={styles.hint}>
-          {loaded ? "Toolkit manifest is unavailable on this install." : "Loading toolkit status…"}
+          {loaded ? t("settings.toolkit.unavailable") : t("settings.toolkit.loading")}
         </Text>
       </section>
     );
@@ -431,20 +438,20 @@ function MediaToolkitSection(): ReactNode {
 
   return (
     <section className={styles.section} aria-labelledby="toolkit-title">
-      <Text id="toolkit-title" className={styles.sectionTitle}>
-        Media toolkit
+      <Text id="toolkit-title" as="h2" className={styles.sectionTitle}>
+        {t("settings.section.toolkit")}
       </Text>
       <Text className={styles.hint}>
-        Bundled tools for media downloads — verified by checksum before use, updated only with
-        the app. {status.platform ? `Platform: ${status.platform}.` : "No artifacts pinned for this platform."}
+        {t("settings.toolkit.intro")}{" "}
+        {status.platform ? t("settings.toolkit.platform", { platform: status.platform }) : t("settings.toolkit.noPlatform")}
       </Text>
       {status.tools.map((tool) => (
         <div key={tool.id} className={styles.toolRow}>
           <div className={styles.toolHead}>
             <div className={styles.toolName}>
-              <Text weight="semibold">{TOOL_LABELS[tool.id] ?? tool.id}</Text>
+              <Text weight="semibold">{toolLabel(tool.id, t)}</Text>
               <Text className={styles.hint}>v{tool.version}</Text>
-              {stateBadge(tool.state)}
+              <StateBadge state={tool.state} />
             </div>
             <div style={{ display: "flex", gap: "6px" }}>
               {tool.state === "failed" || tool.state === "missing" ? (
@@ -453,12 +460,12 @@ function MediaToolkitSection(): ReactNode {
                   appearance="primary"
                   onClick={() => void ensure(tool.id)}
                 >
-                  Install
+                  {t("settings.toolkit.install")}
                 </Button>
               ) : null}
               {tool.state === "fetching" || tool.state === "verifying" ? (
                 <Button size="small" onClick={() => void cancel(tool.id)}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               ) : null}
             </div>
@@ -467,6 +474,7 @@ function MediaToolkitSection(): ReactNode {
             <ProgressBar
               value={Math.min(1, tool.bytesFetched / tool.totalBytes)}
               shape="rounded"
+              aria-label={toolLabel(tool.id, t)}
             />
           ) : null}
           {tool.state === "failed" && tool.message ? (
@@ -482,13 +490,14 @@ function MediaToolkitSection(): ReactNode {
 }
 
 function MediaToolsAutoFetchToggle(): ReactNode {
+  const { t } = useI18n();
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   if (!settings) return null;
   return (
     <Field
-      label="Fetch missing tools automatically at startup"
-      hint="When off, install tools manually from this page"
+      label={t("settings.toolkit.autoFetch")}
+      hint={t("settings.toolkit.autoFetchHint")}
     >
       <Switch
         checked={settings.mediaToolsAutoFetch}
@@ -504,38 +513,48 @@ function MediaToolsAutoFetchToggle(): ReactNode {
  * points (check / download / restart-to-apply). No feed URLs and no paths are ever shown —
  * main sends sanitized state shapes only.
  */
-function updateStatusLine(state: UpdateState): string {
-  switch (state.status as UpdateStatus) {
-    case "idle":
-      return "Ready to check for updates.";
-    case "checking":
-      return "Checking for updates…";
-    case "available":
-      return `Version ${state.availableVersion ?? "?"} is available.`;
-    case "not-available":
-      return "Syntax Download Manager is up to date.";
-    case "downloading": {
-      const p = state.progress;
-      const speed = p && p.bytesPerSecond > 0 ? ` — ${(p.bytesPerSecond / 1048576).toFixed(1)} MB/s` : "";
-      return `Downloading update…${p ? ` ${Math.floor(p.percent)}%` : ""}${speed}`;
+function useUpdateStatusLine(): (state: UpdateState) => string {
+  const { t } = useI18n();
+  return (state: UpdateState): string => {
+    switch (state.status as UpdateStatus) {
+      case "idle":
+        return t("settings.update.state.idle");
+      case "checking":
+        return t("settings.update.state.checking");
+      case "available":
+        return t("settings.update.state.available", { version: state.availableVersion ?? "?" });
+      case "not-available":
+        return t("settings.update.state.notAvailable");
+      case "downloading": {
+        const p = state.progress;
+        const base = t("settings.update.state.downloading");
+        const percent = p ? t("settings.update.state.downloadingProgress", { percent: formatNumber(Math.floor(p.percent), t.lang) }) : "";
+        const speed =
+          p && p.bytesPerSecond > 0
+            ? t("settings.update.state.downloadingSpeed", { speed: (p.bytesPerSecond / 1048576).toFixed(1) })
+            : "";
+        return `${base}${percent}${speed}`;
+      }
+      case "downloaded":
+        return t("settings.update.state.downloaded", { version: state.availableVersion ?? "?" });
+      case "installing":
+        return t("settings.update.state.installing");
+      case "error":
+        return t("settings.update.state.error");
+      case "unavailable":
+        return state.unavailableReason === "not_packaged"
+          ? t("settings.update.state.unavailableDev")
+          : t("settings.update.state.unavailableNoFeed");
+      default:
+        return "";
     }
-    case "downloaded":
-      return `Version ${state.availableVersion ?? "?"} downloaded — restart to apply it.`;
-    case "installing":
-      return "Restarting to apply the update…";
-    case "error":
-      return "The last update action failed.";
-    case "unavailable":
-      return state.unavailableReason === "not_packaged"
-        ? "Updates are disabled in this development build."
-        : "No update feed is configured for this install.";
-    default:
-      return "";
-  }
+  };
 }
 
 function UpdatesSection(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
+  const statusLine = useUpdateStatusLine();
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.update);
   const state = useUpdateStore((s) => s.state);
@@ -554,26 +573,27 @@ function UpdatesSection(): ReactNode {
 
   return (
     <section className={styles.section} aria-labelledby="updates-title">
-      <Text id="updates-title" className={styles.sectionTitle}>
-        Updates
+      <Text id="updates-title" as="h2" className={styles.sectionTitle}>
+        {t("settings.section.updates")}
       </Text>
       {state ? (
         <>
           <Text className={styles.hint}>
-            This install: Syntax Download Manager {state.currentVersion}
+            {t("settings.update.installLine", { version: state.currentVersion })}
             {state.lastCheckedAt
-              ? ` — last checked ${new Date(state.lastCheckedAt).toLocaleString()}`
+              ? t("settings.update.lastChecked", { when: formatDateTime(state.lastCheckedAt, t.lang) })
               : ""}
           </Text>
-          <Text>{updateStatusLine(state)}</Text>
+          <Text>{statusLine(state)}</Text>
         </>
       ) : (
-        <Spinner size="tiny" label="Loading updater state…" />
+        <Spinner size="tiny" label={t("settings.update.loadingState")} />
       )}
       {state?.status === "downloading" && state.progress ? (
         <ProgressBar
           value={Math.min(1, state.progress.percent / 100)}
           shape="rounded"
+          aria-label={statusLine(state)}
         />
       ) : null}
       {state?.releaseNotes ? (
@@ -584,8 +604,9 @@ function UpdatesSection(): ReactNode {
       {state?.status === "error" ? (
         <MessageBar intent="error">
           <MessageBarBody>
-            Update failed — {state.errorCode ?? "unknown error"}
-            {state.message ? `: ${state.message}` : ""}
+            {state.message
+              ? t("settings.update.failedWithMessage", { code: state.errorCode ?? t("settings.unknownError"), message: state.message })
+              : t("settings.update.failed", { code: state.errorCode ?? t("settings.unknownError") })}
           </MessageBarBody>
         </MessageBar>
       ) : null}
@@ -595,11 +616,11 @@ function UpdatesSection(): ReactNode {
           disabled={!state || busy || state.status === "unavailable"}
           onClick={() => void check()}
         >
-          Check now
+          {t("settings.update.checkNow")}
         </Button>
         {state?.status === "available" ? (
           <Button appearance="primary" onClick={() => void download()}>
-            Download update
+            {t("settings.update.downloadUpdate")}
           </Button>
         ) : null}
         {state?.status === "downloaded" ? (
@@ -608,24 +629,20 @@ function UpdatesSection(): ReactNode {
             icon={<ArrowClockwiseRegular />}
             onClick={() => void install()}
           >
-            Restart to update
+            {t("settings.update.restartToUpdate")}
           </Button>
         ) : null}
       </div>
       <Field
-        label="Check for updates automatically"
-        hint="Runs at startup and every 12 hours; a manual check stays available"
+        label={t("settings.update.autoCheck")}
+        hint={t("settings.update.autoCheckHint")}
       >
         <Switch
           checked={settings.updateAutoCheck}
           onChange={(_, data) => void updateSettings({ updateAutoCheck: data.checked })}
         />
       </Field>
-      <Text className={styles.hint}>
-        A downloaded update applies when you quit Syntax Download Manager. Update packages are verified
-        against the feed's published checksum before install; checks never download and
-        downloads never install without your click.
-      </Text>
+      <Text className={styles.hint}>{t("settings.update.privacyNote")}</Text>
     </section>
   );
 }

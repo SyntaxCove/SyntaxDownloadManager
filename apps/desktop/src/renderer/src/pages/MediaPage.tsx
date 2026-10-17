@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Button,
   Checkbox,
@@ -26,7 +26,9 @@ import {
 import { useMediaStore } from "../stores/media.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useSettingsStore } from "../stores/settings.js";
-import { formatBytes } from "./DownloadsPage.js";
+import { useI18n } from "../i18n/context.js";
+import { formatBytes, formatBitrate, formatDuration, formatNumber } from "../i18n/format.js";
+import { pluralKey } from "../i18n/translate.js";
 import type { AudioFormat, MediaJob, SubtitleTrack, VideoFormat } from "@syntaxdm/contracts";
 
 /**
@@ -34,6 +36,8 @@ import type { AudioFormat, MediaJob, SubtitleTrack, VideoFormat } from "@syntaxd
  * format and/or subtitle tracks, choose the mux container, and start a persistent media
  * job (bundled yt-dlp downloads → bundled FFmpeg mux). Live manifests surface honestly:
  * recording live streams is not supported yet, so the download is disabled for them.
+ * Phase 21: localized strings; the format tables are real ARIA tables with
+ * keyboard-operable, focusable selection rows.
  */
 
 const useStyles = makeStyles({
@@ -67,6 +71,9 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
   },
   rowSelectable: { cursor: "pointer" },
+  rowFocusable: {
+    ":focus-visible": { outline: `2px solid ${tokens.colorBrandStroke1}` },
+  },
   rowSelected: {
     outline: `1px solid ${tokens.colorBrandStroke1}`,
     backgroundColor: tokens.colorBrandBackground2,
@@ -93,7 +100,7 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground2,
   },
   jobTop: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
-  jobActions: { display: "flex", gap: "4px", marginLeft: "auto" },
+  jobActions: { display: "flex", gap: "4px", marginInlineStart: "auto" },
   statusBadge: {
     padding: "1px 8px",
     borderRadius: tokens.borderRadiusMedium,
@@ -102,24 +109,11 @@ const useStyles = makeStyles({
   },
 });
 
-function formatDuration(seconds: number | null): string {
-  if (seconds === null) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  return h > 0
-    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
-    : `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function formatBitrate(bps: number | null): string {
-  return bps === null ? "—" : `${(bps / 1_000_000).toFixed(2)} Mbps`;
-}
-
 const ACTIVE_STATUSES = new Set(["queued", "extracting", "downloading", "muxing"]);
 
 function JobRow({ job }: { job: MediaJob }): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const pause = useMediaStore((s) => s.pause);
   const resume = useMediaStore((s) => s.resume);
   const cancel = useMediaStore((s) => s.cancel);
@@ -142,10 +136,10 @@ function JobRow({ job }: { job: MediaJob }): ReactNode {
       <div className={styles.jobTop}>
         <span className={styles.statusBadge}>{job.status}</span>
         <Text weight="semibold">{job.title ?? job.sourceUrl}</Text>
-        {job.proxyProfileId ? <span className={styles.badge}>proxy</span> : null}
+        {job.proxyProfileId ? <span className={styles.badge}>{t("media.proxyBadge")}</span> : null}
         <div className={styles.jobActions}>
           {job.status === "paused" || job.status === "failed" || job.status === "canceled" ? (
-            <Tooltip content="Resume" relationship="label">
+            <Tooltip content={t("media.job.resume")} relationship="label">
               <Button
                 size="small"
                 icon={<PlayRegular />}
@@ -154,12 +148,12 @@ function JobRow({ job }: { job: MediaJob }): ReactNode {
             </Tooltip>
           ) : null}
           {active && job.status !== "queued" ? (
-            <Tooltip content="Pause" relationship="label">
+            <Tooltip content={t("media.job.pause")} relationship="label">
               <Button size="small" icon={<PauseRegular />} onClick={() => run(() => pause(job.id))} />
             </Tooltip>
           ) : null}
           {active && job.status !== "queued" ? (
-            <Tooltip content="Cancel" relationship="label">
+            <Tooltip content={t("media.job.cancel")} relationship="label">
               <Button
                 size="small"
                 icon={<DismissRegular />}
@@ -167,7 +161,7 @@ function JobRow({ job }: { job: MediaJob }): ReactNode {
               />
             </Tooltip>
           ) : null}
-          <Tooltip content="Remove (keeps files)" relationship="label">
+          <Tooltip content={t("media.job.remove")} relationship="label">
             <Button
               size="small"
               icon={<DeleteRegular />}
@@ -178,10 +172,10 @@ function JobRow({ job }: { job: MediaJob }): ReactNode {
       </div>
       <Text className={styles.meta}>
         {job.receivedBytes > 0 || job.totalBytes !== null
-          ? `${formatBytes(job.receivedBytes)}${job.totalBytes !== null ? ` / ${formatBytes(job.totalBytes)}` : ""}`
+          ? `${formatBytes(job.receivedBytes, t.lang)}${job.totalBytes !== null ? ` / ${formatBytes(job.totalBytes, t.lang)}` : ""}`
           : ""}
-        {job.speedBps ? ` · ${formatBytes(job.speedBps)}/s` : ""}
-        {job.etaSeconds !== null ? ` · ETA ${formatDuration(job.etaSeconds)}` : ""}
+        {job.speedBps ? ` · ${formatBytes(job.speedBps, t.lang)}/s` : ""}
+        {job.etaSeconds !== null ? ` · ${t("downloads.meta.eta", { eta: formatDuration(job.etaSeconds, t.lang) })}` : ""}
         {job.destinationPath ? ` · ${job.destinationPath}` : ""}
       </Text>
       {active ? (
@@ -189,7 +183,7 @@ function JobRow({ job }: { job: MediaJob }): ReactNode {
           value={pct ?? undefined}
           shape="rounded"
           thickness="medium"
-          aria-label={`media job progress ${job.status}`}
+          aria-label={t("media.job.progressAria")}
         />
       ) : null}
       {job.errorCode ? (
@@ -208,6 +202,7 @@ function JobRow({ job }: { job: MediaJob }): ReactNode {
 
 export function MediaPage(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const {
     phase, url, manifest, error, setUrl, inspect,
     jobs, jobsLoaded, selection, setSelection, resetSelection, loadJobs, download,
@@ -228,7 +223,9 @@ export function MediaPage(): ReactNode {
   const selectionSummary = [
     selection.videoFormatId ? `video ${selection.videoFormatId}` : null,
     selection.audioFormatId ? `audio ${selection.audioFormatId}` : null,
-    selection.subtitles.length > 0 ? `${selection.subtitles.length} subtitle(s)` : null,
+    selection.subtitles.length > 0
+      ? t(pluralKey("media.count.subtitle", selection.subtitles.length), { n: formatNumber(selection.subtitles.length, t.lang) })
+      : null,
   ]
     .filter(Boolean)
     .join(" + ");
@@ -243,37 +240,45 @@ export function MediaPage(): ReactNode {
     }).catch((e) => setCreateError(String(e?.message ?? e)));
   };
 
-  const toggleSubtitle = (t: SubtitleTrack) => {
+  const toggleSubtitle = (track: SubtitleTrack) => {
     const existing = selection.subtitles;
     const key = (s: { language: string; extension: string }) =>
       `${s.language}/${s.extension}`;
-    const exists = existing.some((s) => key(s) === key(t));
+    const exists = existing.some((s) => key(s) === key(track));
     setSelection({
       subtitles: exists
-        ? existing.filter((s) => key(s) !== key(t))
+        ? existing.filter((s) => key(s) !== key(track))
         : [
             ...existing,
             {
-              language: t.language,
-              extension: t.extension,
+              language: track.language,
+              extension: track.extension,
               // The manifest marks unknown auto-generated state as null; a selection
               // needs the concrete flag yt-dlp consumes (--write-subs vs --write-auto-subs).
-              isAutoGenerated: t.isAutoGenerated ?? false,
+              isAutoGenerated: track.isAutoGenerated ?? false,
             },
           ],
     });
   };
 
+  // Keyboard operability for selectable format rows (Enter/Space toggles).
+  const onRowKeyDown = (e: KeyboardEvent<HTMLDivElement>, toggle: () => void): void => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  };
+
   return (
     <div className={styles.page}>
-      <Text size={500} weight="semibold">
-        Media
+      <Text as="h1" size={500} weight="semibold">
+        {t("media.title")}
       </Text>
 
       <div className={styles.bar}>
         <Input
           className={styles.urlInput}
-          placeholder="Paste a media page URL (video, audio, …)"
+          placeholder={t("media.urlPlaceholder")}
           value={url}
           onChange={(_, data) => setUrl(data.value)}
           onKeyDown={(e) => {
@@ -283,11 +288,12 @@ export function MediaPage(): ReactNode {
             }
           }}
           disabled={busy}
-          contentAfter={busy ? <Spinner size="tiny" /> : <SearchRegular />}
+          aria-label={t("media.urlAria")}
+          contentAfter={busy ? <Spinner size="tiny" /> : <SearchRegular aria-hidden="true" />}
         />
         <Dropdown
           className={styles.proxyPicker}
-          placeholder="Direct connection"
+          placeholder={t("media.directConnection")}
           clearable
           selectedOptions={proxyId ? [proxyId] : []}
           onOptionSelect={(_, data) => setProxyId(data.optionValue ?? undefined)}
@@ -307,7 +313,7 @@ export function MediaPage(): ReactNode {
             void inspect(proxyId);
           }}
         >
-          Inspect
+          {t("media.inspect")}
         </Button>
       </div>
 
@@ -322,34 +328,37 @@ export function MediaPage(): ReactNode {
           <Text className={styles.title}>{manifest.title}</Text>
           <div className={styles.rowMeta}>
             <span className={styles.badge}>{manifest.extractor}</span>
-            {manifest.isLive ? <span className={styles.badge}>LIVE</span> : null}
+            {manifest.isLive ? <span className={styles.badge}>{t("media.liveBadge")}</span> : null}
             <Text className={styles.meta}>
-              {formatDuration(manifest.durationSeconds)} · {manifest.videos.length} video ·{" "}
-              {manifest.audios.length} audio · {manifest.subtitles.length} subtitle
+              {formatDuration(manifest.durationSeconds, t.lang)} ·{" "}
+              {t(pluralKey("media.count.video", manifest.videos.length), { n: formatNumber(manifest.videos.length, t.lang) })} ·{" "}
+              {t(pluralKey("media.count.audio", manifest.audios.length), { n: formatNumber(manifest.audios.length, t.lang) })} ·{" "}
+              {t(pluralKey("media.count.subtitle", manifest.subtitles.length), { n: formatNumber(manifest.subtitles.length, t.lang) })}
             </Text>
           </div>
           <Text className={styles.meta}>{manifest.webpageUrl}</Text>
 
           {manifest.videos.length > 0 ? (
             <>
-              <Text className={styles.section}>Video formats</Text>
-              <div className={styles.table} role="table" aria-label="Video formats">
+              <Text className={styles.section}>{t("media.section.video")}</Text>
+              <div className={styles.table} role="table" aria-label={t("media.table.videoAria")}>
                 <div className={styles.head} role="row">
-                  <span style={{ width: 60 }}>ID</span>
-                  <span style={{ width: 110 }}>Resolution</span>
-                  <span style={{ width: 50 }}>FPS</span>
-                  <span style={{ width: 120 }}>Video codec</span>
-                  <span style={{ width: 110 }}>Bitrate</span>
-                  <span style={{ width: 80 }}>Size</span>
-                  <span>Ext</span>
+                  <span style={{ width: 60 }} role="columnheader">{t("media.col.id")}</span>
+                  <span style={{ width: 110 }} role="columnheader">{t("media.col.resolution")}</span>
+                  <span style={{ width: 50 }} role="columnheader">{t("media.col.fps")}</span>
+                  <span style={{ width: 120 }} role="columnheader">{t("media.col.videoCodec")}</span>
+                  <span style={{ width: 110 }} role="columnheader">{t("media.col.bitrate")}</span>
+                  <span style={{ width: 80 }} role="columnheader">{t("media.col.size")}</span>
+                  <span role="columnheader">{t("media.col.ext")}</span>
                 </div>
                 {manifest.videos.map((v: VideoFormat) => (
                   <div
-                    className={`${styles.row} ${styles.rowSelectable} ${
+                    className={`${styles.row} ${styles.rowSelectable} ${styles.rowFocusable} ${
                       selection.videoFormatId === v.formatId ? styles.rowSelected : ""
                     }`}
                     key={v.formatId}
                     role="row"
+                    tabIndex={0}
                     aria-selected={selection.videoFormatId === v.formatId}
                     onClick={() =>
                       setSelection({
@@ -357,16 +366,24 @@ export function MediaPage(): ReactNode {
                           selection.videoFormatId === v.formatId ? null : v.formatId,
                       })
                     }
+                    onKeyDown={(e) =>
+                      onRowKeyDown(e, () =>
+                        setSelection({
+                          videoFormatId:
+                            selection.videoFormatId === v.formatId ? null : v.formatId,
+                        }),
+                      )
+                    }
                   >
-                    <span style={{ width: 60 }}>{v.formatId}</span>
-                    <span style={{ width: 110 }}>
+                    <span style={{ width: 60 }} role="cell">{v.formatId}</span>
+                    <span style={{ width: 110 }} role="cell">
                       {v.width && v.height ? `${v.width}×${v.height}` : "—"}
                     </span>
-                    <span style={{ width: 50 }}>{v.fps ?? "—"}</span>
-                    <span style={{ width: 120 }}>{v.vcodec}</span>
-                    <span style={{ width: 110 }}>{formatBitrate(v.vbitrateBps)}</span>
-                    <span style={{ width: 80 }}>{formatBytes(v.fileSizeBytes)}</span>
-                    <span>{v.extension}</span>
+                    <span style={{ width: 50 }} role="cell">{v.fps ?? "—"}</span>
+                    <span style={{ width: 120 }} role="cell">{v.vcodec}</span>
+                    <span style={{ width: 110 }} role="cell">{formatBitrate(v.vbitrateBps, t.lang)}</span>
+                    <span style={{ width: 80 }} role="cell">{formatBytes(v.fileSizeBytes, t.lang)}</span>
+                    <span role="cell">{v.extension}</span>
                   </div>
                 ))}
               </div>
@@ -375,24 +392,25 @@ export function MediaPage(): ReactNode {
 
           {manifest.audios.length > 0 ? (
             <>
-              <Text className={styles.section}>Audio formats</Text>
-              <div className={styles.table} role="table" aria-label="Audio formats">
+              <Text className={styles.section}>{t("media.section.audio")}</Text>
+              <div className={styles.table} role="table" aria-label={t("media.table.audioAria")}>
                 <div className={styles.head} role="row">
-                  <span style={{ width: 60 }}>ID</span>
-                  <span style={{ width: 120 }}>Codec</span>
-                  <span style={{ width: 90 }}>Bitrate</span>
-                  <span style={{ width: 90 }}>Sample rate</span>
-                  <span style={{ width: 70 }}>Channels</span>
-                  <span style={{ width: 80 }}>Size</span>
-                  <span>Ext</span>
+                  <span style={{ width: 60 }} role="columnheader">{t("media.col.id")}</span>
+                  <span style={{ width: 120 }} role="columnheader">{t("media.col.codec")}</span>
+                  <span style={{ width: 90 }} role="columnheader">{t("media.col.bitrate")}</span>
+                  <span style={{ width: 90 }} role="columnheader">{t("media.col.sampleRate")}</span>
+                  <span style={{ width: 70 }} role="columnheader">{t("media.col.channels")}</span>
+                  <span style={{ width: 80 }} role="columnheader">{t("media.col.size")}</span>
+                  <span role="columnheader">{t("media.col.ext")}</span>
                 </div>
                 {manifest.audios.map((a: AudioFormat) => (
                   <div
-                    className={`${styles.row} ${styles.rowSelectable} ${
+                    className={`${styles.row} ${styles.rowSelectable} ${styles.rowFocusable} ${
                       selection.audioFormatId === a.formatId ? styles.rowSelected : ""
                     }`}
                     key={a.formatId}
                     role="row"
+                    tabIndex={0}
                     aria-selected={selection.audioFormatId === a.formatId}
                     onClick={() =>
                       setSelection({
@@ -400,16 +418,24 @@ export function MediaPage(): ReactNode {
                           selection.audioFormatId === a.formatId ? null : a.formatId,
                       })
                     }
+                    onKeyDown={(e) =>
+                      onRowKeyDown(e, () =>
+                        setSelection({
+                          audioFormatId:
+                            selection.audioFormatId === a.formatId ? null : a.formatId,
+                        }),
+                      )
+                    }
                   >
-                    <span style={{ width: 60 }}>{a.formatId}</span>
-                    <span style={{ width: 120 }}>{a.acodec}</span>
-                    <span style={{ width: 90 }}>{formatBitrate(a.abitrateBps)}</span>
-                    <span style={{ width: 90 }}>
-                      {a.sampleRateHz ? `${a.sampleRateHz} Hz` : "—"}
+                    <span style={{ width: 60 }} role="cell">{a.formatId}</span>
+                    <span style={{ width: 120 }} role="cell">{a.acodec}</span>
+                    <span style={{ width: 90 }} role="cell">{formatBitrate(a.abitrateBps, t.lang)}</span>
+                    <span style={{ width: 90 }} role="cell">
+                      {a.sampleRateHz ? `${formatNumber(a.sampleRateHz, t.lang)} Hz` : "—"}
                     </span>
-                    <span style={{ width: 70 }}>{a.channels ?? "—"}</span>
-                    <span style={{ width: 80 }}>{formatBytes(a.fileSizeBytes)}</span>
-                    <span>{a.extension}</span>
+                    <span style={{ width: 70 }} role="cell">{a.channels ?? "—"}</span>
+                    <span style={{ width: 80 }} role="cell">{formatBytes(a.fileSizeBytes, t.lang)}</span>
+                    <span role="cell">{a.extension}</span>
                   </div>
                 ))}
               </div>
@@ -418,27 +444,31 @@ export function MediaPage(): ReactNode {
 
           {manifest.subtitles.length > 0 ? (
             <>
-              <Text className={styles.section}>Subtitles</Text>
-              <div className={styles.table} role="table" aria-label="Subtitles">
-                {manifest.subtitles.slice(0, 40).map((t: SubtitleTrack) => {
+              <Text className={styles.section}>{t("media.section.subtitles")}</Text>
+              <div className={styles.table} role="table" aria-label={t("media.table.subtitlesAria")}>
+                {manifest.subtitles.slice(0, 40).map((track: SubtitleTrack) => {
                   const checked = selection.subtitles.some(
-                    (s) => s.language === t.language && s.extension === t.extension,
+                    (s) => s.language === track.language && s.extension === track.extension,
                   );
                   return (
                     <div
-                      className={`${styles.row} ${styles.rowSelectable}`}
-                      key={t.formatId}
+                      className={styles.row}
+                      key={track.formatId}
                       role="row"
-                      onClick={() => toggleSubtitle(t)}
+                      onClick={() => toggleSubtitle(track)}
                     >
-                      <Checkbox checked={checked} aria-label={`subtitle ${t.language}`} />
-                      <span style={{ width: 100 }}>{t.language}</span>
-                      <span style={{ width: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {t.title ?? "—"}
+                      <Checkbox
+                        checked={checked}
+                        aria-label={t("media.subtitle.checkboxAria", { lang: track.language })}
+                        onChange={() => toggleSubtitle(track)}
+                      />
+                      <span style={{ width: 100 }} role="cell">{track.language}</span>
+                      <span style={{ width: 180, overflow: "hidden", textOverflow: "ellipsis" }} role="cell">
+                        {track.title ?? "—"}
                       </span>
-                      <span style={{ width: 50 }}>{t.extension}</span>
-                      <span className={styles.meta}>
-                        {t.isAutoGenerated ? "auto-generated" : "manual"}
+                      <span style={{ width: 50 }} role="cell">{track.extension}</span>
+                      <span className={styles.meta} role="cell">
+                        {track.isAutoGenerated ? t("media.subtitle.auto") : t("media.subtitle.manual")}
                       </span>
                     </div>
                   );
@@ -449,9 +479,7 @@ export function MediaPage(): ReactNode {
 
           {manifest.isLive ? (
             <MessageBar intent="warning">
-              <MessageBarBody>
-                This stream is live — recording live media is not supported yet.
-              </MessageBarBody>
+              <MessageBarBody>{t("media.liveWarning")}</MessageBarBody>
             </MessageBar>
           ) : (
             <div className={styles.downloadBar}>
@@ -476,9 +504,9 @@ export function MediaPage(): ReactNode {
                 disabled={!hasSelection}
                 onClick={startDownload}
               >
-                {hasSelection ? `Download ${selectionSummary}` : "Select formats to download"}
+                {hasSelection ? t("media.downloadSelected", { summary: selectionSummary }) : t("media.downloadPickFirst")}
               </Button>
-              <Text className={styles.meta}>Saving to {downloadDir}</Text>
+              <Text className={styles.meta}>{t("common.saving", { path: downloadDir })}</Text>
             </div>
           )}
         </div>
@@ -491,16 +519,13 @@ export function MediaPage(): ReactNode {
       ) : null}
 
       {phase === "idle" && !manifest ? (
-        <Text className={styles.note}>
-          The inspector runs the bundled yt-dlp (installed under Settings → Media toolkit) inside
-          the secure download core. Playlist or channel URLs are not supported yet.
-        </Text>
+        <Text className={styles.note}>{t("media.note")}</Text>
       ) : null}
 
       {jobs.length > 0 ? (
         <>
-          <Text size={400} weight="semibold" style={{ marginTop: "8px" }}>
-            Media jobs
+          <Text as="h2" size={400} weight="semibold" style={{ marginTop: "8px" }}>
+            {t("media.section.jobs")}
           </Text>
           {jobs.map((job) => (
             <JobRow key={job.id} job={job} />

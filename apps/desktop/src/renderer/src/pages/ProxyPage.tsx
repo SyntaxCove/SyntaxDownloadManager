@@ -26,12 +26,16 @@ import {
   PlugConnectedRegular,
 } from "@fluentui/react-icons";
 import { useProxyStore, type ProxyDraft, type ProxySchemeChoice } from "../stores/proxy.js";
+import { useI18n } from "../i18n/context.js";
+import { formatNumber } from "../i18n/format.js";
 import type { ProxyProfilePublic } from "@syntaxdm/contracts";
 
 /**
  * Proxy page (Phase 9): profile management for per-tab and per-job routing.
  * The renderer only ever sees redacted profiles (password always null); editing sends
  * the form password to main, which encrypts it into the OS keychain.
+ * Phase 21: localized strings; the editor's field labels are wired to their inputs
+ * via aria-labelledby.
  */
 
 const useStyles = makeStyles({
@@ -47,24 +51,15 @@ const useStyles = makeStyles({
   row: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" },
   name: { fontWeight: tokens.fontWeightSemibold, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   meta: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
-  actions: { display: "flex", gap: "4px", marginLeft: "auto" },
+  actions: { display: "flex", gap: "4px", marginInlineStart: "auto" },
   empty: { color: tokens.colorNeutralForeground3, padding: "24px", textAlign: "center" },
   field: { display: "flex", flexDirection: "column", gap: "4px", marginTop: "8px" },
   grid: { display: "grid", gridTemplateColumns: "1fr 140px", gap: "8px" },
 });
 
-const EMPTY_DRAFT: ProxyDraft = {
-  name: "",
-  scheme: "http",
-  host: "",
-  port: 8080,
-  username: null,
-  password: null,
-  bypassList: [],
-};
-
 export function ProxyPage(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const profiles = useProxyStore((s) => s.profiles);
   const loaded = useProxyStore((s) => s.loaded);
   const load = useProxyStore((s) => s.load);
@@ -83,7 +78,9 @@ export function ProxyPage(): ReactNode {
   return (
     <div className={styles.page}>
       <div className={styles.row}>
-        <Text weight="semibold">Proxy profiles</Text>
+        <Text as="h1" weight="semibold" size={500}>
+          {t("proxy.title")}
+        </Text>
         <div className={styles.actions}>
           <Button
             appearance="primary"
@@ -93,14 +90,11 @@ export function ProxyPage(): ReactNode {
               setEditorOpen(true);
             }}
           >
-            New profile
+            {t("proxy.newProfile")}
           </Button>
         </div>
       </div>
-      <Text className={styles.meta}>
-        Route browser tabs and downloads through a proxy. Passwords are stored in the OS
-        keychain and are never shown again after saving.
-      </Text>
+      <Text className={styles.meta}>{t("proxy.intro")}</Text>
       {error ? (
         <MessageBar intent="error">
           <MessageBarBody>{error}</MessageBarBody>
@@ -108,7 +102,7 @@ export function ProxyPage(): ReactNode {
       ) : null}
 
       {profiles.map((p) => {
-        const t = testStates[p.id];
+        const ts = testStates[p.id];
         return (
           <div key={p.id} className={styles.card}>
             <div className={styles.row}>
@@ -123,24 +117,26 @@ export function ProxyPage(): ReactNode {
                   setEditing(p);
                   setEditorOpen(true);
                 }}
-                aria-label={`Edit ${p.name}`}
+                aria-label={t("proxy.editAria", { name: p.name })}
               />
               <Button
                 appearance="subtle"
                 size="small"
                 icon={<DeleteRegular />}
                 onClick={() => setRemoving(p)}
-                aria-label={`Delete ${p.name}`}
+                aria-label={t("proxy.deleteAria", { name: p.name })}
               />
             </div>
             <div className={styles.row}>
-              <Text className={styles.meta} title="Proxy endpoint">
-                · <PlugConnectedRegular style={{ verticalAlign: -2 }} /> {p.scheme}://{p.host}:{p.port}
+              <Text className={styles.meta} title={t("proxy.endpointTitle")}>
+                · <PlugConnectedRegular style={{ verticalAlign: -2 }} aria-hidden="true" /> {p.scheme}://{p.host}:{p.port}
               </Text>
-              <Text className={styles.meta}>· auth: {p.username ? p.username : "anonymous"}</Text>
+              <Text className={styles.meta}>
+                · {p.username ? t("proxy.auth", { user: p.username }) : t("proxy.authAnonymous")}
+              </Text>
               {p.bypassList.length > 0 ? (
-                <Text className={styles.meta} title="Requests to these hosts skip the proxy">
-                  · bypass: {p.bypassList.join(", ")}
+                <Text className={styles.meta} title={t("proxy.bypassTitle")}>
+                  · {t("proxy.bypass", { list: p.bypassList.join(", ") })}
                 </Text>
               ) : null}
             </div>
@@ -151,18 +147,22 @@ export function ProxyPage(): ReactNode {
                 icon={<ArrowExitRegular />}
                 onClick={() => void useProxyStore.getState().test(p.id).catch((e) => setError(String(e?.message ?? e)))}
               >
-                Test
+                {t("common.test")}
               </Button>
-              {t?.running ? <Spinner size="tiny" /> : null}
-              {t?.ok === true ? (
+              {ts?.running ? <Spinner size="tiny" /> : null}
+              {ts?.ok === true ? (
                 <Text className={styles.meta} style={{ color: tokens.colorPaletteGreenForeground1 }}>
-                  reachable · {t.latencyMs} ms · exit IP {t.exitIp ?? "unknown"}
+                  {t("proxy.testOk", {
+                    ms: formatNumber(ts.latencyMs ?? 0, t.lang),
+                    ip: ts.exitIp ?? t("proxy.testOkIpUnknown"),
+                  })}
                 </Text>
               ) : null}
-              {t?.ok === false ? (
+              {ts?.ok === false ? (
                 <Text className={styles.meta} style={{ color: tokens.colorPaletteRedForeground1 }}>
-                  failed{t.error ? ` · ${t.error}` : t.errorCode ? ` · ${t.errorCode}` : ""}
-                  {t.status ? ` (HTTP ${t.status})` : ""}
+                  {t("proxy.testFailed")}
+                  {ts.error ? ` · ${ts.error}` : ts.errorCode ? ` · ${ts.errorCode}` : ""}
+                  {ts.status ? ` (HTTP ${formatNumber(ts.status, t.lang)})` : ""}
                 </Text>
               ) : null}
             </div>
@@ -170,7 +170,7 @@ export function ProxyPage(): ReactNode {
         );
       })}
       {profiles.length === 0 && loaded ? (
-        <div className={styles.empty}>No proxy profiles — everything connects directly.</div>
+        <div className={styles.empty}>{t("proxy.empty")}</div>
       ) : null}
 
       <ProfileEditorDialog
@@ -183,16 +183,14 @@ export function ProxyPage(): ReactNode {
       <Dialog open={removing !== null} onOpenChange={(_, d) => (d.open ? undefined : setRemoving(null))}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>Delete proxy profile</DialogTitle>
+            <DialogTitle>{t("proxy.deleteDialog.title")}</DialogTitle>
             <DialogContent>
               <Text className={styles.meta} block>
-                {removing
-                  ? `Delete "${removing.name}"? Downloads and tabs using it must be reassigned first.`
-                  : ""}
+                {removing ? t("proxy.deleteDialog.body", { name: removing.name }) : ""}
               </Text>
             </DialogContent>
             <DialogActions>
-              <Button appearance="secondary" onClick={() => setRemoving(null)}>Cancel</Button>
+              <Button appearance="secondary" onClick={() => setRemoving(null)}>{t("common.cancel")}</Button>
               <Button
                 appearance="primary"
                 icon={<DismissRegular />}
@@ -202,7 +200,7 @@ export function ProxyPage(): ReactNode {
                   if (id) remove(id).catch((e) => setError(String(e?.message ?? e)));
                 }}
               >
-                Delete
+                {t("common.delete")}
               </Button>
             </DialogActions>
           </DialogBody>
@@ -219,6 +217,7 @@ function ProfileEditorDialog(props: {
   onError: (msg: string) => void;
 }): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const create = useProxyStore((s) => s.create);
   const update = useProxyStore((s) => s.update);
   const { open, profile } = props;
@@ -279,24 +278,24 @@ function ProfileEditorDialog(props: {
     <Dialog open={open} onOpenChange={(_, d) => (d.open ? undefined : props.onClose())}>
       <DialogSurface>
         <DialogBody>
-          <DialogTitle>{profile ? "Edit proxy profile" : "New proxy profile"}</DialogTitle>
+          <DialogTitle>{profile ? t("proxy.editor.editTitle") : t("proxy.editor.createTitle")}</DialogTitle>
           <DialogContent>
             {profile ? (
               <Text className={styles.meta} block>
-                Leave the password blank to keep the one stored in the keychain.
+                {t("proxy.editor.keepPasswordHint")}
               </Text>
             ) : null}
             <div className={styles.field}>
-              <Text size={200}>Name</Text>
-              <Input value={name} onChange={(_, d) => setName(d.value)} placeholder="Office exit" aria-label="Profile name" />
+              <Text id="proxy-name-label" size={200}>{t("proxy.editor.name")}</Text>
+              <Input value={name} onChange={(_, d) => setName(d.value)} placeholder={t("proxy.editor.namePlaceholder")} aria-labelledby="proxy-name-label" />
             </div>
             <div className={styles.field}>
-              <Text size={200}>Scheme</Text>
+              <Text id="proxy-scheme-label" size={200}>{t("proxy.editor.scheme")}</Text>
               <Dropdown
                 value={scheme}
                 selectedOptions={[scheme]}
                 onOptionSelect={(_, d) => setScheme((d.optionValue ?? "http") as ProxySchemeChoice)}
-                aria-label="Proxy scheme"
+                aria-labelledby="proxy-scheme-label"
               >
                 <Option value="http">http</Option>
                 <Option value="https">https</Option>
@@ -304,44 +303,44 @@ function ProfileEditorDialog(props: {
               </Dropdown>
             </div>
             <div className={styles.field}>
-              <Text size={200}>Endpoint</Text>
+              <Text id="proxy-endpoint-label" size={200}>{t("proxy.editor.endpoint")}</Text>
               <div className={styles.grid}>
-                <Input value={host} onChange={(_, d) => setHost(d.value)} placeholder="proxy.example.com" aria-label="Proxy host" />
+                <Input value={host} onChange={(_, d) => setHost(d.value)} placeholder={t("proxy.editor.hostPlaceholder")} aria-labelledby="proxy-endpoint-label" />
                 <Input
                   value={port}
                   onChange={(_, d) => setPort(d.value.replace(/[^\d]/g, ""))}
                   inputMode="numeric"
-                  aria-label="Proxy port"
+                  aria-label={t("proxy.editor.portAria")}
                 />
               </div>
             </div>
             <div className={styles.field}>
-              <Text size={200}>Authentication (optional)</Text>
+              <Text id="proxy-auth-label" size={200}>{t("proxy.editor.auth")}</Text>
               <div className={styles.grid}>
-                <Input value={username} onChange={(_, d) => setUsername(d.value)} placeholder="Username" aria-label="Proxy username" />
+                <Input value={username} onChange={(_, d) => setUsername(d.value)} placeholder={t("proxy.editor.usernamePlaceholder")} aria-labelledby="proxy-auth-label" />
                 <Input
                   value={password}
                   onChange={(_, d) => setPassword(d.value)}
                   type="password"
-                  placeholder={profile ? "•••••••• (saved)" : "Password"}
-                  aria-label="Proxy password"
+                  placeholder={profile ? t("proxy.editor.passwordPlaceholderSaved") : t("proxy.editor.passwordPlaceholder")}
+                  aria-label={t("proxy.editor.passwordAria")}
                 />
               </div>
             </div>
             <div className={styles.field}>
-              <Text size={200}>Bypass list (comma-separated, optional)</Text>
+              <Text id="proxy-bypass-label" size={200}>{t("proxy.editor.bypass")}</Text>
               <Input
                 value={bypass}
                 onChange={(_, d) => setBypass(d.value)}
-                placeholder=".internal.example.com, <local>"
-                aria-label="Bypass list"
+                placeholder={t("proxy.editor.bypassPlaceholder")}
+                aria-labelledby="proxy-bypass-label"
               />
             </div>
           </DialogContent>
           <DialogActions>
-            <Button appearance="secondary" onClick={props.onClose}>Cancel</Button>
+            <Button appearance="secondary" onClick={props.onClose}>{t("common.cancel")}</Button>
             <Button appearance="primary" disabled={!valid || busy} onClick={submit}>
-              {profile ? "Save" : "Create"}
+              {profile ? t("common.save") : t("proxy.editor.create")}
             </Button>
           </DialogActions>
         </DialogBody>

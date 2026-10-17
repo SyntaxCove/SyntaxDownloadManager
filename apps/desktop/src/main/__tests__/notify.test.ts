@@ -195,4 +195,14 @@ describe("notify engine (Phase 17)", () => {
     expect(describeTransition("torrent", "failed", { ...torrentJob(newUlid(), "failed"), errorCode: "proxy_profile_not_found" }))
       .toEqual({ title: "Torrent failed", body: "Sample Torrent — proxy_profile_not_found" });
   });
+
+  it("describeTransition localizes titles for fa while bodies stay user data (Phase 21)", () => {
+    expect(describeTransition("download", "completed", downloadJob(newUlid(), "completed", "/a/b/c.zip"), "fa"))
+      .toEqual({ title: "دریافت کامل شد", body: "c.zip" });
+    expect(describeTransition("media", "failed", mediaJob(newUlid(), "failed"), "fa").title)
+      .toBe("کار رسانه ناموفق بود");
+    // unknown domain falls back to the English table rather than undefined
+    expect(describeTransition("download", "completed", downloadJob(newUlid(), "completed", "/a/b.zip"), "fa").title)
+      .not.toBe("");
+  });
 });

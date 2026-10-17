@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Button,
   Input,
@@ -30,11 +30,14 @@ import {
   activateTab, closeTab, createTab, goBack, goForward, navigateActiveTab,
   pushViewportBounds, reloadTab,
 } from "../stores/browser.js";
+import { useI18n } from "../i18n/context.js";
 
 /**
  * Browse page: tab strip + navigation bar + the transparent viewport "hole".
  * The hole's geometry is reported to main via browser.setViewportBounds — the active
  * WebContentsView renders exactly there, above this renderer (true overlay compositing).
+ * Phase 21: localized strings; the tab strip is keyboard-operable (roving tabIndex +
+ * Enter/Space activation); Back/Forward mirror their arrows in RTL layouts.
  */
 
 const useStyles = makeStyles({
@@ -49,6 +52,7 @@ const useStyles = makeStyles({
     borderRadius: tokens.borderRadiusMedium,
     backgroundColor: tokens.colorNeutralBackground2,
     cursor: "pointer",
+    ":focus-visible": { outline: `2px solid ${tokens.colorBrandStroke1}` },
   },
   tabActive: { backgroundColor: tokens.colorNeutralBackground5, fontWeight: tokens.fontWeightSemibold },
   tabTitle: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
@@ -67,9 +71,10 @@ const useStyles = makeStyles({
 
 export function BrowsePage(): ReactNode {
   const styles = useStyles();
+  const { t, dir } = useI18n();
   const tabs = useBrowserStore((s) => s.tabs);
   const activeTabId = useBrowserStore((s) => s.activeTabId);
-  const active = tabs.find((t) => t.id === activeTabId) ?? null;
+  const active = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const proxyProfiles = useProxyStore((s) => s.profiles);
   const proxyLoaded = useProxyStore((s) => s.loaded);
   const loadProxies = useProxyStore((s) => s.load);
@@ -137,27 +142,59 @@ export function BrowsePage(): ReactNode {
     if (urlDraft.trim().length > 0) void navigateActiveTab(urlDraft);
   };
 
+  // Keyboard operability for the custom tab strip (WAI-ARIA tabs pattern, minimal form):
+  // each tab is focusable, Enter/Space activates, ArrowLeft/ArrowRight move focus in
+  // reading order (arrow semantics follow the visual direction, so RTL is handled by
+  // swapping which neighbor "previous" is).
+  const onTabKeyDown = (e: KeyboardEvent<HTMLDivElement>, index: number): void => {
+    const nextIndex =
+      e.key === (dir === "rtl" ? "ArrowLeft" : "ArrowRight")
+        ? (index + 1) % tabs.length
+        : e.key === (dir === "rtl" ? "ArrowRight" : "ArrowLeft")
+          ? (index - 1 + tabs.length) % tabs.length
+          : undefined;
+    if (nextIndex !== undefined) {
+      e.preventDefault();
+      const next = tabs[nextIndex];
+      if (!next) return;
+      document.getElementById(`tab-${next.id}`)?.focus();
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const current = tabs[index];
+      if (current) void activateTab(current.id);
+    }
+  };
+
+  // Reading-order arrows: in RTL the visual back arrow points right.
+  const BackIcon = dir === "rtl" ? ArrowRightRegular : ArrowLeftRegular;
+  const ForwardIcon = dir === "rtl" ? ArrowLeftRegular : ArrowRightRegular;
+
   return (
     <div className={styles.root}>
-      <div className={styles.tabStrip} role="tablist" aria-label="Browser tabs">
-        {tabs.map((tab) => {
+      <div className={styles.tabStrip} role="tablist" aria-label={t("browse.tabList")}>
+        {tabs.map((tab, index) => {
           const proxyName = tab.proxyProfileId
-            ? (proxyProfiles.find((p) => p.id === tab.proxyProfileId)?.name ?? "unavailable")
+            ? (proxyProfiles.find((p) => p.id === tab.proxyProfileId)?.name ?? t("common.unavailable"))
             : null;
           return (
             <div
               key={tab.id}
+              id={`tab-${tab.id}`}
               role="tab"
               aria-selected={tab.id === activeTabId}
+              tabIndex={0}
               className={`${styles.tab} ${tab.id === activeTabId ? styles.tabActive : ""}`}
               onClick={() => void activateTab(tab.id)}
+              onKeyDown={(e) => onTabKeyDown(e, index)}
             >
               {proxyName ? (
-                <Tooltip content={`Proxy: ${proxyName}`} relationship="label">
+                <Tooltip content={t("browse.proxyTooltip", { name: proxyName })} relationship="label">
                   <GlobeShieldRegular
                     fontSize={14}
                     style={{ color: tokens.colorPaletteBerryForeground1, flexShrink: 0 }}
-                    aria-label={`Proxied through ${proxyName}`}
+                    aria-label={t("browse.proxyAria", { name: proxyName })}
                   />
                 </Tooltip>
               ) : null}
@@ -169,7 +206,7 @@ export function BrowsePage(): ReactNode {
                 appearance="subtle"
                 size="small"
                 icon={<DismissRegular />}
-                aria-label={`Close ${tab.title}`}
+                aria-label={t("browse.closeTab", { title: tab.title || tab.url })}
                 onClick={(e) => {
                   e.stopPropagation();
                   void closeTab(tab.id);
@@ -181,7 +218,7 @@ export function BrowsePage(): ReactNode {
         <Button
           appearance="subtle"
           icon={<AddRegular />}
-          aria-label="New tab"
+          aria-label={t("browse.newTab")}
           onClick={() => void createTab()}
         />
         {proxyProfiles.length > 0 ? (
@@ -190,8 +227,8 @@ export function BrowsePage(): ReactNode {
               <Button
                 appearance="subtle"
                 icon={<GlobeShieldRegular />}
-                aria-label="New proxied tab"
-                title="New tab through a proxy profile"
+                aria-label={t("browse.newProxiedTab")}
+                title={t("browse.newProxiedTabHint")}
               />
             </MenuTrigger>
             <MenuPopover>
@@ -201,7 +238,7 @@ export function BrowsePage(): ReactNode {
                     key={p.id}
                     onClick={() => void createTab(undefined, p.id).catch(() => undefined)}
                   >
-                    New tab — {p.name}
+                    {t("browse.newTabVia", { name: p.name })}
                   </MenuItem>
                 ))}
               </MenuList>
@@ -211,26 +248,29 @@ export function BrowsePage(): ReactNode {
       </div>
 
       <div className={styles.navbar}>
-        <Button appearance="subtle" icon={<ArrowLeftRegular />} disabled={!active?.canGoBack} onClick={() => void goBack()} aria-label="Back" />
-        <Button appearance="subtle" icon={<ArrowRightRegular />} disabled={!active?.canGoForward} onClick={() => void goForward()} aria-label="Forward" />
-        <Button appearance="subtle" icon={<ArrowClockwiseRegular />} onClick={() => void reloadTab()} aria-label="Reload" />
+        <Button appearance="subtle" icon={<BackIcon />} disabled={!active?.canGoBack} onClick={() => void goBack()} aria-label={t("browse.back")} />
+        <Button appearance="subtle" icon={<ForwardIcon />} disabled={!active?.canGoForward} onClick={() => void goForward()} aria-label={t("browse.forward")} />
+        <Button appearance="subtle" icon={<ArrowClockwiseRegular />} onClick={() => void reloadTab()} aria-label={t("browse.reload")} />
         <Input
           value={urlDraft}
           onChange={(_, data) => setUrlDraft(data.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") submitUrl();
           }}
-          placeholder="Search or enter address"
+          placeholder={t("browse.addressPlaceholder")}
           style={{ flex: 1 }}
-          aria-label="Address bar"
+          aria-label={t("browse.addressAria")}
         />
         {/* Phase 14: bookmark star for the active http(s) page. */}
         {active && /^https?:\/\//.test(active.url) ? (
-          <Tooltip content={bookmarked ? "Remove bookmark" : "Bookmark this page"} relationship="label">
+          <Tooltip
+            content={bookmarked ? t("browse.bookmarkRemove") : t("browse.bookmarkAdd")}
+            relationship="label"
+          >
             <Button
               appearance="subtle"
               icon={bookmarked ? <StarFilled style={{ color: tokens.colorPaletteMarigoldForeground1 }} /> : <StarRegular />}
-              aria-label={bookmarked ? "Remove bookmark" : "Bookmark this page"}
+              aria-label={bookmarked ? t("browse.bookmarkRemove") : t("browse.bookmarkAdd")}
               aria-pressed={bookmarked}
               onClick={() =>
                 void toggleStar(active.url, active.title || active.url)

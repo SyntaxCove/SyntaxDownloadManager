@@ -1,0 +1,103 @@
+/** Phase 21 dictionary — Media page (inspector, format tables, download bar, jobs). */
+
+export const mediaEn = {
+  "media.title": "Media",
+  "media.urlPlaceholder": "Paste a media page URL (video, audio, …)",
+  "media.urlAria": "Media page URL",
+  "media.directConnection": "Direct connection",
+  "media.inspect": "Inspect",
+  "media.liveBadge": "LIVE",
+  "media.proxyBadge": "proxy",
+
+  "media.count.video.one": "{n} video",
+  "media.count.video.other": "{n} videos",
+  "media.count.audio.one": "{n} audio track",
+  "media.count.audio.other": "{n} audio tracks",
+  "media.count.subtitle.one": "{n} subtitle",
+  "media.count.subtitle.other": "{n} subtitles",
+
+  "media.section.video": "Video formats",
+  "media.section.audio": "Audio formats",
+  "media.section.subtitles": "Subtitles",
+  "media.section.jobs": "Media jobs",
+
+  "media.col.id": "ID",
+  "media.col.resolution": "Resolution",
+  "media.col.fps": "FPS",
+  "media.col.videoCodec": "Video codec",
+  "media.col.codec": "Codec",
+  "media.col.bitrate": "Bitrate",
+  "media.col.size": "Size",
+  "media.col.ext": "Ext",
+  "media.col.sampleRate": "Sample rate",
+  "media.col.channels": "Channels",
+  "media.table.videoAria": "Video formats",
+  "media.table.audioAria": "Audio formats",
+  "media.table.subtitlesAria": "Subtitles",
+  "media.subtitle.auto": "auto-generated",
+  "media.subtitle.manual": "manual",
+  "media.subtitle.checkboxAria": "subtitle {lang}",
+
+  "media.liveWarning": "This stream is live — recording live media is not supported yet.",
+  "media.downloadSelected": "Download {summary}",
+  "media.downloadPickFirst": "Select formats to download",
+  "media.note":
+    "The inspector runs the bundled yt-dlp (installed under Settings → Media toolkit) inside the secure download core. Playlist or channel URLs are not supported yet.",
+
+  "media.job.resume": "Resume",
+  "media.job.pause": "Pause",
+  "media.job.cancel": "Cancel",
+  "media.job.remove": "Remove (keeps files)",
+  "media.job.progressAria": "Media job progress",
+};
+
+export const mediaFa: Record<keyof typeof mediaEn, string> = {
+  "media.title": "رسانه",
+  "media.urlPlaceholder": "نشانی صفحه رسانه را بچسبانید (ویدیو، صدا، …)",
+  "media.urlAria": "نشانی صفحه رسانه",
+  "media.directConnection": "اتصال مستقیم",
+  "media.inspect": "بازرسی",
+  "media.liveBadge": "پخش زنده",
+  "media.proxyBadge": "پروکسی",
+
+  "media.count.video.one": "{n} ویدیو",
+  "media.count.video.other": "{n} ویدیو",
+  "media.count.audio.one": "{n} قطعه صوتی",
+  "media.count.audio.other": "{n} قطعه صوتی",
+  "media.count.subtitle.one": "{n} زیرنویس",
+  "media.count.subtitle.other": "{n} زیرنویس",
+
+  "media.section.video": "قالب‌های ویدیویی",
+  "media.section.audio": "قالب‌های صوتی",
+  "media.section.subtitles": "زیرنویس‌ها",
+  "media.section.jobs": "کارهای رسانه",
+
+  "media.col.id": "شناسه",
+  "media.col.resolution": "تفکیک‌پذیری",
+  "media.col.fps": "FPS",
+  "media.col.videoCodec": "کدک ویدیو",
+  "media.col.codec": "کدک",
+  "media.col.bitrate": "نرخ بیت",
+  "media.col.size": "حجم",
+  "media.col.ext": "پسوند",
+  "media.col.sampleRate": "نرخ نمونه",
+  "media.col.channels": "کانال",
+  "media.table.videoAria": "قالب‌های ویدیویی",
+  "media.table.audioAria": "قالب‌های صوتی",
+  "media.table.subtitlesAria": "زیرنویس‌ها",
+  "media.subtitle.auto": "خودکار تولید شده",
+  "media.subtitle.manual": "دستی",
+  "media.subtitle.checkboxAria": "زیرنویس {lang}",
+
+  "media.liveWarning": "این پخش زنده است — ضبط رسانه زنده هنوز پشتیبانی نمی‌شود.",
+  "media.downloadSelected": "دریافت {summary}",
+  "media.downloadPickFirst": "برای دریافت، قالب‌ها را انتخاب کنید",
+  "media.note":
+    "بازرس، yt-dlp همراه‌بسته‌شده (نصب‌شده در تنظیمات ← جعبه‌ابزار رسانه) را درون هسته امن دریافت اجرا می‌کند. نشانی فهرست پخش یا کانال هنوز پشتیبانی نمی‌شود.",
+
+  "media.job.resume": "از سر گیری",
+  "media.job.pause": "توقف",
+  "media.job.cancel": "لغو",
+  "media.job.remove": "حذف (فایل‌ها حفظ می‌شوند)",
+  "media.job.progressAria": "پیشرفت کار رسانه",
+};

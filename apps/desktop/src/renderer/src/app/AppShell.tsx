@@ -2,6 +2,7 @@ import React, { useState, type ReactNode } from "react";
 import {
   Text,
   Button,
+  Link,
   makeStyles,
   tokens,
   Tooltip,
@@ -17,11 +18,14 @@ import { SchedulerPage } from "../pages/SchedulerPage.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage.js";
 import { ToastHost } from "./ToastHost.js";
+import { useI18n } from "../i18n/context.js";
 
 /**
  * App shell: drag-region title bar (Windows 11 overlay) + left navigation + content.
  * Navigation gains entries as domains ship: Settings (Phase 3), Browse (Phase 4),
  * Downloads (Phase 5). Only implemented destinations appear — no dead links.
+ * Phase 21: localized labels, a skip-to-content link (revealed on focus), and a
+ * focusable main landmark as its target.
  */
 
 const useStyles = makeStyles({
@@ -31,11 +35,21 @@ const useStyles = makeStyles({
     minHeight: "40px",
     display: "flex",
     alignItems: "center",
-    paddingLeft: "16px",
+    paddingInlineStart: "16px",
     backgroundColor: tokens.colorNeutralBackground3,
     // Windows titleBarOverlay insets the native controls to the right automatically.
   },
   titleText: { fontSize: tokens.fontSizeBase300, fontWeight: tokens.fontWeightSemibold },
+  skipLink: {
+    // Visually hidden until keyboard-focused — the classic skip-link pattern.
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+    ":focus": { position: "static", width: "auto", height: "auto", clipPath: "none", padding: "6px" },
+  },
   body: { display: "flex", flex: 1, minHeight: 0 },
   nav: {
     width: "200px",
@@ -57,31 +71,42 @@ type View = "browse" | "downloads" | "media" | "torrents" | "scheduler" | "libra
 const dragStyle = { WebkitAppRegion: "drag" } as unknown as React.CSSProperties;
 const noDragStyle = { WebkitAppRegion: "no-drag" } as unknown as React.CSSProperties;
 
-const NAV: ReadonlyArray<{ id: View; label: string; icon: React.ReactElement }> = [
-  { id: "browse", label: "Browse", icon: <GlobeRegular /> },
-  { id: "downloads", label: "Downloads", icon: <ArrowDownloadRegular /> },
-  { id: "media", label: "Media", icon: <VideoClipMultipleRegular /> },
-  { id: "torrents", label: "Torrents", icon: <ArrowSquareDownRegular /> },
-  { id: "scheduler", label: "Scheduler", icon: <ClockRegular /> },
-  { id: "library", label: "Library", icon: <LibraryRegular /> },
-  { id: "proxy", label: "Proxy", icon: <ShieldTaskRegular /> },
-  { id: "diagnostics", label: "Diagnostics", icon: <PulseRegular /> },
-  { id: "settings", label: "Settings", icon: <SettingsRegular /> },
+const NAV: ReadonlyArray<{ id: View; key: string; icon: React.ReactElement }> = [
+  { id: "browse", key: "nav.browse", icon: <GlobeRegular /> },
+  { id: "downloads", key: "nav.downloads", icon: <ArrowDownloadRegular /> },
+  { id: "media", key: "nav.media", icon: <VideoClipMultipleRegular /> },
+  { id: "torrents", key: "nav.torrents", icon: <ArrowSquareDownRegular /> },
+  { id: "scheduler", key: "nav.scheduler", icon: <ClockRegular /> },
+  { id: "library", key: "nav.library", icon: <LibraryRegular /> },
+  { id: "proxy", key: "nav.proxy", icon: <ShieldTaskRegular /> },
+  { id: "diagnostics", key: "nav.diagnostics", icon: <PulseRegular /> },
+  { id: "settings", key: "nav.settings", icon: <SettingsRegular /> },
 ];
 
 export function AppShell(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const [view, setView] = useState<View>("settings");
 
   return (
     <div className={styles.root}>
+      <Link
+        className={styles.skipLink}
+        href="#main-content"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+      >
+        {t("shell.skipToContent")}
+      </Link>
       <div className={styles.titlebar} style={dragStyle}>
-        <Text className={styles.titleText}>Syntax Download Manager</Text>
+        <Text className={styles.titleText}>{t("shell.title")}</Text>
       </div>
       <div className={styles.body}>
-        <nav className={styles.nav} aria-label="Primary" style={noDragStyle}>
+        <nav className={styles.nav} aria-label={t("nav.primary")} style={noDragStyle}>
           {NAV.map((item) => (
-            <Tooltip key={item.id} content={item.label} relationship="label">
+            <Tooltip key={item.id} content={t(item.key)} relationship="label">
               <Button
                 className={styles.navButton}
                 icon={item.icon}
@@ -89,12 +114,18 @@ export function AppShell(): ReactNode {
                 aria-current={view === item.id ? "page" : undefined}
                 onClick={() => setView(item.id)}
               >
-                {item.label}
+                {t(item.key)}
               </Button>
             </Tooltip>
           ))}
         </nav>
-        <main className={styles.content} style={noDragStyle}>
+        <main
+          id="main-content"
+          className={styles.content}
+          style={noDragStyle}
+          tabIndex={-1}
+          aria-label={t("shell.mainRegion")}
+        >
           {view === "browse" ? <BrowsePage /> : null}
           {view === "downloads" ? <DownloadsPage /> : null}
           {view === "media" ? <MediaPage /> : null}

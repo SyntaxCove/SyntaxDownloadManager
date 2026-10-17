@@ -38,6 +38,9 @@ import {
 import { useDownloadsStore, compareQueueDisplay, type CoreStatus } from "../stores/downloads.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useProxyStore } from "../stores/proxy.js";
+import { useI18n } from "../i18n/context.js";
+import { formatBytes, formatEta, formatNumber } from "../i18n/format.js";
+import { pluralKey } from "../i18n/translate.js";
 import type { DownloadJob, QueueDirection } from "@syntaxdm/contracts";
 
 /** Downloads page: create-by-URL, live progress, and lifecycle controls per job. */
@@ -56,57 +59,13 @@ const useStyles = makeStyles({
   row: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" },
   name: { fontWeight: tokens.fontWeightSemibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 },
   meta: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
-  actions: { display: "flex", gap: "4px", marginLeft: "auto" },
+  actions: { display: "flex", gap: "4px", marginInlineStart: "auto" },
   empty: { color: tokens.colorNeutralForeground3, padding: "24px", textAlign: "center" },
 });
 
-export function formatBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined) return "—";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
-export function formatEta(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined) return "—";
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  queued: "Queued",
-  probing: "Connecting",
-  downloading: "Downloading",
-  paused: "Paused",
-  completed: "Completed",
-  failed: "Failed",
-  canceled: "Canceled",
-};
-
-const CORE_BANNER: Partial<Record<CoreStatus, string>> = {
-  starting: "Download engine is starting…",
-  restarting: "Download engine is restarting — jobs keep their state.",
-  unavailable: "Download engine is unavailable (it failed to start repeatedly). Check logs and restart the app.",
-};
-
-/** Failure codes the recovery engine can act on (Phase 7). */
-const RECOVERY_HINT: Partial<Record<string, string>> = {
-  source_gone: "Source expired or gone — try Recover, or paste a fresh/mirror URL.",
-  source_forbidden: "Source requires fresh credentials — Recover, or replace with an authorized URL.",
-  source_changed: "Source changed repeatedly — Recover, or replace the URL.",
-  network_error: "Network failure — Recover once the connection is back.",
-  http_error: "Server error — Recover to re-acquire the source.",
-  proxy_profile_not_found: "The proxy profile for this download is unavailable — it will resume once the profile is restored (Recover, or pick another proxy).",
-};
-
 export function DownloadsPage(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const jobs = useDownloadsStore((s) => s.jobs);
   const core = useDownloadsStore((s) => s.core);
   const loaded = useDownloadsStore((s) => s.loaded);
@@ -153,11 +112,17 @@ export function DownloadsPage(): ReactNode {
   const hasPausable = jobs.some((j) => ["queued", "probing", "downloading"].includes(j.status));
   const hasPaused = jobs.some((j) => j.status === "paused");
 
+  const banner: Partial<Record<CoreStatus, string>> = {
+    starting: t("downloads.banner.starting"),
+    restarting: t("downloads.banner.restarting"),
+    unavailable: t("downloads.banner.unavailable"),
+  };
+
   return (
     <div className={styles.page}>
-      {CORE_BANNER[core] ? (
+      {banner[core] ? (
         <MessageBar intent={core === "unavailable" ? "error" : "info"}>
-          <MessageBarBody>{CORE_BANNER[core]}</MessageBarBody>
+          <MessageBarBody>{banner[core]}</MessageBarBody>
         </MessageBar>
       ) : null}
 
@@ -168,17 +133,17 @@ export function DownloadsPage(): ReactNode {
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
-          placeholder="Paste a direct download URL"
+          placeholder={t("downloads.urlPlaceholder")}
           style={{ flex: 1 }}
-          aria-label="Download URL"
+          aria-label={t("downloads.urlAria")}
         />
         <Dropdown
           value={
             proxyChoice === undefined
-              ? "App default"
+              ? t("common.appDefault")
               : proxyChoice === null
-                ? "Direct"
-                : (proxyProfiles.find((p) => p.id === proxyChoice)?.name ?? "Proxy")
+                ? t("common.direct")
+                : (proxyProfiles.find((p) => p.id === proxyChoice)?.name ?? t("common.proxy"))
           }
           selectedOptions={[proxyChoice === undefined ? "__default" : proxyChoice === null ? "__direct" : proxyChoice]}
           onOptionSelect={(_, d) =>
@@ -187,10 +152,10 @@ export function DownloadsPage(): ReactNode {
             )
           }
           style={{ minWidth: "150px" }}
-          aria-label="Proxy for this download"
+          aria-label={t("downloads.proxyChoiceAria")}
         >
-          <Option value="__default">App default</Option>
-          <Option value="__direct">Direct</Option>
+          <Option value="__default">{t("common.appDefault")}</Option>
+          <Option value="__direct">{t("common.direct")}</Option>
           {proxyProfiles.map((p) => (
             <Option key={p.id} value={p.id}>
               {p.name}
@@ -198,7 +163,7 @@ export function DownloadsPage(): ReactNode {
           ))}
         </Dropdown>
         <Button appearance="primary" icon={<AddRegular />} onClick={submit} disabled={core !== "ready"}>
-          Download
+          {t("downloads.create")}
         </Button>
       </div>
       {error ? (
@@ -207,7 +172,7 @@ export function DownloadsPage(): ReactNode {
         </MessageBar>
       ) : null}
       <div className={styles.row}>
-        <Text className={styles.meta}>Saving to {downloadDir}</Text>
+        <Text className={styles.meta}>{t("common.saving", { path: downloadDir })}</Text>
         <div className={styles.actions}>
           <Button
             appearance="subtle"
@@ -215,9 +180,9 @@ export function DownloadsPage(): ReactNode {
             icon={<PlayRegular />}
             disabled={!hasPaused}
             onClick={() => startAll().catch((e) => setError(String(e?.message ?? e)))}
-            aria-label="Start all paused downloads"
+            aria-label={t("downloads.startAllAria")}
           >
-            Start all
+            {t("downloads.startAll")}
           </Button>
           <Button
             appearance="subtle"
@@ -225,9 +190,9 @@ export function DownloadsPage(): ReactNode {
             icon={<PauseRegular />}
             disabled={!hasPausable}
             onClick={() => pauseAll().catch((e) => setError(String(e?.message ?? e)))}
-            aria-label="Pause all downloads"
+            aria-label={t("downloads.pauseAllAria")}
           >
-            Pause all
+            {t("downloads.pauseAll")}
           </Button>
         </div>
       </div>
@@ -262,7 +227,7 @@ export function DownloadsPage(): ReactNode {
       ))}
       {jobs.length === 0 && loaded ? (
         <div className={styles.empty}>
-          <Spinner size="tiny" /> No downloads yet — paste a URL above.
+          <Spinner size="tiny" /> {t("downloads.empty")}
         </div>
       ) : null}
     </div>
@@ -283,15 +248,21 @@ function JobCard(props: {
   onSetProxy: (proxyProfileId: string | null) => void;
 }): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const { job } = props;
   const active = job.status === "downloading" || job.status === "probing" || job.status === "queued";
   const finished = job.status === "completed";
   const progress = job.totalBytes ? Math.min(1, job.receivedBytes / job.totalBytes) : undefined;
   const failedOrStopped = job.status === "failed" || job.status === "canceled";
-  const hint = job.status === "failed" || job.errorCode === "proxy_profile_not_found"
-    ? RECOVERY_HINT[job.errorCode ?? ""]
-    : undefined;
+  const hintKey =
+    job.status === "failed" || job.errorCode === "proxy_profile_not_found"
+      ? job.errorCode !== null && job.errorCode !== undefined
+        ? HINT_KEYS[job.errorCode]
+        : undefined
+      : undefined;
+  const hint = typeof hintKey === "string" ? t(hintKey) : undefined;
   const inQueue = job.status === "queued";
+  const statusKey: string | undefined = STATUS_KEYS[job.status];
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replacementUrl, setReplacementUrl] = useState("");
   const [limitOpen, setLimitOpen] = useState(false);
@@ -300,7 +271,7 @@ function JobCard(props: {
   const [proxyPick, setProxyPick] = useState<string | null>(job.proxyProfileId);
   const proxyProfiles = useProxyStore((s) => s.profiles);
   const proxyName = job.proxyProfileId
-    ? (proxyProfiles.find((p) => p.id === job.proxyProfileId)?.name ?? "unavailable")
+    ? (proxyProfiles.find((p) => p.id === job.proxyProfileId)?.name ?? t("common.unavailable"))
     : null;
 
   const submitReplace = (): void => {
@@ -323,30 +294,30 @@ function JobCard(props: {
         <Text className={styles.name} title={job.destinationPath ?? job.url}>
           {job.destinationPath?.split(/[\\/]/).pop() ?? job.url}
         </Text>
-        <Text className={styles.meta}>{STATUS_LABEL[job.status] ?? job.status}</Text>
+        <Text className={styles.meta}>{statusKey ? t(statusKey) : job.status}</Text>
         {inQueue && job.queuePosition !== null ? (
-          <Text className={styles.meta} title="Position in the download queue">
-            #{(job.queuePosition ?? 0) + 1}
+          <Text className={styles.meta} title={t("downloads.queuePositionTitle")}>
+            #{formatNumber((job.queuePosition ?? 0) + 1, t.lang)}
           </Text>
         ) : null}
         <div className={styles.actions}>
           {inQueue ? (
             <>
-              <Button appearance="subtle" size="small" icon={<CaretUpRegular />} onClick={() => props.onQueueMove("up")} aria-label="Move up in queue" title="Move up" />
-              <Button appearance="subtle" size="small" icon={<CaretDownRegular />} onClick={() => props.onQueueMove("down")} aria-label="Move down in queue" title="Move down" />
+              <Button appearance="subtle" size="small" icon={<CaretUpRegular />} onClick={() => props.onQueueMove("up")} aria-label={t("downloads.moveUp")} title={t("downloads.moveUpTitle")} />
+              <Button appearance="subtle" size="small" icon={<CaretDownRegular />} onClick={() => props.onQueueMove("down")} aria-label={t("downloads.moveDown")} title={t("downloads.moveDownTitle")} />
             </>
           ) : null}
           {active ? (
-            <Button appearance="subtle" size="small" icon={<PauseRegular />} onClick={props.onPause} aria-label="Pause" />
+            <Button appearance="subtle" size="small" icon={<PauseRegular />} onClick={props.onPause} aria-label={t("downloads.pause")} />
           ) : null}
           {job.status === "paused" ? (
-            <Button appearance="subtle" size="small" icon={<PlayRegular />} onClick={props.onResume} aria-label="Resume" />
+            <Button appearance="subtle" size="small" icon={<PlayRegular />} onClick={props.onResume} aria-label={t("downloads.resume")} />
           ) : null}
           {active ? (
-            <Button appearance="subtle" size="small" icon={<StopRegular />} onClick={props.onCancel} aria-label="Cancel" />
+            <Button appearance="subtle" size="small" icon={<StopRegular />} onClick={props.onCancel} aria-label={t("downloads.cancel")} />
           ) : null}
           {failedOrStopped ? (
-            <Button appearance="subtle" size="small" icon={<ArrowClockwiseRegular />} onClick={props.onRetry} aria-label="Retry" />
+            <Button appearance="subtle" size="small" icon={<ArrowClockwiseRegular />} onClick={props.onRetry} aria-label={t("common.retry")} />
           ) : null}
           {failedOrStopped || job.status === "paused" ? (
             <Button
@@ -354,8 +325,8 @@ function JobCard(props: {
               size="small"
               icon={<ArrowRepeatAllRegular />}
               onClick={props.onRecover}
-              aria-label="Recover"
-              title="Re-acquire the source and keep the downloaded bytes"
+              aria-label={t("downloads.recover")}
+              title={t("downloads.recoverTitle")}
             />
           ) : null}
           {failedOrStopped || job.status === "paused" ? (
@@ -364,12 +335,12 @@ function JobCard(props: {
               size="small"
               icon={<LinkEditRegular />}
               onClick={() => setReplaceOpen(true)}
-              aria-label="Replace URL"
-              title="Rebind this download to a new URL (keeps the bytes)"
+              aria-label={t("downloads.replaceUrl")}
+              title={t("downloads.replaceUrlTitle")}
             />
           ) : null}
           {finished || failedOrStopped ? (
-            <Button appearance="subtle" size="small" icon={<DeleteRegular />} onClick={props.onRemove} aria-label="Remove" />
+            <Button appearance="subtle" size="small" icon={<DeleteRegular />} onClick={props.onRemove} aria-label={t("common.remove")} />
           ) : null}
           {!finished ? (
             <Button
@@ -380,8 +351,8 @@ function JobCard(props: {
                 setLimitKbps(String(job.speedLimitKBps ?? 0));
                 setLimitOpen(true);
               }}
-              aria-label="Speed limit"
-              title="Cap this download's bandwidth (0 = unlimited)"
+              aria-label={t("downloads.speedLimit")}
+              title={t("downloads.speedLimitTitle")}
             />
           ) : null}
           {!active ? (
@@ -393,74 +364,73 @@ function JobCard(props: {
                 setProxyPick(job.proxyProfileId);
                 setProxyOpen(true);
               }}
-              aria-label="Proxy"
-              title="Route this download through a proxy profile"
+              aria-label={t("common.proxy")}
+              title={t("downloads.proxyTitle")}
             />
           ) : null}
         </div>
       </div>
-      <ProgressBar value={progress} shape="rounded" />
+      <ProgressBar value={progress} shape="rounded" aria-label={t("downloads.progressAria")} />
       <div className={styles.row}>
         <Text className={styles.meta}>
-          {formatBytes(job.receivedBytes)} / {formatBytes(job.totalBytes)}
+          {formatBytes(job.receivedBytes, t.lang)} / {formatBytes(job.totalBytes, t.lang)}
         </Text>
         {job.status === "downloading" ? (
           <>
-            <Text className={styles.meta}>· {formatBytes(job.speedBps)}/s</Text>
-            <Text className={styles.meta}>· ETA {formatEta(job.etaSeconds)}</Text>
+            <Text className={styles.meta}>· {formatBytes(job.speedBps, t.lang)}/s</Text>
+            <Text className={styles.meta}>· {t("downloads.meta.eta", { eta: formatEta(job.etaSeconds, t.lang) })}</Text>
           </>
         ) : null}
         {job.segmentCount && job.segmentCount > 1 && job.status === "downloading" ? (
-          <Text className={styles.meta} title="Parallel range connections">
-            · <PlugConnectedRegular style={{ verticalAlign: -2 }} /> {job.segmentCount} connections
+          <Text className={styles.meta} title={t("downloads.meta.connectionsTitle")}>
+            · <PlugConnectedRegular style={{ verticalAlign: -2 }} /> {t(pluralKey("downloads.meta.connections", job.segmentCount), { n: formatNumber(job.segmentCount, t.lang) })}
           </Text>
         ) : null}
         {job.recoveryCount && job.recoveryCount > 0 ? (
-          <Text className={styles.meta} title="Times this job was rebound to a (re-)acquired source">
-            · <ArrowRepeatAllRegular style={{ verticalAlign: -2 }} /> recovered ×{job.recoveryCount}
+          <Text className={styles.meta} title={t("downloads.meta.recoveredTitle")}>
+            · <ArrowRepeatAllRegular style={{ verticalAlign: -2 }} /> {t("downloads.meta.recovered", { n: formatNumber(job.recoveryCount, t.lang) })}
           </Text>
         ) : null}
         {job.checksumVerified === true ? (
-          <Text className={styles.meta} title={`SHA-256 ${job.checksumActual ?? ""}`}>
-            · <ShieldCheckmarkRegular style={{ verticalAlign: -2, color: tokens.colorPaletteGreenForeground1 }} /> checksum verified
+          <Text className={styles.meta} title={t("downloads.meta.checksumOkTitle", { hash: job.checksumActual ?? "" })}>
+            · <ShieldCheckmarkRegular style={{ verticalAlign: -2, color: tokens.colorPaletteGreenForeground1 }} /> {t("downloads.meta.checksumOk")}
           </Text>
         ) : null}
         {job.checksumVerified === false ? (
-          <Text className={styles.meta} title={`expected ${job.checksumExpected ?? ""}, got ${job.checksumActual ?? ""}`}>
-            · <ShieldErrorRegular style={{ verticalAlign: -2, color: tokens.colorPaletteRedForeground1 }} /> checksum mismatch
+          <Text className={styles.meta} title={t("downloads.meta.checksumBadTitle", { expected: job.checksumExpected ?? "", actual: job.checksumActual ?? "" })}>
+            · <ShieldErrorRegular style={{ verticalAlign: -2, color: tokens.colorPaletteRedForeground1 }} /> {t("downloads.meta.checksumBad")}
           </Text>
         ) : null}
         {job.speedLimitKBps ? (
-          <Text className={styles.meta} title="Per-job bandwidth cap">
-            · <TopSpeedRegular style={{ verticalAlign: -2 }} /> capped at {job.speedLimitKBps} KiB/s
+          <Text className={styles.meta} title={t("downloads.meta.cappedTitle")}>
+            · <TopSpeedRegular style={{ verticalAlign: -2 }} /> {t("downloads.meta.capped", { n: formatNumber(job.speedLimitKBps, t.lang) })}
           </Text>
         ) : null}
         {proxyName ? (
-          <Text className={styles.meta} title="This download routes through a proxy profile">
-            · <GlobeShieldRegular style={{ verticalAlign: -2 }} /> proxy: {proxyName}
+          <Text className={styles.meta} title={t("downloads.meta.proxyDesc")}>
+            · <GlobeShieldRegular style={{ verticalAlign: -2 }} /> {t("downloads.meta.proxyLabel", { name: proxyName })}
           </Text>
         ) : null}
-        {job.errorCode ? <Text className={styles.meta}>· error: {job.errorCode}</Text> : null}
+        {job.errorCode ? <Text className={styles.meta}>· {t("downloads.meta.errorLabel", { code: job.errorCode })}</Text> : null}
       </div>
       {hint ? <Text className={styles.meta}>{hint}</Text> : null}
 
       <Dialog open={proxyOpen} onOpenChange={(_, d) => setProxyOpen(d.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>Proxy for this download</DialogTitle>
+            <DialogTitle>{t("downloads.proxyDialog.title")}</DialogTitle>
             <DialogContent>
               <Text className={styles.meta} block>
-                Route this download through a proxy profile. Active downloads must be paused
-                first; changing the route keeps all downloaded bytes.
+                {t("downloads.proxyDialog.body")}
               </Text>
               <Dropdown
-                value={proxyPick ? (proxyProfiles.find((p) => p.id === proxyPick)?.name ?? "Proxy") : "Direct"}
+                value={proxyPick ? (proxyProfiles.find((p) => p.id === proxyPick)?.name ?? t("common.proxy")) : t("common.direct")}
                 selectedOptions={proxyPick ? [proxyPick] : []}
                 onOptionSelect={(_, d) => setProxyPick((d.optionValue as string) || null)}
                 style={{ width: "240px", marginTop: "8px" }}
-                aria-label="Proxy profile"
+                aria-label={t("downloads.proxyDialog.profileAria")}
               >
-                <Option value="">Direct</Option>
+                <Option value="">{t("common.direct")}</Option>
                 {proxyProfiles.map((p) => (
                   <Option key={p.id} value={p.id}>
                     {p.name}
@@ -469,7 +439,7 @@ function JobCard(props: {
               </Dropdown>
             </DialogContent>
             <DialogActions>
-              <Button appearance="secondary" onClick={() => setProxyOpen(false)}>Cancel</Button>
+              <Button appearance="secondary" onClick={() => setProxyOpen(false)}>{t("common.cancel")}</Button>
               <Button
                 appearance="primary"
                 onClick={() => {
@@ -477,7 +447,7 @@ function JobCard(props: {
                   props.onSetProxy(proxyPick);
                 }}
               >
-                Apply
+                {t("common.apply")}
               </Button>
             </DialogActions>
           </DialogBody>
@@ -487,11 +457,10 @@ function JobCard(props: {
       <Dialog open={replaceOpen} onOpenChange={(_, d) => setReplaceOpen(d.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>Replace URL</DialogTitle>
+            <DialogTitle>{t("downloads.replaceDialog.title")}</DialogTitle>
             <DialogContent>
               <Text className={styles.meta} block>
-                Rebind this download to a new source. Downloaded bytes are kept and only the
-                missing ranges are fetched from the new URL.
+                {t("downloads.replaceDialog.body")}
               </Text>
               <Input
                 value={replacementUrl}
@@ -501,13 +470,13 @@ function JobCard(props: {
                 }}
                 placeholder="https://…"
                 style={{ width: "100%", marginTop: "8px" }}
-                aria-label="New source URL"
+                aria-label={t("downloads.replaceDialog.urlAria")}
               />
             </DialogContent>
             <DialogActions>
-              <Button appearance="secondary" onClick={() => setReplaceOpen(false)}>Cancel</Button>
+              <Button appearance="secondary" onClick={() => setReplaceOpen(false)}>{t("common.cancel")}</Button>
               <Button appearance="primary" disabled={!replacementUrl.trim()} onClick={submitReplace}>
-                Rebind
+                {t("downloads.replaceDialog.action")}
               </Button>
             </DialogActions>
           </DialogBody>
@@ -517,10 +486,10 @@ function JobCard(props: {
       <Dialog open={limitOpen} onOpenChange={(_, d) => setLimitOpen(d.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>Speed limit</DialogTitle>
+            <DialogTitle>{t("downloads.limitDialog.title")}</DialogTitle>
             <DialogContent>
               <Text className={styles.meta} block>
-                Cap this download's bandwidth in KiB/s. Enter 0 for unlimited.
+                {t("downloads.limitDialog.body")}
               </Text>
               <Input
                 value={limitKbps}
@@ -530,12 +499,12 @@ function JobCard(props: {
                 }}
                 inputMode="numeric"
                 style={{ width: "160px", marginTop: "8px" }}
-                aria-label="Speed limit in KiB per second"
+                aria-label={t("downloads.limitDialog.inputAria")}
               />
             </DialogContent>
             <DialogActions>
-              <Button appearance="secondary" onClick={() => setLimitOpen(false)}>Cancel</Button>
-              <Button appearance="primary" onClick={submitLimit}>Apply</Button>
+              <Button appearance="secondary" onClick={() => setLimitOpen(false)}>{t("common.cancel")}</Button>
+              <Button appearance="primary" onClick={submitLimit}>{t("common.apply")}</Button>
             </DialogActions>
           </DialogBody>
         </DialogSurface>
@@ -543,3 +512,22 @@ function JobCard(props: {
     </div>
   );
 }
+
+const STATUS_KEYS: Record<string, string> = {
+  queued: "downloads.status.queued",
+  probing: "downloads.status.probing",
+  downloading: "downloads.status.downloading",
+  paused: "downloads.status.paused",
+  completed: "downloads.status.completed",
+  failed: "downloads.status.failed",
+  canceled: "downloads.status.canceled",
+};
+
+const HINT_KEYS: Record<string, string> = {
+  source_gone: "downloads.hint.source_gone",
+  source_forbidden: "downloads.hint.source_forbidden",
+  source_changed: "downloads.hint.source_changed",
+  network_error: "downloads.hint.network_error",
+  http_error: "downloads.hint.http_error",
+  proxy_profile_not_found: "downloads.hint.proxy_profile_not_found",
+};

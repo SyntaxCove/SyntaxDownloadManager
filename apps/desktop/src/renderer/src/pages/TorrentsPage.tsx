@@ -24,7 +24,9 @@ import {
 import { useTorrentStore } from "../stores/torrent.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useSettingsStore } from "../stores/settings.js";
-import { formatBytes } from "./DownloadsPage.js";
+import { useI18n } from "../i18n/context.js";
+import { formatBytes, formatNumber } from "../i18n/format.js";
+import { pluralKey } from "../i18n/translate.js";
 import type { TorrentJob, TorrentStatus } from "@syntaxdm/contracts";
 
 /**
@@ -32,7 +34,7 @@ import type { TorrentJob, TorrentStatus } from "@syntaxdm/contracts";
  * watch per-piece progress (verified bytes only — nothing is shown as downloaded before
  * its SHA-1 verified), and drive the lifecycle (pause / resume / cancel / remove).
  * Proxy routing is fail-closed in the core: a profile that vanishes pauses the torrent
- * rather than leaking direct traffic.
+ * rather than leaking direct traffic. Phase 21: localized strings.
  */
 
 const useStyles = makeStyles({
@@ -71,26 +73,16 @@ const useStyles = makeStyles({
   progressRow: { display: "flex", alignItems: "center", gap: "8px" },
 });
 
-function statusBadge(status: TorrentStatus): string {
-  switch (status) {
-    case "queued":
-      return "queued";
-    case "metadata":
-      return "resolving metadata";
-    case "downloading":
-      return "downloading";
-    case "seeding":
-      return "seeding";
-    case "paused":
-      return "paused";
-    case "completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "canceled":
-      return "canceled";
-  }
-}
+const STATUS_KEYS: Record<TorrentStatus, string> = {
+  queued: "torrents.status.queued",
+  metadata: "torrents.status.metadata",
+  downloading: "torrents.status.downloading",
+  seeding: "torrents.status.seeding",
+  paused: "torrents.status.paused",
+  completed: "torrents.status.completed",
+  failed: "torrents.status.failed",
+  canceled: "torrents.status.canceled",
+};
 
 function torrentProgress(job: TorrentJob): number {
   if (job.totalBytes === null || job.totalBytes === 0) return 0;
@@ -99,6 +91,7 @@ function torrentProgress(job: TorrentJob): number {
 
 export function TorrentsPage(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const {
     jobs,
     jobsLoaded,
@@ -142,7 +135,7 @@ export function TorrentsPage(): ReactNode {
       setTorrentFileB64(null);
       setTorrentFileName(null);
       useTorrentStore.setState({
-        addError: "the .torrent file exceeds the 8 MiB cap",
+        addError: t("torrents.add.fileTooBig"),
       });
       return;
     }
@@ -173,7 +166,9 @@ export function TorrentsPage(): ReactNode {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <Text className={styles.title}>Add torrent</Text>
+        <Text as="h2" className={styles.title}>
+          {t("torrents.add.title")}
+        </Text>
         <div className={styles.bar}>
           <Input
             className={styles.magnetInput}
@@ -187,7 +182,7 @@ export function TorrentsPage(): ReactNode {
               }
             }}
             disabled={!!torrentFileB64}
-            aria-label="Magnet URI"
+            aria-label={t("torrents.add.magnetAria")}
           />
           <label>
             <input
@@ -205,25 +200,25 @@ export function TorrentsPage(): ReactNode {
                 label?.querySelector("input")?.click();
               }}
             >
-              {torrentFileName ?? "Choose .torrent"}
+              {torrentFileName ?? t("torrents.add.chooseFile")}
             </Button>
           </label>
         </div>
         <div className={styles.bar}>
           <Input
             className={styles.destInput}
-            placeholder="Destination folder"
+            placeholder={t("torrents.add.destPlaceholder")}
             value={destinationDir}
             onChange={(_, d) => setDestinationDir(d.value)}
-            aria-label="Destination folder"
+            aria-label={t("torrents.add.destAria")}
           />
           <select
             className={styles.proxyPicker}
             value={proxyProfileId ?? ""}
             onChange={(e) => setProxyProfileId(e.target.value || null)}
-            aria-label="Proxy profile"
+            aria-label={t("torrents.add.proxyAria")}
           >
-            <option value="">Direct (no proxy)</option>
+            <option value="">{t("common.directNoProxy")}</option>
             {proxies.profiles.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -236,7 +231,7 @@ export function TorrentsPage(): ReactNode {
             disabled={!canAdd || busy}
             onClick={() => void onAdd()}
           >
-            Add
+            {t("torrents.add.action")}
           </Button>
         </div>
         {addError ? (
@@ -248,9 +243,7 @@ export function TorrentsPage(): ReactNode {
 
       {jobs.length === 0 ? (
         <div className={styles.row}>
-          <Text className={styles.meta}>
-            No torrents yet — add a .torrent file or a magnet URI above.
-          </Text>
+          <Text className={styles.meta}>{t("torrents.empty")}</Text>
         </div>
       ) : null}
 
@@ -265,48 +258,48 @@ export function TorrentsPage(): ReactNode {
         return (
           <div key={job.id} className={styles.row}>
             <div className={styles.rowHead}>
-              <ArrowSquareDownRegular />
+              <ArrowSquareDownRegular aria-hidden="true" />
               <Text className={styles.name}>
-                {job.name ?? (job.sourceKind === "magnet" ? "Resolving metadata…" : "…")}
+                {job.name ?? (job.sourceKind === "magnet" ? t("torrents.resolvingName") : "…")}
               </Text>
-              <span className={styles.badge}>{statusBadge(job.status)}</span>
+              <span className={styles.badge}>{t(STATUS_KEYS[job.status])}</span>
               <div className={styles.actions}>
                 {active ? (
-                  <Tooltip content="Pause" relationship="label">
+                  <Tooltip content={t("torrents.row.pause")} relationship="label">
                     <Button
                       icon={<PauseRegular />}
                       appearance="subtle"
                       onClick={() => void pause(job.id)}
-                      aria-label="Pause torrent"
+                      aria-label={t("torrents.row.pauseAria")}
                     />
                   </Tooltip>
                 ) : null}
                 {resumable ? (
-                  <Tooltip content="Resume" relationship="label">
+                  <Tooltip content={t("torrents.row.resume")} relationship="label">
                     <Button
                       icon={<PlayRegular />}
                       appearance="subtle"
                       onClick={() => void resume(job.id)}
-                      aria-label="Resume torrent"
+                      aria-label={t("torrents.row.resumeAria")}
                     />
                   </Tooltip>
                 ) : null}
                 {active ? (
-                  <Tooltip content="Cancel (keep data)" relationship="label">
+                  <Tooltip content={t("torrents.row.cancel")} relationship="label">
                     <Button
                       icon={<DismissRegular />}
                       appearance="subtle"
                       onClick={() => void cancel(job.id)}
-                      aria-label="Cancel torrent"
+                      aria-label={t("torrents.row.cancelAria")}
                     />
                   </Tooltip>
                 ) : null}
-                <Tooltip content="Remove" relationship="label">
+                <Tooltip content={t("torrents.row.remove")} relationship="label">
                   <Button
                     icon={<DeleteRegular />}
                     appearance="subtle"
                     onClick={() => void remove(job.id, deleteFiles)}
-                    aria-label="Remove torrent"
+                    aria-label={t("torrents.row.removeAria")}
                   />
                 </Tooltip>
               </div>
@@ -316,28 +309,31 @@ export function TorrentsPage(): ReactNode {
                 value={torrentProgress(job)}
                 shape="rounded"
                 style={{ flex: 1 }}
+                aria-label={t("torrents.row.progressAria")}
               />
               <Text className={styles.meta}>
-                {formatBytes(job.receivedBytes)} / {formatBytes(job.totalBytes)}
+                {formatBytes(job.receivedBytes, t.lang)} / {formatBytes(job.totalBytes, t.lang)}
               </Text>
             </div>
             <Text className={styles.meta}>
-              ↓ {formatBytes(job.downloadSpeedBps)}/s · ↑ {formatBytes(job.uploadSpeedBps)}/s ·
-              peers {job.peers} (seeds {job.seeds})
-              {job.numPieces ? ` · ${job.numPieces} pieces` : ""}
+              ↓ {formatBytes(job.downloadSpeedBps, t.lang)}/s · ↑ {formatBytes(job.uploadSpeedBps, t.lang)}/s ·{" "}
+              {t("torrents.row.peers", { peers: formatNumber(job.peers, t.lang), seeds: formatNumber(job.seeds, t.lang) })}
+              {job.numPieces ? ` · ${t("torrents.row.pieces", { n: formatNumber(job.numPieces, t.lang) })}` : ""}
               {job.etaSeconds !== null && job.status === "downloading"
-                ? ` · ETA ${job.etaSeconds}s`
+                ? ` · ${t("torrents.row.eta", { n: formatNumber(job.etaSeconds, t.lang) })}`
                 : ""}
             </Text>
             {job.files.length > 1 ? (
-              <Text className={styles.meta}>{job.files.length} files</Text>
+              <Text className={styles.meta}>
+                {t(pluralKey("torrents.row.files", job.files.length), { n: formatNumber(job.files.length, t.lang) })}
+              </Text>
             ) : null}
             {job.errorCode ? (
               <MessageBar intent="warning">
                 <MessageBarBody>
                   {job.errorCode}
                   {job.status === "paused" || job.status === "failed"
-                    ? " — resume to retry"
+                    ? t("torrents.row.resumeToRetry")
                     : ""}
                 </MessageBarBody>
               </MessageBar>
@@ -347,7 +343,7 @@ export function TorrentsPage(): ReactNode {
       })}
 
       <Checkbox
-        label="Delete downloaded files when removing a torrent"
+        label={t("torrents.deleteFilesLabel")}
         checked={deleteFiles}
         onChange={(_, d) => setDeleteFiles(!!d.checked)}
       />

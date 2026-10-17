@@ -6,12 +6,15 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–20 of 31 are delivered and fully tested. Windows x64
+> **Status:** development phases 0–21 of 31 are delivered and fully tested. Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — a portable zip
 > ships on the [releases page](https://github.com/SyntaxCove/SyntaxDownloadManager/releases);
 > the installer exe is built from source via [`scripts/build-windows.ps1`](scripts/build-windows.ps1)
 > (see [Run on Windows](#run-on-windows)). Built-in **Diagnostics** (structured logs, log
-> export, health report) shipped with phase 20.
+> export, health report) shipped with phase 20, and phase 21 added full **interface
+> localization — English and Persian (فارسی, RTL) — with an accessibility pass** (live
+> language switching, Jalali/Persian dates and digits, keyboard-operable tab strips and
+> format tables, skip-to-content, ARIA-complete controls).
 
 ---
 
@@ -193,13 +196,13 @@ toolkit bundle. All download/browser/media features work from a source checkout.
 
 ## Roadmap
 
-Delivered: **phases 0–20** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–21** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
-auto-update, **packaging**, **diagnostics**).
+auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**).
 
-Next: **phase 21 — accessibility + i18n (fa / en)**, followed by the remaining phases in
-`docs/PHASES.md`.
+Next: **phase 22 — performance budgets (startup, memory, UI latency)**, followed by the
+remaining phases in `docs/PHASES.md`.
 
 ## Security & policy stance
 

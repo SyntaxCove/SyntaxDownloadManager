@@ -46,7 +46,8 @@ import {
   type LibraryKindFilter,
   type LibraryStatusFilter,
 } from "../app/library-projection.js";
-import { formatBytes } from "./DownloadsPage.js";
+import { useI18n } from "../i18n/context.js";
+import { formatBytes, formatDate, formatTime } from "../i18n/format.js";
 
 /**
  * Library (Phase 14): downloads library + browser history + bookmarks.
@@ -55,6 +56,7 @@ import { formatBytes } from "./DownloadsPage.js";
  * and open go through `app.revealEntry`, which resolves paths in main from core job rows
  * only. Delete semantics are per-kind and honest: HTTP downloads remove the entry only
  * (the finished file stays on disk), media/torrents can also delete their artifacts.
+ * Phase 21: localized strings; icon-only row actions gained accessible names.
  */
 
 const useStyles = makeStyles({
@@ -83,7 +85,7 @@ const useStyles = makeStyles({
     whiteSpace: "nowrap",
   },
   meta: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
-  actions: { display: "flex", gap: "4px", marginLeft: "auto" },
+  actions: { display: "flex", gap: "4px", marginInlineStart: "auto" },
   empty: { color: tokens.colorNeutralForeground3, padding: "24px", textAlign: "center" },
   day: {
     fontSize: tokens.fontSizeBase200,
@@ -93,10 +95,10 @@ const useStyles = makeStyles({
   },
 });
 
-const KIND_LABEL: Record<LibraryEntryKind, string> = {
-  download: "Download",
-  media: "Media",
-  torrent: "Torrent",
+const KIND_KEYS: Record<LibraryEntryKind, string> = {
+  download: "library.kind.download",
+  media: "library.kind.media",
+  torrent: "library.kind.torrent",
 };
 
 const KIND_ICON: Record<LibraryEntryKind, ReactNode> = {
@@ -105,59 +107,35 @@ const KIND_ICON: Record<LibraryEntryKind, ReactNode> = {
   torrent: <ArrowSquareDownRegular />,
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  queued: "Queued",
-  probing: "Connecting",
-  downloading: "Downloading",
-  extracting: "Extracting",
-  muxing: "Muxing",
-  metadata: "Fetching metadata",
-  seeding: "Seeding",
-  paused: "Paused",
-  completed: "Completed",
-  failed: "Failed",
-  canceled: "Canceled",
+const STATUS_KEYS: Record<string, string> = {
+  queued: "library.status.queued",
+  probing: "library.status.probing",
+  downloading: "library.status.downloading",
+  extracting: "library.status.extracting",
+  muxing: "library.status.muxing",
+  metadata: "library.status.metadata",
+  seeding: "library.status.seeding",
+  paused: "library.status.paused",
+  completed: "library.status.completed",
+  failed: "library.status.failed",
+  canceled: "library.status.canceled",
 };
 
-function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-function dayLabel(ms: number): string {
-  const d = new Date(ms);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const sameDay = (a: Date, b: Date): boolean =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (sameDay(d, today)) return "Today";
-  if (sameDay(d, yesterday)) return "Yesterday";
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
-}
-
 export function LibraryPage(): ReactNode {
-  const styles = useStyles();
+  const { t } = useI18n();
   const [tab, setTab] = useState<TabValue>("files");
 
   return (
-    <div className={styles.page}>
+    <div>
       <TabList selectedValue={tab} onTabSelect={(_e, data) => setTab(data.value)}>
         <Tab value="files" icon={<ArrowDownloadRegular />}>
-          Files
+          {t("library.tab.files")}
         </Tab>
         <Tab value="history" icon={<HistoryRegular />}>
-          History
+          {t("library.tab.history")}
         </Tab>
         <Tab value="bookmarks" icon={<BookmarkRegular />}>
-          Bookmarks
+          {t("library.tab.bookmarks")}
         </Tab>
       </TabList>
       {tab === "files" ? <FilesTab /> : null}
@@ -171,6 +149,7 @@ export function LibraryPage(): ReactNode {
 
 function FilesTab(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const downloads = useDownloadsStore((s) => s.jobs);
   const media = useMediaStore((s) => s.jobs);
   const torrents = useTorrentStore((s) => s.jobs);
@@ -200,7 +179,7 @@ function FilesTab(): ReactNode {
     setError(null);
     try {
       if (entry.kind === "download") {
-        if (deleteFiles) throw new Error("HTTP download entries keep the finished file on disk");
+        if (deleteFiles) throw new Error(t("library.error.httpKeepFile"));
         await useDownloadsStore.getState().remove(entry.id, false);
       } else if (entry.kind === "media") {
         await useMediaStore.getState().remove(entry.id, deleteFiles);
@@ -213,42 +192,43 @@ function FilesTab(): ReactNode {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", paddingTop: "12px" }}>
       <div className={styles.toolbar}>
         <Input
           className={styles.search}
-          placeholder="Search files"
+          placeholder={t("library.searchFiles")}
           value={query}
           onChange={(_e, data) => setQuery(data.value)}
-          contentAfter={<DismissRegular style={{ opacity: query ? 1 : 0.3 }} />}
+          aria-label={t("library.searchFiles")}
+          contentAfter={<DismissRegular aria-hidden="true" style={{ opacity: query ? 1 : 0.3 }} />}
         />
         <Dropdown
-          value={kind === "all" ? "All types" : KIND_LABEL[kind as LibraryEntryKind]}
+          value={kind === "all" ? t("library.filter.allTypes") : t(KIND_KEYS[kind as LibraryEntryKind])}
           selectedOptions={[kind]}
           onOptionSelect={(_e, data) => setKind((data.optionValue as LibraryKindFilter) ?? "all")}
         >
-          <Option value="all">All types</Option>
-          <Option value="download">Download</Option>
-          <Option value="media">Media</Option>
-          <Option value="torrent">Torrent</Option>
+          <Option value="all">{t("library.filter.allTypes")}</Option>
+          <Option value="download">{t("library.kind.download")}</Option>
+          <Option value="media">{t("library.kind.media")}</Option>
+          <Option value="torrent">{t("library.kind.torrent")}</Option>
         </Dropdown>
         <Dropdown
           value={
             status === "all"
-              ? "All statuses"
+              ? t("library.filter.allStatuses")
               : status === "active"
-                ? "Active"
+                ? t("library.filter.active")
                 : status === "completed"
-                  ? "Completed"
-                  : "Stopped"
+                  ? t("library.filter.completed")
+                  : t("library.filter.stopped")
           }
           selectedOptions={[status]}
           onOptionSelect={(_e, data) => setStatus((data.optionValue as LibraryStatusFilter) ?? "all")}
         >
-          <Option value="all">All statuses</Option>
-          <Option value="active">Active</Option>
-          <Option value="completed">Completed</Option>
-          <Option value="stopped">Stopped</Option>
+          <Option value="all">{t("library.filter.allStatuses")}</Option>
+          <Option value="active">{t("library.filter.active")}</Option>
+          <Option value="completed">{t("library.filter.completed")}</Option>
+          <Option value="stopped">{t("library.filter.stopped")}</Option>
         </Dropdown>
       </div>
 
@@ -259,62 +239,66 @@ function FilesTab(): ReactNode {
       ) : null}
 
       {!loaded ? (
-        <Text className={styles.empty}>Loading…</Text>
+        <Text className={styles.empty}>{t("library.loading")}</Text>
       ) : visible.length === 0 ? (
         <Text className={styles.empty}>
-          {entries.length === 0
-            ? "Nothing downloaded yet — files appear here across Downloads, Media and Torrents."
-            : "No files match the current filters."}
+          {entries.length === 0 ? t("library.emptyAll") : t("library.emptyFiltered")}
         </Text>
       ) : (
-        visible.map((entry) => (
-          <div key={`${entry.kind}-${entry.id}`} className={styles.entry}>
-            <span className={styles.badge}>
-              {KIND_ICON[entry.kind]} {KIND_LABEL[entry.kind]}
-            </span>
-            <div className={styles.main}>
-              <span className={styles.title} title={entry.title}>
-                {entry.title}
+        visible.map((entry) => {
+          const statusKey: string | undefined = STATUS_KEYS[entry.status];
+          return (
+            <div key={`${entry.kind}-${entry.id}`} className={styles.entry}>
+              <span className={styles.badge}>
+                {KIND_ICON[entry.kind]} {t(KIND_KEYS[entry.kind])}
               </span>
-              <span className={styles.meta}>
-                {STATUS_LABEL[entry.status] ?? entry.status}
-                {entry.totalBytes !== null ? ` · ${formatBytes(entry.totalBytes)}` : ""}
-                {` · ${formatDate(entry.updatedAt)}`}
-                {entry.path === null ? " · path pending" : ""}
-                {entry.errorCode ? ` · ${entry.errorCode}` : ""}
-              </span>
+              <div className={styles.main}>
+                <span className={styles.title} title={entry.title}>
+                  {entry.title}
+                </span>
+                <span className={styles.meta}>
+                  {statusKey ? t(statusKey) : entry.status}
+                  {entry.totalBytes !== null ? ` · ${formatBytes(entry.totalBytes, t.lang)}` : ""}
+                  {` · ${formatDate(entry.updatedAt, t.lang)}`}
+                  {entry.path === null ? ` · ${t("library.pathPending")}` : ""}
+                  {entry.errorCode ? ` · ${entry.errorCode}` : ""}
+                </span>
+              </div>
+              <div className={styles.actions}>
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  icon={<FolderRegular />}
+                  aria-label={t("library.action.showInFolder")}
+                  title={t("library.action.showInFolder")}
+                  disabled={entry.path === null}
+                  onClick={() => void reveal(entry, "folder")}
+                />
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  icon={<OpenRegular />}
+                  aria-label={t("library.action.open")}
+                  title={t("library.action.open")}
+                  disabled={entry.path === null}
+                  onClick={() => void reveal(entry, "open")}
+                />
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  icon={<DeleteRegular />}
+                  aria-label={
+                    entry.canDeleteFiles ? t("library.action.deleteWithFiles") : t("library.action.removeEntryOnly")
+                  }
+                  title={
+                    entry.canDeleteFiles ? t("library.action.deleteWithFiles") : t("library.action.removeEntryOnly")
+                  }
+                  onClick={() => void removeEntry(entry, entry.canDeleteFiles)}
+                />
+              </div>
             </div>
-            <div className={styles.actions}>
-              <Button
-                appearance="subtle"
-                size="small"
-                icon={<FolderRegular />}
-                title="Show in folder"
-                disabled={entry.path === null}
-                onClick={() => void reveal(entry, "folder")}
-              />
-              <Button
-                appearance="subtle"
-                size="small"
-                icon={<OpenRegular />}
-                title="Open"
-                disabled={entry.path === null}
-                onClick={() => void reveal(entry, "open")}
-              />
-              <Button
-                appearance="subtle"
-                size="small"
-                icon={<DeleteRegular />}
-                title={
-                  entry.canDeleteFiles
-                    ? "Delete entry and files"
-                    : "Remove entry (finished file stays on disk)"
-                }
-                onClick={() => void removeEntry(entry, entry.canDeleteFiles)}
-              />
-            </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -324,6 +308,7 @@ function FilesTab(): ReactNode {
 
 function HistoryTab(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const history = useBrowserDataStore((s) => s.history);
   const historyQuery = useBrowserDataStore((s) => s.historyQuery);
   const setHistoryQuery = useBrowserDataStore((s) => s.setHistoryQuery);
@@ -349,26 +334,27 @@ function HistoryTab(): ReactNode {
   const groups = useMemo(() => {
     const out: Array<{ label: string; rows: typeof history }> = [];
     for (const row of history) {
-      const label = dayLabel(row.visitedAt);
+      const label = dayLabel(row.visitedAt, t.lang, t);
       const last = out.at(-1);
       if (last && last.label === label) last.rows.push(row);
       else out.push({ label, rows: [row] });
     }
     return out;
-  }, [history]);
+  }, [history, t]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", paddingTop: "12px" }}>
       <div className={styles.toolbar}>
         <Input
           className={styles.search}
-          placeholder="Search history"
+          placeholder={t("library.history.search")}
           value={historyQuery}
           onChange={(_e, data) => {
             setHistoryQuery(data.value);
             void loadHistory();
           }}
-          contentAfter={<ArrowClockwiseRegular style={{ opacity: 0.5 }} />}
+          aria-label={t("library.history.search")}
+          contentAfter={<ArrowClockwiseRegular aria-hidden="true" style={{ opacity: 0.5 }} />}
         />
         <Button
           appearance="subtle"
@@ -379,7 +365,7 @@ function HistoryTab(): ReactNode {
             })
           }
         >
-          Clear older than 30 days
+          {t("library.history.clear30")}
         </Button>
         <Button
           appearance="subtle"
@@ -388,7 +374,7 @@ function HistoryTab(): ReactNode {
             void act(() => useBrowserDataStore.getState().clearHistory())
           }
         >
-          Clear all
+          {t("library.history.clearAll")}
         </Button>
       </div>
 
@@ -399,9 +385,9 @@ function HistoryTab(): ReactNode {
       ) : null}
 
       {!loaded ? (
-        <Text className={styles.empty}>Loading…</Text>
+        <Text className={styles.empty}>{t("library.loading")}</Text>
       ) : groups.length === 0 ? (
-        <Text className={styles.empty}>No history yet — pages you visit in Browse appear here.</Text>
+        <Text className={styles.empty}>{t("library.history.empty")}</Text>
       ) : (
         groups.map((group) => (
           <div key={group.label} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -411,7 +397,7 @@ function HistoryTab(): ReactNode {
                 <div className={styles.main}>
                   <span className={styles.title}>{row.title ?? row.url}</span>
                   <span className={styles.meta}>
-                    {formatTime(row.visitedAt)} · {row.url}
+                    {formatTime(row.visitedAt, t.lang)} · {row.url}
                   </span>
                 </div>
                 <div className={styles.actions}>
@@ -419,14 +405,16 @@ function HistoryTab(): ReactNode {
                     appearance="subtle"
                     size="small"
                     icon={<OpenRegular />}
-                    title="Open in a new tab"
+                    aria-label={t("library.bookmarks.openInTab")}
+                    title={t("library.bookmarks.openInTab")}
                     onClick={() => void act(() => createTab(row.url))}
                   />
                   <Button
                     appearance="subtle"
                     size="small"
                     icon={<DismissRegular />}
-                    title="Remove entry"
+                    aria-label={t("library.history.removeEntry")}
+                    title={t("library.history.removeEntry")}
                     onClick={() =>
                       void act(() => useBrowserDataStore.getState().deleteHistoryEntry(row.id))
                     }
@@ -445,6 +433,7 @@ function HistoryTab(): ReactNode {
 
 function BookmarksTab(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const bookmarks = useBrowserDataStore((s) => s.bookmarks);
   const loaded = useBrowserDataStore((s) => s.bookmarksLoaded);
   const loadBookmarks = useBrowserDataStore((s) => s.loadBookmarks);
@@ -466,7 +455,7 @@ function BookmarksTab(): ReactNode {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", paddingTop: "12px" }}>
       {error || storeError ? (
         <MessageBar intent="error">
           <MessageBarBody>{error ?? storeError}</MessageBarBody>
@@ -474,11 +463,9 @@ function BookmarksTab(): ReactNode {
       ) : null}
 
       {!loaded ? (
-        <Text className={styles.empty}>Loading…</Text>
+        <Text className={styles.empty}>{t("library.loading")}</Text>
       ) : bookmarks.length === 0 ? (
-        <Text className={styles.empty}>
-          No bookmarks yet — star a page in the Browse address bar to keep it here.
-        </Text>
+        <Text className={styles.empty}>{t("library.bookmarks.empty")}</Text>
       ) : (
         bookmarks.map((bookmark) => (
           <div key={bookmark.id} className={styles.entry}>
@@ -491,21 +478,24 @@ function BookmarksTab(): ReactNode {
                 appearance="subtle"
                 size="small"
                 icon={<OpenRegular />}
-                title="Open in a new tab"
+                aria-label={t("library.bookmarks.openInTab")}
+                title={t("library.bookmarks.openInTab")}
                 onClick={() => void act(() => createTab(bookmark.url))}
               />
               <Button
                 appearance="subtle"
                 size="small"
                 icon={<BookmarkRegular />}
-                title="Rename"
+                aria-label={t("library.bookmarks.rename")}
+                title={t("library.bookmarks.rename")}
                 onClick={() => setRenaming({ id: bookmark.id, title: bookmark.title })}
               />
               <Button
                 appearance="subtle"
                 size="small"
                 icon={<DeleteRegular />}
-                title="Remove bookmark"
+                aria-label={t("library.bookmarks.remove")}
+                title={t("library.bookmarks.remove")}
                 onClick={() => void act(() => useBrowserDataStore.getState().removeBookmark(bookmark.id))}
               />
             </div>
@@ -521,7 +511,7 @@ function BookmarksTab(): ReactNode {
       >
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>Rename bookmark</DialogTitle>
+            <DialogTitle>{t("library.bookmarks.renameTitle")}</DialogTitle>
             <DialogContent>
               <Input
                 value={renaming?.title ?? ""}
@@ -533,7 +523,7 @@ function BookmarksTab(): ReactNode {
             </DialogContent>
             <DialogActions>
               <Button appearance="secondary" onClick={() => setRenaming(null)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 appearance="primary"
@@ -545,7 +535,7 @@ function BookmarksTab(): ReactNode {
                   void act(() => useBrowserDataStore.getState().updateBookmark(id, title.trim()));
                 }}
               >
-                Save
+                {t("common.save")}
               </Button>
             </DialogActions>
           </DialogBody>
@@ -553,4 +543,16 @@ function BookmarksTab(): ReactNode {
       </Dialog>
     </div>
   );
+}
+
+function dayLabel(ms: number, lang: "en" | "fa", t: (key: string) => string): string {
+  const d = new Date(ms);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date): boolean =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, today)) return t("library.today");
+  if (sameDay(d, yesterday)) return t("library.yesterday");
+  return formatDate(ms, lang);
 }

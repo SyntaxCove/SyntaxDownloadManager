@@ -12,10 +12,12 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { ArrowSyncRegular, ArrowExportLtrRegular } from "@fluentui/react-icons";
+import { ArrowSyncRegular, ArrowExportLtrRegular, ArrowExportRtlRegular } from "@fluentui/react-icons";
 import type { HealthReport, LogLevel } from "@syntaxdm/contracts";
 import { useDiagnosticsStore } from "../stores/diagnostics.js";
 import { useSettingsStore } from "../stores/settings.js";
+import { useI18n } from "../i18n/context.js";
+import { formatBytes, formatNumber } from "../i18n/format.js";
 
 /**
  * Diagnostics page (Phase 20) — the user-visible half of the diagnostics domain:
@@ -25,7 +27,8 @@ import { useSettingsStore } from "../stores/settings.js";
  *  - the verbose-logging switch (settings.verboseLogging — live for the main logger,
  *    applied to the core at its next spawn).
  * Bounded 10 s auto-refresh while the page is mounted; refresh is cheap (a few SQL
- * aggregates + a ring slice main-side).
+ * aggregates + a ring slice main-side). Phase 21: localized strings; the export icon
+ * mirrors in RTL layouts; log rows remain a deliberate `aria-live="off"` region.
  */
 
 const useStyles = makeStyles({
@@ -76,23 +79,13 @@ const useStyles = makeStyles({
   logDir: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground3 },
 });
 
-const LEVEL_OPTIONS: ReadonlyArray<{ label: string; value: LogLevel | undefined }> = [
-  { label: "All levels", value: undefined },
-  { label: "Debug and above", value: "debug" },
-  { label: "Info and above", value: "info" },
-  { label: "Warnings and errors", value: "warn" },
-  { label: "Errors only", value: "error" },
+const LEVEL_KEYS: ReadonlyArray<{ key: string; value: LogLevel | undefined }> = [
+  { key: "diag.logs.allLevels", value: undefined },
+  { key: "diag.logs.debugAndAbove", value: "debug" },
+  { key: "diag.logs.infoAndAbove", value: "info" },
+  { key: "diag.logs.warnAndAbove", value: "warn" },
+  { key: "diag.logs.errorsOnly", value: "error" },
 ];
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MiB`;
-}
-
-function fmtTime(ts: number): string {
-  return new Date(ts).toISOString().replace("T", " ").slice(0, 19) + " UTC";
-}
 
 function KV({ k, v }: { k: string; v: ReactNode }): ReactNode {
   const styles = useStyles();
@@ -116,16 +109,20 @@ function LevelBadge({ level }: { level: LogLevel }): ReactNode {
 
 function AppCard({ report }: { report: HealthReport }): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   return (
     <div className={styles.card}>
-      <Text className={styles.cardTitle}>Application</Text>
+      <Text as="h2" className={styles.cardTitle}>{t("diag.card.app")}</Text>
       <div className={styles.grid}>
-        <KV k="Version" v={report.app.version} />
-        <KV k="Electron" v={report.app.electronVersion} />
-        <KV k="Platform" v={`${report.app.platform} · ${report.app.arch}`} />
-        <KV k="Contract / protocol" v={`v${report.versions.contract} · v${report.versions.protocol}`} />
-        <KV k="Uptime" v={`${Math.round(report.app.uptimeMs / 1000)} s`} />
-        <KV k="Memory (RSS)" v={fmtBytes(report.app.memoryRssBytes)} />
+        <KV k={t("diag.k.version")} v={report.app.version} />
+        <KV k={t("diag.k.electron")} v={report.app.electronVersion} />
+        <KV k={t("diag.k.platform")} v={`${report.app.platform} · ${report.app.arch}`} />
+        <KV k={t("diag.k.contract")} v={`v${report.versions.contract} · v${report.versions.protocol}`} />
+        <KV
+          k={t("diag.k.uptime")}
+          v={t("diag.k.uptimeSeconds", { n: formatNumber(Math.round(report.app.uptimeMs / 1000), t.lang) })}
+        />
+        <KV k={t("diag.k.memory")} v={formatBytes(report.app.memoryRssBytes, t.lang)} />
       </div>
     </div>
   );
@@ -133,76 +130,91 @@ function AppCard({ report }: { report: HealthReport }): ReactNode {
 
 function CoreCard({ report }: { report: HealthReport }): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const sup = report.core.supervision;
   const snap = report.core.snapshot;
   return (
     <div className={styles.card}>
-      <Text className={styles.cardTitle}>Download core</Text>
+      <Text as="h2" className={styles.cardTitle}>{t("diag.card.core")}</Text>
       <div className={styles.grid}>
         <KV
-          k="State"
+          k={t("diag.k.state")}
           v={
             <span>
               {sup.state}{" "}
               {sup.state !== "ready" && sup.state !== "stopped" ? (
                 <Badge appearance="tint" color="warning" size="small">
-                  degraded
+                  {t("diag.badge.degraded")}
                 </Badge>
               ) : null}
             </span>
           }
         />
-        <KV k="Restarts this session" v={String(sup.restarts)} />
+        <KV k={t("diag.k.restarts")} v={formatNumber(sup.restarts, t.lang)} />
         <KV
-          k="Last exit"
+          k={t("diag.k.lastExit")}
           v={
             sup.lastExit
-              ? `code ${sup.lastExit.code ?? "—"}${sup.lastExit.signal ? ` (${sup.lastExit.signal})` : ""}`
-              : "clean"
+              ? `${t("diag.k.lastExitCode", { code: sup.lastExit.code ?? "—" })}${sup.lastExit.signal ? ` (${sup.lastExit.signal})` : ""}`
+              : t("diag.k.clean")
           }
         />
-        {sup.pid !== null ? <KV k="PID" v={String(sup.pid)} /> : null}
-        {sup.uptimeMs !== null ? <KV k="Ready for" v={`${Math.round(sup.uptimeMs / 1000)} s`} /> : null}
+        {sup.pid !== null ? <KV k="PID" v={formatNumber(sup.pid, t.lang)} /> : null}
+        {sup.uptimeMs !== null ? (
+          <KV
+            k={t("diag.k.readyFor")}
+            v={t("diag.k.uptimeSeconds", { n: formatNumber(Math.round(sup.uptimeMs / 1000), t.lang) })}
+          />
+        ) : null}
       </div>
       {snap ? (
         <>
           <div className={styles.grid}>
             <KV
-              k="Database quick check"
+              k={t("diag.k.dbQuickCheck")}
               v={
                 <span>
                   {snap.dbQuickCheck === "ok" ? (
                     <Badge appearance="tint" color="success" size="small">
-                      ok
+                      {t("diag.badge.ok")}
                     </Badge>
                   ) : (
                     <Badge appearance="tint" color="danger" size="small">
-                      problems found
+                      {t("diag.badge.problems")}
                     </Badge>
                   )}
                 </span>
               }
             />
-            <KV k="Database size" v={fmtBytes(snap.dbPageCount * snap.dbPageSize)} />
-            <KV k="Download jobs" v={String(Object.values(snap.jobsByStatus).reduce((a, b) => a + b, 0))} />
-            <KV k="Media / torrents" v={`${snap.counts.mediaJobs} / ${snap.counts.torrentJobs}`} />
+            <KV k={t("diag.k.dbSize")} v={formatBytes(snap.dbPageCount * snap.dbPageSize, t.lang)} />
             <KV
-              k="History / bookmarks"
-              v={`${snap.counts.historyEntries} / ${snap.counts.bookmarks}`}
+              k={t("diag.k.downloadJobs")}
+              v={formatNumber(Object.values(snap.jobsByStatus).reduce((a, b) => a + b, 0), t.lang)}
             />
-            <KV k="Core uptime" v={`${Math.round(snap.uptimeMs / 1000)} s`} />
+            <KV
+              k={t("diag.k.mediaTorrents")}
+              v={`${formatNumber(snap.counts.mediaJobs, t.lang)} / ${formatNumber(snap.counts.torrentJobs, t.lang)}`}
+            />
+            <KV
+              k={t("diag.k.historyBookmarks")}
+              v={`${formatNumber(snap.counts.historyEntries, t.lang)} / ${formatNumber(snap.counts.bookmarks, t.lang)}`}
+            />
+            <KV
+              k={t("diag.k.coreUptime")}
+              v={t("diag.k.uptimeSeconds", { n: formatNumber(Math.round(snap.uptimeMs / 1000), t.lang) })}
+            />
           </div>
           {snap.dbQuickCheck !== "ok" ? (
             <MessageBar intent="error">
-              <MessageBarBody>Database integrity issues: {snap.dbQuickCheck}</MessageBarBody>
+              <MessageBarBody>{t("diag.dbIssues", { report: snap.dbQuickCheck })}</MessageBarBody>
             </MessageBar>
           ) : null}
         </>
       ) : (
         <MessageBar intent="warning">
           <MessageBarBody>
-            Core snapshot unavailable — the download core is not answering
-            (state: {sup.state}).{report.core.supervision.lastExit ? " Check the log tail below." : ""}
+            {t("diag.coreUnreachable", { state: sup.state })}
+            {report.core.supervision.lastExit ? t("diag.coreUnreachableLogs") : ""}
           </MessageBarBody>
         </MessageBar>
       )}
@@ -212,34 +224,38 @@ function CoreCard({ report }: { report: HealthReport }): ReactNode {
 
 function ToolkitUpdaterCards({ report }: { report: HealthReport }): ReactNode {
   const styles = useStyles();
-  const ready = report.toolkit.tools.filter((t) => t.state === "ready").length;
+  const { t } = useI18n();
+  const ready = report.toolkit.tools.filter((tool) => tool.state === "ready").length;
   return (
     <div className={styles.card}>
-      <Text className={styles.cardTitle}>Bundled toolkit &amp; updates</Text>
+      <Text as="h2" className={styles.cardTitle}>{t("diag.card.toolkit")}</Text>
       <div className={styles.grid}>
         <KV
-          k="Toolkit manifest"
-          v={report.toolkit.manifestVersion === null ? "not loaded" : `v${report.toolkit.manifestVersion}`}
+          k={t("diag.k.manifest")}
+          v={report.toolkit.manifestVersion === null ? t("diag.k.manifestNotLoaded") : `v${report.toolkit.manifestVersion}`}
         />
-        <KV k="Tools ready" v={`${ready} / ${report.toolkit.tools.length}`} />
-        <KV k="Update status" v={report.updater.status} />
-        <KV k="Running version" v={report.updater.currentVersion} />
+        <KV
+          k={t("diag.k.toolsReady")}
+          v={`${formatNumber(ready, t.lang)} / ${formatNumber(report.toolkit.tools.length, t.lang)}`}
+        />
+        <KV k={t("diag.k.updateStatus")} v={report.updater.status} />
+        <KV k={t("diag.k.runningVersion")} v={report.updater.currentVersion} />
         {report.updater.availableVersion ? (
-          <KV k="Available version" v={report.updater.availableVersion} />
+          <KV k={t("diag.k.availableVersion")} v={report.updater.availableVersion} />
         ) : null}
       </div>
       {report.toolkit.tools.length > 0 ? (
         <div className={styles.grid}>
-          {report.toolkit.tools.map((t) => (
+          {report.toolkit.tools.map((tool) => (
             <KV
-              key={t.id}
-              k={t.id}
+              key={tool.id}
+              k={tool.id}
               v={
                 <span>
-                  {t.state}
-                  {t.state === "failed" && t.errorCode ? (
+                  {tool.state}
+                  {tool.state === "failed" && tool.errorCode ? (
                     <Badge appearance="tint" color="danger" size="small">
-                      {t.errorCode}
+                      {tool.errorCode}
                     </Badge>
                   ) : null}
                 </span>
@@ -254,6 +270,7 @@ function ToolkitUpdaterCards({ report }: { report: HealthReport }): ReactNode {
 
 function LogTail(): ReactNode {
   const styles = useStyles();
+  const { t } = useI18n();
   const records = useDiagnosticsStore((s) => s.records);
   const levelFilter = useDiagnosticsStore((s) => s.levelFilter);
   const setLevelFilter = useDiagnosticsStore((s) => s.setLevelFilter);
@@ -261,30 +278,30 @@ function LogTail(): ReactNode {
   return (
     <div className={styles.card}>
       <div className={styles.row}>
-        <Text className={styles.cardTitle}>Recent logs (newest last, tail of 200)</Text>
+        <Text as="h2" className={styles.cardTitle}>{t("diag.logs.title")}</Text>
         <div className={styles.filterRow}>
           <Dropdown
             className={styles.filterDropdown}
-            value={LEVEL_OPTIONS.find((o) => o.value === levelFilter)?.label ?? "All levels"}
+            value={LEVEL_KEYS.find((o) => o.value === levelFilter)?.key ? t(LEVEL_KEYS.find((o) => o.value === levelFilter)!.key) : t("diag.logs.allLevels")}
             onOptionSelect={(_e, data) => {
-              const found = LEVEL_OPTIONS.find((o) => o.label === data.optionText);
+              const found = LEVEL_KEYS.find((o) => t(o.key) === data.optionText);
               setLevelFilter(found?.value);
             }}
           >
-            {LEVEL_OPTIONS.map((o) => (
-              <Option key={o.label}>{o.label}</Option>
+            {LEVEL_KEYS.map((o) => (
+              <Option key={o.key} text={t(o.key)}>{t(o.key)}</Option>
             ))}
           </Dropdown>
           <Button
             icon={<ArrowSyncRegular />}
             size="small"
             onClick={() => void loadLogs()}
-            aria-label="Refresh log tail"
+            aria-label={t("diag.logs.refreshAria")}
           />
         </div>
       </div>
       {records.length === 0 ? (
-        <Text className={styles.logDir}>No records match the current filter.</Text>
+        <Text className={styles.logDir}>{t("diag.logs.empty")}</Text>
       ) : (
         <div className={styles.tail} role="log" aria-live="off">
           {records.map((r, i) => (
@@ -299,8 +316,14 @@ function LogTail(): ReactNode {
   );
 }
 
+/** Log timestamps stay UTC-anchored on purpose (correlates with exported files). */
+function fmtTime(ts: number): string {
+  return new Date(ts).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+}
+
 export function DiagnosticsPage(): ReactNode {
   const styles = useStyles();
+  const { t, dir } = useI18n();
   const report = useDiagnosticsStore((s) => s.report);
   const loaded = useDiagnosticsStore((s) => s.loaded);
   const loading = useDiagnosticsStore((s) => s.loading);
@@ -324,11 +347,13 @@ export function DiagnosticsPage(): ReactNode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const ExportIcon = dir === "rtl" ? ArrowExportRtlRegular : ArrowExportLtrRegular;
+
   return (
     <div className={styles.page}>
       <div className={styles.row}>
-        <Text size={600} weight="semibold">
-          Diagnostics
+        <Text as="h1" size={600} weight="semibold">
+          {t("diag.title")}
         </Text>
         <div className={styles.actionsRow}>
           <Button
@@ -340,16 +365,16 @@ export function DiagnosticsPage(): ReactNode {
             }}
             disabled={loading}
           >
-            Refresh
+            {t("diag.refresh")}
           </Button>
           <Button
-            icon={<ArrowExportLtrRegular />}
+            icon={<ExportIcon />}
             size="small"
             appearance="primary"
             onClick={() => void exportLogs()}
             disabled={exporting}
           >
-            {exporting ? "Exporting…" : "Export logs…"}
+            {exporting ? t("diag.exporting") : t("diag.exportLogs")}
           </Button>
         </div>
       </div>
@@ -360,7 +385,7 @@ export function DiagnosticsPage(): ReactNode {
         </MessageBar>
       ) : null}
 
-      {!loaded && loading ? <Spinner label="Collecting diagnostics…" /> : null}
+      {!loaded && loading ? <Spinner label={t("diag.collecting")} /> : null}
 
       {report ? (
         <>
@@ -368,11 +393,14 @@ export function DiagnosticsPage(): ReactNode {
           <CoreCard report={report} />
           <ToolkitUpdaterCards report={report} />
           <div className={styles.card}>
-            <Text className={styles.cardTitle}>Log files</Text>
+            <Text as="h2" className={styles.cardTitle}>{t("diag.files.title")}</Text>
             <Text className={styles.logDir}>
-              {report.logs.files.length} file(s), {fmtBytes(report.logs.totalBytes)} total
+              {t("diag.files.summary", {
+                count: formatNumber(report.logs.files.length, t.lang),
+                size: formatBytes(report.logs.totalBytes, t.lang),
+              })}
               {report.logs.files.length > 0
-                ? ` — newest: ${report.logs.files[report.logs.files.length - 1]?.name}`
+                ? t("diag.files.newest", { name: report.logs.files[report.logs.files.length - 1]?.name ?? "" })
                 : ""}
             </Text>
           </div>
@@ -380,16 +408,13 @@ export function DiagnosticsPage(): ReactNode {
           <div className={styles.card}>
             <div className={styles.row}>
               <div>
-                <Text className={styles.cardTitle}>Verbose logging</Text>
-                <Text className={styles.logDir}>
-                  Records debug-level detail. Applies to the app log immediately and to the
-                  download core the next time it starts.
-                </Text>
+                <Text as="h2" className={styles.cardTitle}>{t("diag.verbose.title")}</Text>
+                <Text className={styles.logDir}>{t("diag.verbose.desc")}</Text>
               </div>
               <Switch
                 checked={settings?.verboseLogging ?? false}
                 onChange={(_e, data) => void updateSettings({ verboseLogging: data.checked })}
-                aria-label="Verbose logging"
+                aria-label={t("diag.verbose.aria")}
               />
             </div>
           </div>

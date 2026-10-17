@@ -795,3 +795,58 @@ Stage Summary:
   a health report with a SQLite quick check on the job database, in-app log tail, and a
   consent-gated diagnostics zip export. Docs updated (README, PHASES, phase-20.md).
   Next: phase 21 — accessibility + i18n (fa/en).
+
+---
+Task ID: 21
+Agent: main
+Task: Phase 21 — Accessibility + i18n (fa / en)
+
+Work Log:
+- Plan (docs/phases/phase-21-plan.md): survey found AppLanguage already in settings
+  (contract untouched at v1.14.0), ThemeProvider dir/lang groundwork from Phase 3, and
+  real a11y bugs (mouse-only Browse tab strip, mouse-only Media format rows, Library
+  icon buttons with title-only naming, main-side OS-notification English constants).
+- Engine: i18n/translate.ts (interpolate with loud-missing placeholders, pluralKey
+  .one/.other, createT with lang/dir/locale), i18n/format.ts (Intl-based, fa-IR →
+  Persian digits + Jalali calendar; formatBytes/formatEta moved here from
+  DownloadsPage; percent/bitrate/duration/number/date helpers), i18n/context.tsx
+  (useI18n provider + module-level currentT() for non-React toast localization +
+  documentElement lang/dir sync). Zero new npm dependencies.
+- Dictionaries: 10 section files (common/browse/downloads/media/torrents/scheduler/
+  proxy/library/settings/diagnostics), en+fa co-located per file; en.ts `as const`
+  defines TKey; fa.ts is Record<TKey,string> (compile-enforced completeness); 474 keys
+  per language. Language switch applies live (no restart).
+- Pages: all nine pages + AppShell + ToastHost + ThemeProvider rewritten onto t();
+  SettingsPage language radios now switch the whole UI; UpdatesSection status line and
+  MediaToolkit badges localized; tool-label fallback never throws on future ids.
+- RTL: FluentProvider gets dir; shell chrome → logical properties (paddingInlineStart,
+  marginInlineStart auto); Browse Back/Forward + Diagnostics export icons swap to RTL
+  variants; tab-strip arrow navigation follows visual direction.
+- a11y: skip-to-content link → focusable main landmark; Browse tabs focusable +
+  Enter/Space + roving arrows; Media tables valid ARIA (columnheader/cell) with
+  keyboard-selectable rows; aria-labels for all icon-only buttons; aria-labelledby
+  field wiring; progress-bar labels; h1/h2 heading semantics; decorative icons
+  aria-hidden; log tail keeps deliberate aria-live="off".
+- Main side: main/i18n.ts notification tables; describeTransition(+lang="en") keeps
+  English default (existing callers/tests stable); notify engine passes live
+  settings.language; coreStateToast decision stays in contracts — renderer maps copy
+  by known state only.
+- Tests: new i18n.test.ts (dictionary parity, empty-value guard, placeholder parity,
+  plural-pair completeness, interpolation semantics, pluralKey, dir/locale, unknown-
+  key throw, en-US + fa-IR formatting ladders incl. Persian digits ۱٬۰۲۴/۱٫۵ KiB/۴۲٪
+  and Jalali ۱۴۰۵; local-noon epochs for tz-independence) + notify fa titles.
+  ICU verified in-sandbox (fa-IR → ۲۵ مهر ۱۴۰۵ for 2026-10-17).
+- Gates: typecheck (contracts+main+renderer) clean; vitest 112 contracts + 314
+  desktop (1 pre-existing skip); vite build + full desktop build clean; cargo
+  fmt/clippy clean, 270 cargo tests green (no Rust changes — gate only). Version
+  0.7.0 → 0.8.0 (contracts untouched).
+- Docs: phase-21-plan.md + phase-21.md reports; PHASES.md row 21 delivered; README
+  status line + roadmap updated to 0–21 with next phase 22.
+
+Stage Summary:
+- Phase 21 delivered: the product UI is fully bilingual (English / Persian with RTL,
+  Persian digits and Jalali dates), switches live from Settings, ships a survey-driven
+  accessibility pass (keyboard-operable tabs/tables, skip link, complete ARIA naming),
+  and localizes both in-app toasts and OS notifications. 474-key dictionaries are
+  compile-checked for fa/en parity. Honest boundaries documented (error codes, log
+  data, boot splash stay English; no binaries → source release only).
