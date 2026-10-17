@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use dc_protocol::job::DownloadJob;
 use dc_protocol::scheduler::SchedulerJob;
-use dc_protocol::{ContractError, ErrorCode};
+use dc_protocol::{ContractError, ErrorCode, CONTRACT_VERSION, PROTOCOL_VERSION};
 use dc_storage::JobStore;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -124,6 +124,8 @@ pub struct JobManager {
     /// implicitly started by core startup — they start on user action or a real
     /// window-open transition (false→true) later on.
     last_in_window: AtomicBool,
+    /// Process start time (Phase 20): reported by `diagnostics.health` as `uptimeMs`.
+    started_at: std::time::Instant,
 }
 
 /// Is `minute` inside the daily `[start, end)` window? Wrap-over windows (start > end)
@@ -182,6 +184,7 @@ impl JobManager {
             policy: Mutex::new(QueuePolicy::default()),
             manual_ids: Mutex::new(HashSet::new()),
             last_in_window: AtomicBool::new(true),
+            started_at: std::time::Instant::now(),
         });
         manager.spawn_policy_tick();
         manager.scheduler.spawn_tick(Arc::downgrade(&manager));
@@ -784,6 +787,31 @@ impl JobManager {
 
     pub fn get(&self, id: &str) -> Result<Option<DownloadJob>, ContractError> {
         self.store.get_job(id)
+    }
+
+    /// Phase 20: process + storage health snapshot for `diagnostics.health`. Read-only
+    /// queries only — a diagnostics call must never mutate or disturb live job state.
+    pub fn health_snapshot(&self) -> Result<dc_protocol::CoreHealthSnapshot, ContractError> {
+        let (page_count, page_size) = self.store.db_page_stats()?;
+        let jobs_by_status: std::collections::BTreeMap<String, i64> =
+            self.store.count_jobs_by_status()?.into_iter().collect();
+        let (media, torrents, history, bookmarks, scheduler) = self.store.health_counts()?;
+        Ok(dc_protocol::CoreHealthSnapshot {
+            db_quick_check: self.store.quick_check()?,
+            db_page_count: page_count,
+            db_page_size: page_size,
+            jobs_by_status,
+            counts: dc_protocol::CoreHealthCounts {
+                media_jobs: media,
+                torrent_jobs: torrents,
+                history_entries: history,
+                bookmarks,
+                scheduler_jobs: scheduler,
+            },
+            uptime_ms: self.started_at.elapsed().as_millis() as u64,
+            contract_version: CONTRACT_VERSION.to_string(),
+            protocol_version: PROTOCOL_VERSION,
+        })
     }
 
     pub async fn pause(self: &Arc<Self>, id: &str) -> Result<DownloadJob, ContractError> {

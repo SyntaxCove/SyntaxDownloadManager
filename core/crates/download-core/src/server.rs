@@ -187,6 +187,16 @@ async fn dispatch(req: &RequestEnvelope, manager: Arc<JobManager>) -> Result<Val
             manager.shutdown().await;
             Ok(serde_json::json!({ "ok": true }))
         }
+        // ---- Phase 20: diagnostics (read-only health snapshot) ----
+        "diagnostics.health" => {
+            let health = manager.health_snapshot()?;
+            serde_json::to_value(serde_json::json!({ "health": health })).map_err(|e| {
+                ContractError::new(
+                    ErrorCode::InternalError,
+                    format!("serialize health snapshot: {e}"),
+                )
+            })
+        }
         "download.setConcurrency" => {
             let p: SetConcurrencyParams = parse(&params)?;
             manager.set_max_concurrent(p.max);

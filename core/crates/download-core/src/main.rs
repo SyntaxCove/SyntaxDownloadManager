@@ -12,7 +12,15 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn main() {
+    // Phase 20: structured logs. Every tracing record leaves on stderr as ONE JSON object
+    // per line ({"timestamp","level","target","fields":{"message",…}}) — the supervisor
+    // parses these lines into the app's unified log pipeline. Human-format output here
+    // would be unparseable; stdout is reserved for the protocol (never logs).
     tracing_subscriber::fmt()
+        .json()
+        .with_current_span(false)
+        .with_span_list(false)
+        .flatten_event(true)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),

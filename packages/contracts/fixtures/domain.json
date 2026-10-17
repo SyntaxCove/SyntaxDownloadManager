@@ -410,5 +410,25 @@
     "errorCode": null,
     "message": null,
     "lastCheckedAt": 1791000000000
+  },
+  "diagnosticsCoreHealth": {
+    "dbQuickCheck": "ok",
+    "dbPageCount": 128,
+    "dbPageSize": 4096,
+    "jobsByStatus": {
+      "completed": 3,
+      "downloading": 1,
+      "failed": 2
+    },
+    "counts": {
+      "mediaJobs": 2,
+      "torrentJobs": 1,
+      "historyEntries": 42,
+      "bookmarks": 7,
+      "schedulerJobs": 3
+    },
+    "uptimeMs": 3600000,
+    "contractVersion": "1.14.0",
+    "protocolVersion": 1
   }
 }

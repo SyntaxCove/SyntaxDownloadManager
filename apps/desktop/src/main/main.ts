@@ -4,7 +4,7 @@ import { resolve, join } from "node:path";
 import { EVENTS } from "@syntaxdm/contracts";
 import { IpcRouter } from "./ipc/router.js";
 import { bindElectronRpc } from "./ipc/electron-rpc.js";
-import { createMainWindow } from "./window.js";
+import { createMainWindow, type RendererDiagnostic } from "./window.js";
 import { resolveAppPaths } from "./paths.js";
 import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
@@ -20,6 +20,7 @@ import { registerAppDialogs, electronDirectoryPicker } from "./domains/app-dialo
 import { registerNotifyEngine, type OsNotificationPort } from "./domains/notify.js";
 import { createElectronUpdater } from "./domains/updates-adapter.js";
 import { registerUpdateDomain } from "./domains/updates.js";
+import { registerDiagnosticsDomain } from "./domains/diagnostics.js";
 import {
   TrayController,
   countsFromStatuses,
@@ -29,6 +30,9 @@ import {
 import { ToolkitManager } from "./toolkit/manager.js";
 import { buildSetPolicyPayload } from "./policy.js";
 import { CoreSupervisor, resolveCoreBinaryPath } from "./core/core-supervisor.js";
+import { JsonlLogger } from "./logging/logger.js";
+import { parseCoreStderrLine } from "./logging/core-stderr.js";
+import type { LogLevel } from "@syntaxdm/contracts";
 
 /**
  * Syntax Download Manager entry point. Lifecycle:
@@ -67,11 +71,41 @@ if (!gotLock) {
       envDevServerUrl: process.env.SYNTAXDM_DEV_SERVER_URL,
     });
 
-    const router = new IpcRouter((msg) => console.log(msg));
+    // ---- Phase 20: the structured log pipeline starts FIRST — everything after this
+    // line (settings load, core supervision, IPC) is observable in the ring and on disk.
+    const logsDir = join(app.getPath("userData"), "logs");
+    const logger = new JsonlLogger({ dir: logsDir });
+    const envLevel = process.env.SYNTAXDM_LOG_LEVEL?.trim();
+    const initialLevel: LogLevel =
+      envLevel && ["debug", "info", "warn", "error"].includes(envLevel)
+        ? (envLevel as LogLevel)
+        : "info";
+    logger.setLevel(initialLevel);
+    logger.info("main", `app starting (v${app.getVersion()}, electron ${process.versions.electron})`, {
+      platform: process.platform,
+      arch: process.arch,
+      packaged: app.isPackaged,
+    });
+    process.on("unhandledRejection", (reason) => {
+      logger.error("main", `unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+    });
+    app.on("child-process-gone", (_e, details) => {
+      logger.error("main", `child process gone: ${details.type} ${details.reason}`, {
+        exitCode: details.exitCode,
+      });
+    });
+
+    const router = new IpcRouter((msg) => logger.info("ipc", msg));
 
     const settingsStore = new SettingsStore(app.getPath("userData"));
     await settingsStore.load();
     registerSettingsDomain(router, settingsStore);
+    // verboseLogging (Phase 20): the setting only RATCHETS up above the env baseline
+    // when enabled; disabling returns to the env/default level. Live for the main logger.
+    const applyLogLevel = (): void => {
+      logger.setLevel(settingsStore.settings.verboseLogging ? "debug" : initialLevel);
+    };
+    applyLogLevel();
 
     // Phase 9: proxy profiles — keychain-backed secrets, redacted to the renderer.
     const proxyStore = new ProxyProfileStore(app.getPath("userData"), safeStorage);
@@ -79,7 +113,9 @@ if (!gotLock) {
 
     bindElectronRpc(router, () => BrowserWindow.getAllWindows());
 
-    createMainWindow(paths);
+    createMainWindow(paths, { width: 360, height: 240 }, (d: RendererDiagnostic) => {
+      logger.error("renderer", d.msg, d.data);
+    });
 
     const mainWindow = (): BrowserWindow | undefined => BrowserWindow.getAllWindows()[0];
     const focusShellWindow = (): void => {
@@ -129,7 +165,14 @@ if (!gotLock) {
       dbPath: join(app.getPath("userData"), "downloads.db"),
       maxConcurrent: settingsStore.settings.concurrentDownloads,
       maxConnectionsPerDownload: settingsStore.settings.maxConnectionsPerDownload,
-      log: (msg) => console.log(msg),
+      log: (msg) => logger.info("supervisor", msg),
+      // Phase 20: core stderr (tracing JSON) → structured records. This consumer also
+      // keeps the OS pipe drained — without it a chatty core would deadlock on write.
+      onStderrLine: (line) => {
+        const record = parseCoreStderrLine(line, Date.now());
+        if (record) logger.log(record.level, record.component, record.msg, record.data);
+      },
+      verboseCoreLogging: settingsStore.settings.verboseLogging,
     });
 
     // Phase 14: settled main-frame visits are persisted through the core (fire-and-forget:
@@ -274,7 +317,8 @@ if (!gotLock) {
         },
       });
     } catch (err) {
-      console.log(`[tray] unavailable (${err instanceof Error ? err.message : String(err)})`);
+      const detail = err instanceof Error ? err.message : String(err);
+      logger.warn("tray", `tray unavailable: ${detail}`);
       tray = null;
     }
 
@@ -301,12 +345,34 @@ if (!gotLock) {
     registerUpdateDomain(router, updateController);
     updateController.startAutoChecks();
 
+    // ---- Phase 20: diagnostics — health report, log tail, log export ----
+    registerDiagnosticsDomain(router, {
+      logger,
+      supervisor,
+      settings: settingsStore,
+      toolkit: toolkitManager,
+      updater: updateController,
+      appFacts: {
+        version: app.getVersion(),
+        electronVersion: process.versions.electron ?? "unknown",
+        platform: process.platform,
+        arch: process.arch,
+        pid: process.pid,
+        uptimeMs: () => Math.round(process.uptime() * 1000),
+        memoryRssBytes: () => process.memoryUsage().rss,
+      },
+      coreHealthTimeoutMs: 3_000,
+    });
+
     supervisor.start();
 
     router.onEvent((name, payload) => {
       if (name === "settings.changed") {
         applyCoreLimits();
         applyCorePolicy();
+        applyLogLevel();
+        // verbose logging reaches the core at its next (re)launch — env at spawn.
+        supervisor.setVerboseCoreLogging(settingsStore.settings.verboseLogging);
       } else if (name === "download.updated") {
         const job = (payload as { job?: { id?: unknown; status?: unknown } } | null)?.job;
         if (job && typeof job.id === "string" && typeof job.status === "string") {

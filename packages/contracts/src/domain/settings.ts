@@ -74,6 +74,14 @@ export const AppSettings = z.object({
    * consent-gated end to end: check never downloads, download never installs).
    */
   updateAutoCheck: z.boolean().optional().default(true),
+  // ---- v1.14 (Phase 20): diagnostics ----
+  /**
+   * true: the main logger records `debug` records and the core is spawned with
+   * `RUST_LOG=debug` (applies on the next core spawn; the main logger level is live).
+   * Default false keeps logs at info — a bounded, scrubbed, rotating set sized for
+   * support exports, not for continuous verbose capture.
+   */
+  verboseLogging: z.boolean().optional().default(false),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -95,6 +103,7 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   notifyOnFailure: true,
   closeToTray: true,
   updateAutoCheck: true,
+  verboseLogging: false,
 });
 
 export const SettingsGetParams = z.object({});

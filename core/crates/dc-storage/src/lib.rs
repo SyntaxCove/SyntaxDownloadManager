@@ -260,6 +260,75 @@ impl JobStore {
         .map_err(wrap_sqlite("read schema version"))
     }
 
+    // ---- Phase 20: diagnostics (diagnostics.health) ----
+
+    /// SQLite integrity quick check: the first row of `PRAGMA quick_check` — "ok" or a
+    /// bounded problem description. Deliberately `quick_check` (not `integrity_check`):
+    /// it skips the per-index cross-check pass, so it stays fast on large databases while
+    /// still catching the corruption classes that would endanger job bytes.
+    pub fn quick_check(&self) -> StorageResult<String> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare("PRAGMA quick_check")
+            .map_err(wrap_sqlite("prepare quick_check"))?;
+        let mut rows = stmt.query([]).map_err(wrap_sqlite("run quick_check"))?;
+        match rows.next().map_err(wrap_sqlite("read quick_check"))? {
+            Some(row) => {
+                let v: String = row.get(0).map_err(wrap_sqlite("read quick_check row"))?;
+                // Cap pathological problem lists at 500 chars (contract bound).
+                Ok(v.chars().take(500).collect())
+            }
+            None => Ok("ok".to_string()),
+        }
+    }
+
+    /// Database file geometry (page count × page size = on-disk footprint of the payload).
+    pub fn db_page_stats(&self) -> StorageResult<(i64, i64)> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let page_count: i64 = conn
+            .query_row("PRAGMA page_count", [], |r| r.get(0))
+            .map_err(wrap_sqlite("read page_count"))?;
+        let page_size: i64 = conn
+            .query_row("PRAGMA page_size", [], |r| r.get(0))
+            .map_err(wrap_sqlite("read page_size"))?;
+        Ok((page_count, page_size))
+    }
+
+    /// Download jobs grouped by status (single aggregate; deterministic BTreeMap ordering).
+    pub fn count_jobs_by_status(&self) -> StorageResult<Vec<(String, i64)>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn
+            .prepare("SELECT status, COUNT(*) FROM jobs GROUP BY status ORDER BY status")
+            .map_err(wrap_sqlite("count jobs by status"))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(wrap_sqlite("map jobs by status"))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(wrap_sqlite("collect jobs by status"))?);
+        }
+        Ok(out)
+    }
+
+    /// Row counts across the other persistent domains, in one call (each a cheap
+    /// indexed COUNT on tables that are small relative to jobs).
+    pub fn health_counts(&self) -> StorageResult<(i64, i64, i64, i64, i64)> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let one = |sql: &str, tag: &'static str| -> StorageResult<i64> {
+            conn.query_row(sql, [], |r| r.get(0))
+                .map_err(wrap_sqlite(tag))
+        };
+        let media = one("SELECT COUNT(*) FROM media_jobs", "count media jobs")?;
+        let torrents = one("SELECT COUNT(*) FROM torrent_jobs", "count torrent jobs")?;
+        let history = one("SELECT COUNT(*) FROM browser_history", "count history")?;
+        let bookmarks = one("SELECT COUNT(*) FROM bookmarks", "count bookmarks")?;
+        let scheduler = one(
+            "SELECT COUNT(*) FROM scheduler_jobs",
+            "count scheduler jobs",
+        )?;
+        Ok((media, torrents, history, bookmarks, scheduler))
+    }
+
     pub fn insert_job(&self, job: &DownloadJob) -> StorageResult<()> {
         let conn = self.conn.lock().expect("storage mutex poisoned");
         conn.execute(

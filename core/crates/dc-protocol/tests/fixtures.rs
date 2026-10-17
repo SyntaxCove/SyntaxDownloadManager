@@ -438,3 +438,24 @@ fn scheduler_params_deserialize_camel_case() {
         serde_json::from_value(serde_json::json!({ "tzOffsetMinutes": 210 })).unwrap();
     assert_eq!(clock.tz_offset_minutes, 210);
 }
+
+#[test]
+fn parses_and_round_trips_diagnostics_core_health_fixture() {
+    // Phase 20: the core health snapshot must survive TS→Rust→TS unchanged (camelCase,
+    // deterministic BTreeMap ordering for jobsByStatus).
+    let raw = std::fs::read_to_string(format!("{}/domain.json", fixtures_dir())).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+    let health: dc_protocol::CoreHealthSnapshot =
+        serde_json::from_value(doc["diagnosticsCoreHealth"].clone()).unwrap();
+    assert_eq!(health.db_quick_check, "ok");
+    assert_eq!(health.db_page_count, 128);
+    assert_eq!(health.counts.history_entries, 42);
+    assert_eq!(health.jobs_by_status.get("downloading"), Some(&1));
+
+    let out: serde_json::Value = serde_json::to_value(&health).unwrap();
+    assert_eq!(
+        out, doc["diagnosticsCoreHealth"],
+        "wire format divergence between TS and Rust"
+    );
+}

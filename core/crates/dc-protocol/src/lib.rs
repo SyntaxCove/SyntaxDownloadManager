@@ -4,6 +4,7 @@
 //! `packages/contracts/fixtures/` are parsed by tests on both languages.
 
 pub mod browser;
+pub mod diagnostics;
 pub mod envelope;
 pub mod error;
 pub mod ids;
@@ -17,6 +18,7 @@ pub use browser::{
     Bookmark, BookmarkCreateParams, BookmarkGetByUrlResult, BookmarkUpdateParams, HistoryEntry,
     HistoryListParams, HistoryListResult, HistoryRecordParams,
 };
+pub use diagnostics::{CoreHealthCounts, CoreHealthSnapshot};
 pub use envelope::{
     make_error, make_event, make_request, make_success, ErrorEnvelope, EventEnvelope,
     RequestEnvelope, ResponseEnvelope, SuccessEnvelope,
@@ -41,7 +43,7 @@ pub use torrent::{
 
 /// Mirrors CONTRACT_VERSION in packages/contracts/src/version.ts.
 /// download-core refuses to start against a mismatched main process.
-pub const CONTRACT_VERSION: &str = "1.13.0";
+pub const CONTRACT_VERSION: &str = "1.14.0";
 
 /// Wire protocol version carried by every envelope (`v`).
 pub const PROTOCOL_VERSION: i64 = 1;

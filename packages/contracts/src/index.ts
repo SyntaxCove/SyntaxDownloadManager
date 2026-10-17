@@ -13,6 +13,7 @@ export * from "./domain/torrent.js";
 export * from "./domain/scheduler.js";
 export * from "./domain/transitions.js";
 export * from "./domain/update.js";
+export * from "./domain/diagnostics.js";
 
 export * from "./protocol/envelope.js";
 export * from "./protocol/methods.js";

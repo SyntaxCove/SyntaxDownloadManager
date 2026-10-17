@@ -53,6 +53,12 @@ import {
   UpdateGetStateParams, UpdateGetStateResult, UpdateCheckParams, UpdateCheckResult,
   UpdateDownloadParams, UpdateDownloadResult, UpdateInstallParams, UpdateInstallResult,
 } from "../domain/update.js";
+import {
+  DiagnosticsGetHealthReportParams, DiagnosticsGetHealthReportResult,
+  DiagnosticsGetRecentLogsParams, DiagnosticsGetRecentLogsResult,
+  DiagnosticsExportLogsParams, DiagnosticsExportLogsResult,
+  DiagnosticsHealthParams, DiagnosticsHealthResult,
+} from "../domain/diagnostics.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -217,6 +223,24 @@ export const METHODS = {
   "update.download": { server: "main", params: UpdateDownloadParams, result: UpdateDownloadResult },
   /** Consent point: quits and installs a downloaded update (teardown runs first). */
   "update.install": { server: "main", params: UpdateInstallParams, result: UpdateInstallResult },
+  // ---- main (v1.14, Phase 20): diagnostics — health report, log tail, log export ----
+  "diagnostics.getHealthReport": {
+    server: "main",
+    params: DiagnosticsGetHealthReportParams,
+    result: DiagnosticsGetHealthReportResult,
+  },
+  "diagnostics.getRecentLogs": {
+    server: "main",
+    params: DiagnosticsGetRecentLogsParams,
+    result: DiagnosticsGetRecentLogsResult,
+  },
+  "diagnostics.exportLogs": {
+    server: "main",
+    params: DiagnosticsExportLogsParams,
+    result: DiagnosticsExportLogsResult,
+  },
+  // ---- core (v1.14, Phase 20): storage + process health snapshot ----
+  "diagnostics.health": { server: "core", params: DiagnosticsHealthParams, result: DiagnosticsHealthResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;
 
 export type MethodName = keyof typeof METHODS;

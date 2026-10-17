@@ -750,3 +750,48 @@ Stage Summary:
 - Phase 19 delivered: real Windows portable zip artifact produced and verified; NSIS
   installer path fully configured, drift-guarded, and scripted for the user's Windows
   machine; honest limitations recorded (unsigned build; cross-built core binary note).
+
+---
+Task ID: 20
+Agent: main
+Task: Phase 20 — Diagnostics (structured logs, log export, health report)
+
+Work Log:
+- Plan (docs/phases/phase-20-plan.md): scope from docs/PHASES.md; design decisions —
+  JSONL logger with ring+file sinks and write-time credential scrubbing, core tracing
+  switched to JSON, contract v1.14.0 additive, export zip via yazl (promoted to runtime
+  dep), health report assembled main-side from independently-degrading ingredients.
+- Found and fixed a real reliability bug: the supervisor never consumed the core's stderr
+  pipe (a chatty core could fill the 64 KiB OS buffer and deadlock on write). stderr is
+  now consumed from spawn to exit flush through StderrLineSplitter → parseCoreStderrLine.
+- Contracts v1.14.0: domain/diagnostics.ts (LogRecord, CoreHealthSnapshot, DiagCore,
+  DiagToolkitStatus, HealthReport…), 3 main-served + 1 core-served methods, settings
+  verboseLogging (default false), fixture diagnosticsCoreHealth, version bumps
+  (contracts 1.14.0, app 0.7.0, Rust workspace 0.7.0).
+- Rust: tracing-subscriber json feature; dc-protocol diagnostics module; dc-storage
+  quick_check/db_page_stats/count_jobs_by_status/health_counts; JobManager::health_snapshot
+  (read-only) + server dispatch arm; JSON tracing subscriber in main.rs.
+- Main: JsonlLogger (ring 2000, daily files main-YYYY-MM-DD.jsonl, 5 MiB day-cap rotation
+  with exact-fit file selection, 7-day retention, scrubbing, I/O-failure survival,
+  unhandledRejection/child-process-gone hooks, uncaughtException deliberately untouched);
+  supervisor stderr option + restarts/lastExit/pid/readyUptime getters + verboseCoreLogging
+  env; domains/diagnostics.ts (assembly with contract-validated core snapshot, zip export
+  with directory validation); window.ts console-error + render-gone forwarding; full
+  main.ts wiring (logger first, ipc/supervisor/tray logs routed through it, verbose live
+  for main logger).
+- Renderer: diagnostics store (zustand), DiagnosticsPage (app/core/toolkit-updater cards,
+  quick-check + degraded badges, 200-line tail with level filter, 10 s bounded auto-
+  refresh, export flow via app.pickDirectory, verbose switch), AppShell nav entry.
+- Environment: Rust toolchain reinstalled (sandbox reset); bun.lock regenerated for the
+  yazl dependency move; version bumps carried into all manifests.
+- Gate: typecheck clean; vitest 112 contracts + 296 desktop (1 pre-existing skip); vite
+  build clean; cargo fmt/clippy clean (rustfmt/clippy components reinstalled); 270 cargo
+  tests green. 24 new tests (logger, stderr parser/splitter, supervisor stderr+lifecycle,
+  diagnostics assembly/export incl. zip round-trip via yauzl).
+
+Stage Summary:
+- Phase 20 delivered: the app now has persistent, scrubbed, rotating structured logs
+  across main/core/renderer surfaces, a dead-lock class removed (stderr consumption),
+  a health report with a SQLite quick check on the job database, in-app log tail, and a
+  consent-gated diagnostics zip export. Docs updated (README, PHASES, phase-20.md).
+  Next: phase 21 — accessibility + i18n (fa/en).

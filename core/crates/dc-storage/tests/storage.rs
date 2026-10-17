@@ -952,3 +952,80 @@ fn scheduler_list_orders_newest_first() {
     let created: Vec<i64> = jobs.iter().map(|j| j.created_at).collect();
     assert_eq!(created, vec![300, 200, 100]);
 }
+
+// ---- Phase 20: diagnostics health queries ----
+
+#[test]
+fn health_queries_report_integrity_and_counts() {
+    let store = JobStore::open_in_memory().unwrap();
+
+    // Integrity: a healthy database answers "ok".
+    assert_eq!(store.quick_check().unwrap(), "ok");
+
+    // Geometry: every materialized database has at least one page of sane size.
+    let (page_count, page_size) = store.db_page_stats().unwrap();
+    assert!(page_count >= 1, "page_count must be >= 1, got {page_count}");
+    assert!(
+        (512..=65536).contains(&page_size),
+        "page_size out of range: {page_size}"
+    );
+
+    // Empty store: no rows anywhere.
+    assert!(store.count_jobs_by_status().unwrap().is_empty());
+    let (media, torrents, history, bookmarks, scheduler) = store.health_counts().unwrap();
+    assert_eq!(
+        (media, torrents, history, bookmarks, scheduler),
+        (0, 0, 0, 0, 0)
+    );
+
+    // Seed: 2 completed + 1 failed download job, 1 media, 1 torrent, 2 history, 1 bookmark,
+    // 1 scheduler — then verify every aggregate.
+    store
+        .insert_job(&sample_job(&valid_ulid(1), "completed"))
+        .unwrap();
+    store
+        .insert_job(&sample_job(&valid_ulid(2), "completed"))
+        .unwrap();
+    store
+        .insert_job(&sample_job(&valid_ulid(3), "failed"))
+        .unwrap();
+
+    let by_status = store.count_jobs_by_status().unwrap();
+    assert_eq!(
+        by_status,
+        vec![("completed".to_string(), 2), ("failed".to_string(), 1)],
+        "GROUP BY status ORDER BY status — deterministic pairs"
+    );
+
+    store
+        .insert_media_job(&sample_media_job(&valid_ulid(4), "completed"))
+        .unwrap();
+    store
+        .insert_torrent_job(&sample_torrent_row(&valid_ulid(5), "paused"))
+        .unwrap();
+    store
+        .insert_history_entry(&history_entry("https://example.com/h1", None, 1000))
+        .unwrap();
+    store
+        .insert_history_entry(&history_entry("https://example.com/h2", None, 2000))
+        .unwrap();
+    store
+        .insert_bookmark(&sample_bookmark("https://example.com/b", "B"))
+        .unwrap();
+    store
+        .insert_scheduler_job(&sample_scheduler_job(
+            &valid_ulid(6),
+            "download.startAll",
+            "none",
+        ))
+        .unwrap();
+
+    let (media, torrents, history, bookmarks, scheduler) = store.health_counts().unwrap();
+    assert_eq!(
+        (media, torrents, history, bookmarks, scheduler),
+        (1, 1, 2, 1, 1)
+    );
+
+    // Still "ok" after writes — quick_check runs on the live store without disturbing it.
+    assert_eq!(store.quick_check().unwrap(), "ok");
+}

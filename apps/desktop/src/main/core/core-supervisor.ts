@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { SyntaxDmError } from "@syntaxdm/contracts";
 import { CoreClient } from "./core-client.js";
+import { StderrLineSplitter } from "../logging/core-stderr.js";
 import {
   MAX_CONSECUTIVE,
   RESET_AFTER_MS,
@@ -33,6 +34,13 @@ export interface SupervisorOptions {
   /** Range connections per download (Phase 6 segmentation ceiling; core clamps 1..16). */
   maxConnectionsPerDownload?: number;
   log?: (msg: string) => void;
+  /** Phase 20: one structured record per core stderr line (JSON tracing output).
+   *  MUST always be provided when the core is spawned — consuming stderr is what keeps
+   *  the OS pipe buffer drained (an unread, chatty stderr would deadlock the core). */
+  onStderrLine?: (line: string) => void;
+  /** Phase 20 (verboseLogging setting): spawn the core with RUST_LOG=debug.
+   *  Applies at spawn time; a live change takes effect on the next (re)launch. */
+  verboseCoreLogging?: boolean;
   /** Test hook: override process spawning. */
   spawnFn?: typeof spawn;
 }
@@ -41,15 +49,21 @@ export class CoreSupervisor extends EventEmitter {
   private child: ChildProcess | null = null;
   private client: CoreClient | null = null;
   private state: CoreState = "stopped";
-  private consecutiveFailures = 0;
+  private failureStreak = 0;
   private readySince = 0;
   private stopping = false;
   private restartTimer: NodeJS.Timeout | null = null;
   private readonly spawnFn: typeof spawn;
+  private stderrSplitter: StderrLineSplitter | null = null;
+  private verboseCoreLogging: boolean;
+  // Phase 20 lifecycle facts for the diagnostics health report.
+  private restartCount = 0;
+  private lastExitInfo: { code: number | null; signal: string | null } | null = null;
 
   constructor(private readonly options: SupervisorOptions) {
     super();
     this.spawnFn = options.spawnFn ?? spawn;
+    this.verboseCoreLogging = options.verboseCoreLogging ?? false;
   }
 
   get currentState(): CoreState {
@@ -58,6 +72,36 @@ export class CoreSupervisor extends EventEmitter {
 
   get isReady(): boolean {
     return this.state === "ready" && this.client !== null;
+  }
+
+  // ---- Phase 20: diagnostics-facing lifecycle facts ----
+
+  /** Total relaunches this app session (a deliberate stop does not increment it). */
+  get restarts(): number {
+    return this.restartCount;
+  }
+
+  get consecutiveFailures(): number {
+    return this.failureStreak;
+  }
+
+  /** Exit of the most recent child (graceful stop clears it). */
+  get lastExit(): { code: number | null; signal: string | null } | null {
+    return this.lastExitInfo;
+  }
+
+  get pid(): number | null {
+    return this.child?.pid ?? null;
+  }
+
+  /** Time since the current ready transition (null while not ready). */
+  get readyUptimeMs(): number | null {
+    return this.state === "ready" ? Math.max(0, Date.now() - this.readySince) : null;
+  }
+
+  /** verboseLogging setting → core spawn env; effective on the next launch. */
+  setVerboseCoreLogging(verbose: boolean): void {
+    this.verboseCoreLogging = verbose;
   }
 
   private setState(state: CoreState): void {
@@ -95,11 +139,24 @@ export class CoreSupervisor extends EventEmitter {
         ...(this.options.maxConnectionsPerDownload !== undefined
           ? { SYNTAXDM_MAX_CONNECTIONS: String(this.options.maxConnectionsPerDownload) }
           : {}),
+        // Phase 20: verbose diagnostics — the core's default filter is `info`.
+        ...(this.verboseCoreLogging ? { RUST_LOG: "debug" } : {}),
       },
     });
     this.child = child;
     child.stdout?.pipe(stdout);
     stdin.pipe(child.stdin ?? new PassThrough());
+
+    // Phase 20: ALWAYS consume stderr — records flow to the app log; the consumer also
+    // guarantees the OS pipe buffer drains (an unread, chatty stderr would deadlock the
+    // core on write).
+    this.stderrSplitter = new StderrLineSplitter((line) => {
+      if (this.options.onStderrLine) this.options.onStderrLine(line);
+      else this.log(`[core:stderr] ${line}`);
+    });
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => this.stderrSplitter?.push(chunk));
+    child.on("exit", () => this.stderrSplitter?.flush());
 
     child.on("error", (err) => {
       this.log(`[supervisor] spawn error: ${err.message}`);
@@ -107,24 +164,25 @@ export class CoreSupervisor extends EventEmitter {
     });
     child.on("exit", (code, signal) => {
       this.log(`[supervisor] core exited (code=${code} signal=${signal})`);
+      this.lastExitInfo = { code, signal };
       this.handleExit();
     });
 
     this.client = new CoreClient(stdout, stdin, 30_000, (m) => this.log(m));
     this.client.on("event", (name: string, payload: unknown) => {
       if (name === "core.ready") {
-        const wasUnhealthy = this.consecutiveFailures > 0;
+        const wasUnhealthy = this.failureStreak > 0;
         if (shouldResetStreak(Date.now() - this.readySince) || wasUnhealthy) {
           // fresh process: streak resets after it proves healthy for RESET_AFTER_MS
           this.readySince = Date.now();
           setTimeout(() => {
             if (this.state === "ready" && shouldResetStreak(Date.now() - this.readySince)) {
-              this.consecutiveFailures = 0;
+              this.failureStreak = 0;
             }
           }, RESET_AFTER_MS + 10);
         }
         this.readySince = Date.now();
-        this.consecutiveFailures = 0;
+        this.failureStreak = 0;
         this.setState("ready");
       }
       this.emit("event", name, payload);
@@ -142,16 +200,17 @@ export class CoreSupervisor extends EventEmitter {
       return;
     }
 
-    if (shouldGiveUp(this.consecutiveFailures + 1)) {
-      this.consecutiveFailures += 1;
-      this.log(`[supervisor] giving up after ${this.consecutiveFailures} consecutive failures`);
+    if (shouldGiveUp(this.failureStreak + 1)) {
+      this.failureStreak += 1;
+      this.log(`[supervisor] giving up after ${this.failureStreak} consecutive failures`);
       this.setState("unavailable");
       return;
     }
 
-    this.consecutiveFailures += 1;
-    const delay = delayForFailure(this.consecutiveFailures);
-    this.log(`[supervisor] restarting in ${delay}ms (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE})`);
+    this.failureStreak += 1;
+    this.restartCount += 1;
+    const delay = delayForFailure(this.failureStreak);
+    this.log(`[supervisor] restarting in ${delay}ms (attempt ${this.failureStreak}/${MAX_CONSECUTIVE})`);
     this.setState("restarting");
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
@@ -214,6 +273,7 @@ export class CoreSupervisor extends EventEmitter {
     }
     this.child = null;
     this.client = null;
+    this.lastExitInfo = null; // deliberate stop — not a crash signal for diagnostics
     this.setState("stopped");
   }
 }

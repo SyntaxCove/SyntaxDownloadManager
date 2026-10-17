@@ -18,6 +18,8 @@ import {
   SCHEDULER_PAYLOAD_SCHEMAS, SETTINGS_DEFAULTS,
   JobEndTracker, jobEndLabel, coreStateToast,
   UpdateState, UpdateStatus, UpdateUnavailableReason,
+  CoreHealthSnapshot, LogRecord, DiagnosticsGetRecentLogsParams,
+  DiagnosticsExportLogsParams, DiagnosticsExportLogsResult,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1130,5 +1132,34 @@ describe("v1.13 auto-update channel (Phase 18)", () => {
     expect(UpdateState.parse(base).status).toBe("downloading");
     expect(() => UpdateState.parse({ ...base, progress: { ...base.progress, percent: 101 } })).toThrow();
     expect(() => UpdateState.parse({ ...base, lastCheckedAt: -1 })).toThrow();
+  });
+});
+
+describe("diagnostics (Phase 20)", () => {
+  it("core health fixture parses and round-trips the exact wire shape", () => {
+    const snap = CoreHealthSnapshot.parse(domainFixture.diagnosticsCoreHealth);
+    expect(snap.dbQuickCheck).toBe("ok");
+    expect(snap.jobsByStatus["downloading"]).toBe(1);
+    expect(snap.counts.historyEntries).toBe(42);
+    // Deterministic wire shape: what TS parsed is byte-equal to what it re-serializes.
+    expect(JSON.parse(JSON.stringify(snap))).toEqual(domainFixture.diagnosticsCoreHealth);
+  });
+
+  it("log records are level-closed and bounded; the tail request clamps its inputs", () => {
+    const rec = { ts: 1791000000000, level: "warn", component: "supervisor", msg: "core exited" };
+    expect(LogRecord.parse(rec).level).toBe("warn");
+    expect(() => LogRecord.parse({ ...rec, level: "verbose" })).toThrow();
+    expect(() => LogRecord.parse({ ...rec, msg: "x".repeat(2001) })).toThrow();
+    // Range violations are rejected (validation, not clamping); omission falls back to 200.
+    expect(() => DiagnosticsGetRecentLogsParams.parse({ level: "error", limit: 9000 })).toThrow();
+    expect(() => DiagnosticsGetRecentLogsParams.parse({ limit: 5 })).toThrow();
+    expect(DiagnosticsGetRecentLogsParams.parse({}).limit).toBe(200);
+  });
+
+  it("export requires a consented directory; results carry the written zip path", () => {
+    expect(DiagnosticsExportLogsParams.parse({ directory: "/tmp/diag" }).directory).toBe("/tmp/diag");
+    expect(() => DiagnosticsExportLogsParams.parse({ directory: "" })).toThrow();
+    const res = DiagnosticsExportLogsResult.parse({ path: "/tmp/diag/syntaxdm-diagnostics-1.zip", bytes: 10 });
+    expect(res.bytes).toBe(10);
   });
 });

@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 
@@ -24,7 +24,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls", 
 tracing = "0.1.44"
 url = "2.5.8"
 futures-util = "0.3.31"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 # max stable on crates.io verified 2026-10-07 (phase-6 report)
 sha2 = "0.11.0"
 # BitTorrent engine (v1.8, Phase 13) — verified against crates.io max stable this session
