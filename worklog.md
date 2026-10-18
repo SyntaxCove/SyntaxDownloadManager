@@ -992,3 +992,44 @@ Stage Summary:
   permission-check deny, explicit tab webSecurity, global webview ban), every fact locked
   by tests. Contract unchanged at 1.15.0. Next: phase 24 — hardening & E2E suites per
   docs/PHASES.md.
+
+---
+Task ID: 24
+Agent: Z.ai (main agent)
+Task: Phase 24 — hardening (fault injection, framing limits, crash recovery) per
+  docs/PHASES.md; split the grouped 24-31 row into individual phases; full seven-step
+  flow; commit + push + release per standing rule.
+
+Work Log:
+- Plan (docs/phases/phase-24-plan.md): fault-injection survey of scheduler windows,
+  supervisor restart policy, segment reopen truncation, storage configuration, URL
+  admission — all sound and already tested. Three real gaps found: unbounded core stdin
+  framing (no line limit, unbounded per-request tasks), renderer crash never recovered
+  (render-process-gone logged only), persistence corruption behavior never exercised.
+- Implement: F-1 server.rs read_framed_line (MAX_LINE_BYTES 4 MiB, oversized lines
+  drained not buffered, violation -> bounded parse_error citing the limit, content never
+  echoed, stream stays framed) + MAX_INFLIGHT_REQUESTS semaphore (64, read-loop
+  backpressure); F-2 window-recovery.ts pure rendererReloadDecision (clean-exit never
+  reloads, 3 attempts per 60 s sliding window, 1/2/3 s linear backoff) wired in
+  window.ts render-process-gone with new render-reload diagnostic kind (recovery works
+  even without a diagnostics callback); F-3 dc-storage/tests/corruption.rs (garbage file
+  open fails typed, zero-byte file opens fresh, post-creation corruption never lets
+  quick_check report ok).
+- Test: +3 Rust framing tests (5 MiB line -> bounded refusal -> channel survives;
+  128-request pipelined burst -> all answered in order; invalid UTF-8 -> bounded
+  refusal), +3 corruption tests, +7 window-recovery TS tests. verify-all.sh end-to-end
+  green: typecheck, 118 contracts + 342 desktop, budget gate respected (bundle
+  unchanged), cargo fmt/clippy clean, 279 Rust tests.
+- Fix during Test/Fix: sandbox reset wiped the Rust toolchain twice mid-phase; rustup
+  reinstalled (stable/minimal + rustfmt/clippy) and the gate re-run to green. Also hit
+  the known post-reset build:contracts-before-typecheck requirement again.
+- Document: docs/phases/phase-24.md report; docs/PHASES.md row 24 delivered + grouped
+  24-31 row split into per-phase rows (25 E2E suites, 26 release engineering, 27 docs,
+  28 data-integrity sweep, 29 performance validation, 30 security/privacy final review,
+  31 1.0.0); README status 0-24 + roadmap -> phase 25; versions 0.11.0 (root, desktop,
+  Rust workspace).
+
+Stage Summary:
+- Phase 24 delivered: the process boundary, the crash path, and the persistence layer
+  now survive adversarial input with tests proving it. Contract unchanged at 1.15.0.
+  Next: phase 25 — E2E suites (headless renderer+main+core integration).

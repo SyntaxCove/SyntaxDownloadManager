@@ -760,3 +760,111 @@ async fn scheduler_run_now_records_the_outcome_over_the_wire() {
     // Manual fire leaves the schedule untouched.
     assert_eq!(response["result"]["job"]["nextRunAt"], 9999999999999i64);
 }
+
+// ---- Phase 24 hardening: framing limits (F-1) ----
+
+#[tokio::test]
+async fn oversized_line_gets_bounded_parse_error_and_channel_survives() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // One 5 MiB line (over the 4 MiB framing limit) that is also plausible-looking JSON
+    // garbage: the core must refuse it with a bounded parse_error, must NOT echo the
+    // content, and must keep serving subsequent requests on the same stream.
+    let mut huge = String::from("{\"junk\":\"");
+    for _ in 0..(5 * 1024 * 1024) {
+        huge.push('x');
+    }
+    huge.push_str("\"}");
+    w.write_all(huge.as_bytes()).await.unwrap();
+    w.write_all(b"\n").await.unwrap();
+    w.flush().await.unwrap();
+
+    let mut line = String::new();
+    tokio::time::timeout(std::time::Duration::from_secs(10), r.read_line(&mut line))
+        .await
+        .expect("framing refusal within 10s")
+        .expect("connection alive");
+    let response: serde_json::Value = serde_json::from_str(&line).expect("valid JSON refusal");
+    assert_eq!(response["error"]["code"], "parse_error");
+    let message = response["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("framing limit"),
+        "refusal must cite the framing limit, got: {message}"
+    );
+    assert!(
+        !message.contains("xxxx"),
+        "the oversized content itself must never be echoed back"
+    );
+
+    // The stream stays framed: a normal request still works afterwards.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"after-oversize","method":"core.ping","params":{}}"#,
+    )
+    .await;
+    assert_eq!(response["id"], "after-oversize");
+    assert!(response["result"]["contractVersion"].is_string());
+}
+
+#[tokio::test]
+async fn pipelined_burst_is_answered_completely_and_in_order() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // 128 requests pipelined into the stream — more than MAX_INFLIGHT_REQUESTS (64) —
+    // proving the in-flight bound applies backpressure without dropping or reordering.
+    const N: usize = 128;
+    let mut payload = String::new();
+    for i in 0..N {
+        payload.push_str(&format!(
+            "{{\"v\":1,\"id\":\"burst-{i}\",\"method\":\"core.ping\",\"params\":{{}}}}\n"
+        ));
+    }
+    w.write_all(payload.as_bytes()).await.unwrap();
+    w.flush().await.unwrap();
+
+    for i in 0..N {
+        let mut line = String::new();
+        tokio::time::timeout(std::time::Duration::from_secs(10), r.read_line(&mut line))
+            .await
+            .expect("burst response within 10s")
+            .expect("connection alive");
+        let response: serde_json::Value = serde_json::from_str(&line).expect("valid JSON");
+        assert_eq!(
+            response["id"],
+            format!("burst-{i}"),
+            "responses stay ordered"
+        );
+        assert!(response["result"].is_object(), "burst request must succeed");
+    }
+}
+
+#[tokio::test]
+async fn invalid_utf8_line_is_refused_bounded() {
+    let (mut w, mut r) = spawn_serve().await;
+
+    // 0xFF is never valid UTF-8: the framing layer must refuse it without echoing bytes.
+    w.write_all(&[b'{', 0xff, b'}', b'\n']).await.unwrap();
+    w.flush().await.unwrap();
+
+    let mut line = String::new();
+    tokio::time::timeout(std::time::Duration::from_secs(5), r.read_line(&mut line))
+        .await
+        .expect("utf-8 refusal within 5s")
+        .expect("connection alive");
+    let response: serde_json::Value = serde_json::from_str(&line).expect("valid JSON refusal");
+    assert_eq!(response["error"]["code"], "parse_error");
+    assert!(response["error"]["message"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("UTF-8"));
+
+    // Channel survives.
+    let response = request(
+        &mut w,
+        &mut r,
+        r#"{"v":1,"id":"after-utf8","method":"core.ping","params":{}}"#,
+    )
+    .await;
+    assert_eq!(response["id"], "after-utf8");
+}

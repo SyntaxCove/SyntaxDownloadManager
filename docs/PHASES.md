@@ -51,7 +51,14 @@
 | 21 | Accessibility + i18n (fa / en) | delivered (2026-10-17) |
 | 22 | Performance budgets — startup, memory, UI latency | delivered (2026-10-18) |
 | 23 | Security audit — IPC surface, CSP, permission policy review | delivered (2026-10-18) |
-| 24–31 | Hardening, E2E suites, release engineering, docs, 1.0.0 | pending |
+| 24 | Hardening — fault injection, framing limits, crash recovery | delivered (2026-10-18) |
+| 25 | E2E suites — headless renderer+main+core integration | pending |
+| 26 | Release engineering — CI, checksums, artifact pipeline | pending |
+| 27 | Docs — in-app help, FAQ, troubleshooting | pending |
+| 28 | Data-integrity validation sweep — checksum/recovery deep verification | pending |
+| 29 | Performance validation — real-device budget report harness | pending |
+| 30 | Security & privacy final review — supply chain, SBOM | pending |
+| 31 | 1.0.0 — final QA, version, release | pending |
 
 ## Contract versioning
 

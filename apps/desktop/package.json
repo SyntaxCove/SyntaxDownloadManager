@@ -1,6 +1,6 @@
 {
   "name": "@syntaxdm/desktop",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "description": "Syntax Download Manager desktop shell \u2014 Electron main, preload bridge, React renderer",
   "type": "commonjs",

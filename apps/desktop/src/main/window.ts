@@ -1,6 +1,7 @@
 import { BrowserWindow, shell } from "electron";
 import type { AppPaths } from "./paths.js";
 import { blockNewWindows, denyByDefaultChecks, denyByDefaultPermissions, isWebUrl, RENDERER_CSP, secureWebPreferences, willNavigateGuard } from "./security.js";
+import { rendererReloadDecision } from "./window-recovery.js";
 
 export interface MainWindowHandle {
   readonly window: BrowserWindow;
@@ -8,7 +9,7 @@ export interface MainWindowHandle {
 
 /** Renderer-side diagnostic surfaces forwarded to the main logger (Phase 20). */
 export interface RendererDiagnostic {
-  kind: "console-error" | "render-gone";
+  kind: "console-error" | "render-gone" | "render-reload";
   msg: string;
   data?: unknown;
 }
@@ -50,14 +51,46 @@ export function createMainWindow(
         });
       }
     });
-    win.webContents.on("render-process-gone", (_event, details) => {
-      onDiagnostic({
+  }
+  // Phase 24 (F-2): crash recovery — a non-clean-exit renderer crash schedules a bounded
+  // auto-reload (3 attempts per 60 s sliding window, linear backoff); a crash loop must
+  // never become a reload loop. Bookkeeping is per webContents, in this closure, and the
+  // recovery path exists even when no diagnostics callback was provided.
+  const reloadAttempts = new Map<number, { count: number; last: number }>();
+  win.webContents.on("render-process-gone", (_event, details) => {
+    const now = Date.now();
+    const prior = reloadAttempts.get(win.webContents.id);
+    const decision = rendererReloadDecision(
+      details.reason,
+      prior ? prior.count : 0,
+      now,
+      prior ? prior.last : null,
+    );
+    if (decision.reload) {
+      reloadAttempts.set(win.webContents.id, { count: decision.attempts, last: now });
+      onDiagnostic?.({
+        kind: "render-reload",
+        msg: `renderer gone (${details.reason}); auto-reload scheduled in ${decision.delayMs}ms (attempt ${decision.attempts})`,
+        data: { reason: details.reason, exitCode: details.exitCode },
+      });
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.webContents.reload();
+      }, decision.delayMs);
+    } else if (details.reason !== "clean-exit") {
+      // Budget exhausted (or no reload allowed): the crash itself is the durable record.
+      onDiagnostic?.({
+        kind: "render-reload",
+        msg: `renderer gone (${details.reason}); auto-reload budget exhausted (${decision.attempts} in window)`,
+        data: { reason: details.reason, exitCode: details.exitCode },
+      });
+    } else {
+      onDiagnostic?.({
         kind: "render-gone",
         msg: `renderer process gone: ${details.reason}`,
         data: { exitCode: details.exitCode },
       });
-    });
-  }
+    }
+  });
   blockNewWindows(win);
   // Electron 44: permission handlers live on the session.
   win.webContents.session.setPermissionRequestHandler(denyByDefaultPermissions());

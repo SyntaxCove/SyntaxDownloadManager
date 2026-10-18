@@ -98,6 +98,73 @@ struct TestProxyParams {
 
 pub type OutboundTx = mpsc::UnboundedSender<String>;
 
+/// Phase 24 hardening (F-1): request framing limits.
+///
+/// A single stdin line carries exactly one JSON request. Legitimate requests (URL lists,
+/// checksum manifests, job rows) stay orders of magnitude below `MAX_LINE_BYTES`; anything
+/// larger is a bug or an attack and is answered with a bounded `parse_error` instead of
+/// being buffered into memory. `MAX_INFLIGHT_REQUESTS` bounds the tasks spawned per
+/// request: the read loop stalls on the semaphore (natural backpressure) instead of
+/// letting a flood allocate unbounded futures.
+const MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_INFLIGHT_REQUESTS: usize = 64;
+
+/// Outcome of one bounded framing read: a request line, a framing violation (oversized or
+/// not valid UTF-8 — never echoed back), or a clean EOF.
+enum FramedLine {
+    Line(String),
+    Violated(&'static str),
+    Eof,
+}
+
+/// Read one `\n`-terminated line, bounding buffered bytes at `max`. A line that outgrows
+/// the limit is drained (consumed through its newline) but never buffered, so the stream
+/// stays framed and subsequent requests keep working.
+async fn read_framed_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    max: usize,
+) -> tokio::io::Result<FramedLine> {
+    let mut buf: Vec<u8> = Vec::new();
+    let mut violation: Option<&'static str> = None;
+    loop {
+        let chunk = reader.fill_buf().await?;
+        if chunk.is_empty() {
+            break;
+        }
+        if let Some(nl) = chunk.iter().position(|&b| b == b'\n') {
+            if violation.is_none() {
+                buf.extend_from_slice(&chunk[..nl]);
+            }
+            reader.consume(nl + 1);
+            return Ok(match violation {
+                Some(why) => FramedLine::Violated(why),
+                None => match String::from_utf8(buf) {
+                    Ok(line) => FramedLine::Line(line),
+                    Err(_) => FramedLine::Violated("request line is not valid UTF-8"),
+                },
+            });
+        }
+        let n = chunk.len();
+        if violation.is_none() {
+            buf.extend_from_slice(chunk);
+            if buf.len() > max {
+                violation = Some("request line exceeds the framing limit");
+                buf.clear(); // never buffer what we will not parse
+            }
+        }
+        reader.consume(n);
+    }
+    Ok(match (buf.is_empty(), violation) {
+        (true, None) => FramedLine::Eof,
+        (_, Some(why)) => FramedLine::Violated(why),
+        // EOF without a trailing newline: still try to parse the trailing bytes.
+        (false, None) => match String::from_utf8(buf) {
+            Ok(line) => FramedLine::Line(line),
+            Err(_) => FramedLine::Violated("request line is not valid UTF-8"),
+        },
+    })
+}
+
 /// Serve requests from `stdin` until EOF. Responses are written through `outbound` — the
 /// caller owns the writer task, which also carries engine events (single-writer principle).
 pub async fn serve(
@@ -106,44 +173,71 @@ pub async fn serve(
     outbound: OutboundTx,
 ) {
     let tx = outbound;
-    let reader = BufReader::new(stdin);
-    let mut lines = reader.lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let manager = manager.clone();
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            let raw: Result<Value, _> = serde_json::from_str(&line);
-            let response = match raw {
-                Err(e) => {
-                    // No envelope → no id; parse_error with a synthetic id.
-                    ResponseEnvelope::Error(make_error(
-                        "unknown",
-                        ContractError::new(ErrorCode::ParseError, format!("{e}")),
-                    ))
+    let mut reader = BufReader::new(stdin);
+    let inflight = Arc::new(tokio::sync::Semaphore::new(MAX_INFLIGHT_REQUESTS));
+    loop {
+        match read_framed_line(&mut reader, MAX_LINE_BYTES).await {
+            Err(_) => break, // stdin read failure: treat as EOF, same teardown path
+            Ok(FramedLine::Eof) => break,
+            Ok(FramedLine::Violated(why)) => {
+                // Bounded refusal — the framing violation itself is never echoed.
+                let error = ResponseEnvelope::Error(make_error(
+                    "unknown",
+                    ContractError::new(ErrorCode::ParseError, why),
+                ));
+                if let Ok(mut json) = serde_json::to_string(&error) {
+                    json.push('\n');
+                    let _ = tx.send(json);
                 }
-                Ok(value) => {
-                    let request = serde_json::from_value::<RequestEnvelope>(value);
-                    match request {
-                        Err(_) => ResponseEnvelope::Error(make_error(
-                            id_of(&line),
-                            ContractError::new(ErrorCode::ParseError, "malformed request envelope"),
-                        )),
-                        Ok(req) => handle(req, manager).await,
-                    }
-                }
-            };
-            let json = match response {
-                ResponseEnvelope::Success(s) => serde_json::to_string(&s),
-                ResponseEnvelope::Error(e) => serde_json::to_string(&e),
-            };
-            if let Ok(mut json) = json {
-                json.push('\n');
-                let _ = tx.send(json);
+                continue;
             }
-        });
+            Ok(FramedLine::Line(line)) => {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                // Phase 24: bounded in-flight requests — acquire before spawning.
+                let permit = match inflight.clone().acquire_owned().await {
+                    Ok(permit) => permit,
+                    Err(_) => continue, // semaphore closed only on teardown
+                };
+                let manager = manager.clone();
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let raw: Result<Value, _> = serde_json::from_str(&line);
+                    let response = match raw {
+                        Err(e) => {
+                            // No envelope → no id; parse_error with a synthetic id.
+                            ResponseEnvelope::Error(make_error(
+                                "unknown",
+                                ContractError::new(ErrorCode::ParseError, format!("{e}")),
+                            ))
+                        }
+                        Ok(value) => {
+                            let request = serde_json::from_value::<RequestEnvelope>(value);
+                            match request {
+                                Err(_) => ResponseEnvelope::Error(make_error(
+                                    id_of(&line),
+                                    ContractError::new(
+                                        ErrorCode::ParseError,
+                                        "malformed request envelope",
+                                    ),
+                                )),
+                                Ok(req) => handle(req, manager).await,
+                            }
+                        }
+                    };
+                    let json = match response {
+                        ResponseEnvelope::Success(s) => serde_json::to_string(&s),
+                        ResponseEnvelope::Error(e) => serde_json::to_string(&e),
+                    };
+                    if let Ok(mut json) = json {
+                        json.push('\n');
+                        let _ = tx.send(json);
+                    }
+                });
+            }
+        }
     }
 
     // stdin EOF: persist job state; the caller owns the writer lifecycle.
