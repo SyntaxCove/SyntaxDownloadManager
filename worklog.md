@@ -918,3 +918,38 @@ Follow-up (Phase 22 commit logistics):
 - Standing reminder to the user: rotate the GitHub PAT (it was shared in chat once and
   has now been lost twice to sandbox resets — a fresh fine-grained token scoped to
   SyntaxCove/SyntaxDownloadManager with Contents read/write is sufficient).
+
+---
+Task ID: P22-CLOSURE
+Agent: Z.ai (main agent)
+Task: Re-supplied GitHub PAT -> store credentials, push the deferred Phase 22 commits,
+  create the missing v0.9.0 release, close the phase 19-22 backlog chain.
+
+Work Log:
+- Stored the fresh fine-grained PAT in ~/.git-credentials (chmod 600) and re-enabled the
+  credential helper; verified repo auth (GET /repos -> 200) and that `git push` works.
+- Environment check after sandbox reset: cargo/rustc wiped (rustup reinstall needed for
+  any future Rust work); node v24.21.0 / npm 11.19.0 intact; working tree clean.
+- State audit: phases 19-22 were all committed in prior sessions. Phase 19 (packaging,
+  80a1f27), 20 (diagnostics, be3697b) and 21 (a11y + i18n, 53f2c42) were already pushed
+  with releases v0.6.0 (carries the REAL 162 MiB Windows portable zip asset built by the
+  electron-builder --win zip cross-build) / v0.7.0 / v0.8.0. Two commits were unpushed:
+  17f114d (phase 22 performance budgets) and f5d1888 - a leftover worklog-only commit
+  carrying a UUID instead of a message.
+- Reworded the stray HEAD commit to a proper English message ("docs: worklog - phase 22
+  push and release deferred pending fresh credentials") -> 5a639bc; pushed both commits:
+  origin/main 53f2c42..5a639bc; branch now in sync.
+- Created release v0.9.0 - "Phase 22: Performance budgets (startup, memory, UI latency)"
+  with full English notes (budget table + gates, real-binary Rust tests, renderer latency
+  gates, BootClock instrumentation, counters/RSS sampling, contracts 1.15.0, test counts
+  118+328+273, source-only note pointing to v0.6.0 asset and build-windows.ps1).
+- Fixed a token-parsing bug in the release tooling (tool-results/make-release.py kept
+  out of the repo under the gitignored tool-results/).
+
+Stage Summary:
+- Phases 19-22 are now fully closed: pushed, tagged and released (v0.6.0/v0.7.0/v0.8.0/
+  v0.9.0). README already states phases 0-22 of 31 delivered; next milestone is phase 23
+  - security audit (IPC surface, CSP, permission policy review) per docs/PHASES.md.
+- Standing reminder to the user: rotate this PAT too - it has now been shared in chat;
+  scope a fresh fine-grained token to SyntaxCove/SyntaxDownloadManager with Contents
+  read/write only.
