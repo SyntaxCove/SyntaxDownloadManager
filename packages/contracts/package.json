@@ -1,6 +1,6 @@
 {
   "name": "@syntaxdm/contracts",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "private": true,
   "description": "Syntax Download Manager contract-first schemas: domain types, protocol envelopes, error codes. Single source of truth for the IPC and core boundaries.",
   "type": "module",

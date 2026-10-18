@@ -50,7 +50,7 @@
 | 20 | Diagnostics — structured logs, log export, health report | delivered (2026-10-17) |
 | 21 | Accessibility + i18n (fa / en) | delivered (2026-10-17) |
 | 22 | Performance budgets — startup, memory, UI latency | delivered (2026-10-18) |
-| 23 | Security audit — IPC surface, CSP, permission policy review | pending |
+| 23 | Security audit — IPC surface, CSP, permission policy review | delivered (2026-10-18) |
 | 24–31 | Hardening, E2E suites, release engineering, docs, 1.0.0 | pending |
 
 ## Contract versioning

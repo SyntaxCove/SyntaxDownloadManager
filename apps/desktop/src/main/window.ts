@@ -1,6 +1,6 @@
 import { BrowserWindow, shell } from "electron";
 import type { AppPaths } from "./paths.js";
-import { blockNewWindows, denyByDefaultPermissions, RENDERER_CSP, secureWebPreferences, willNavigateGuard } from "./security.js";
+import { blockNewWindows, denyByDefaultChecks, denyByDefaultPermissions, isWebUrl, RENDERER_CSP, secureWebPreferences, willNavigateGuard } from "./security.js";
 
 export interface MainWindowHandle {
   readonly window: BrowserWindow;
@@ -61,6 +61,8 @@ export function createMainWindow(
   blockNewWindows(win);
   // Electron 44: permission handlers live on the session.
   win.webContents.session.setPermissionRequestHandler(denyByDefaultPermissions());
+  // Phase 23 (F-C): deny the synchronous permission-check path too (clipboard probes, …).
+  win.webContents.session.setPermissionCheckHandler(denyByDefaultChecks());
   win.webContents.on("will-navigate", (details, url) =>
     willNavigateGuard(() => ({ devServerUrl: paths.devServerUrl }))(details, url),
   );
@@ -72,9 +74,10 @@ export function createMainWindow(
       callback({});
     }
   });
-  // Links/target=_blank from the shell UI open in the OS browser, never a new Electron window.
+  // Links/target=_blank from the shell UI open in the OS browser — but only http/https
+  // (Phase 23 F-A): file:/custom-scheme handoffs to the OS are dropped, never forwarded.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (isWebUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
 

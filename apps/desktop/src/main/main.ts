@@ -51,6 +51,14 @@ if (!gotLock) {
 } else {
   app.enableSandbox();
 
+  // Phase 23 (F-E): global safety net — the product never uses <webview>, so attachment is
+  // denied on every webContents we ever create, including any created by future code paths.
+  app.on("web-contents-created", (_event, contents) => {
+    contents.on("will-attach-webview", (event) => {
+      event.preventDefault();
+    });
+  });
+
   // Phase 22: the boot clock starts at the earliest observable point of the entry module —
   // mark() is called at lifecycle points that already exist below (zero behavior change).
   const bootClock = new BootClock();
@@ -119,7 +127,9 @@ if (!gotLock) {
     const proxyStore = new ProxyProfileStore(app.getPath("userData"), safeStorage);
     await proxyStore.load();
 
-    bindElectronRpc(router, () => BrowserWindow.getAllWindows());
+    bindElectronRpc(router, () => BrowserWindow.getAllWindows(), {
+      rendererIndexFile: paths.rendererIndex,
+    });
 
     createMainWindow(paths, { width: 360, height: 240 }, (d: RendererDiagnostic) => {
       logger.error("renderer", d.msg, d.data);

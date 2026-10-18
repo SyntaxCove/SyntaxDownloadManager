@@ -125,6 +125,7 @@ export class TabManager {
         contextIsolation: true,
         nodeIntegration: false,
         nodeIntegrationInSubFrames: false,
+        webSecurity: true, // Phase 23 (F-D): explicit — defaults are not reviewable facts.
         session: await this.sessionFor(params.proxyProfileId),
         // No preload: third-party web content never gets bridge code.
       },
@@ -285,6 +286,7 @@ export class TabManager {
         contextIsolation: true,
         nodeIntegration: false,
         nodeIntegrationInSubFrames: false,
+        webSecurity: true, // Phase 23 (F-D): explicit — defaults are not reviewable facts.
         session: await this.sessionFor(profileId),
       },
     });

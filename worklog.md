@@ -953,3 +953,42 @@ Stage Summary:
 - Standing reminder to the user: rotate this PAT too - it has now been shared in chat;
   scope a fresh fine-grained token to SyntaxCove/SyntaxDownloadManager with Contents
   read/write only.
+
+---
+Task ID: 23
+Agent: Z.ai (main agent)
+Task: Phase 23 — security audit (IPC surface, CSP, permission policy review) per
+  docs/PHASES.md; full seven-step flow; commit + push + release per standing rule.
+
+Work Log:
+- Plan: re-read all 12 trust boundaries line by line (router validation, sender firewall,
+  shell + tab webPreferences, interactive/sync permission policies, CSP meta+header,
+  navigation/window-open policy, webview surfaces, renderer XSS sinks, URL admission bar
+  and core, toolkit argv hygiene, secrets, update feed). Plan recorded in
+  docs/phases/phase-23-plan.md with the audit table and finding list.
+- Implement: F-A isWebUrl() http/https gate before shell.openExternal in window.ts;
+  F-B sender firewall upgraded in ipc/electron-rpc.ts (session identity via
+  session.defaultSession + exact pathToFileURL(rendererIndex) match, hash-stripped, legacy
+  substring kept only as fallback; main.ts passes rendererIndexFile); F-C
+  denyByDefaultChecks() on the shell session; F-D explicit webSecurity:true on both tab
+  WebContentsView creation sites; F-E global will-attach-webview preventDefault in
+  app.on("web-contents-created"); mediaKeySystem rationale documented.
+- Test: +7 security unit tests (isWebUrl 9-case ladder, denyByDefaultChecks,
+  isTrustedRpcSender matrix: session identity, exact origin vs decoy containment path,
+  hash tolerance, wrong-port dev server, legacy fallback, packaged-index resolution).
+  verify-all.sh end-to-end green: typecheck, 118 contracts + 335 desktop (+7), renderer
+  build + budget gate (bundle unchanged 1,079,543 B), cargo fmt/clippy clean, 273 cargo
+  tests (Rust surface untouched by design).
+- Fix during Test/Fix: rustup+rustfmt+clippy reinstalled after sandbox reset;
+  contracts package.json manifest realigned 1.14.0 -> 1.15.0 (metadata drift from phase
+  22; wire version was already correct).
+- Document: docs/phases/phase-23.md report (audit table, findings, fixes, verification,
+  honest no-Electron-binary scope note); docs/PHASES.md row 23 -> delivered (2026-10-18);
+  README status 0-23 + roadmap -> phase 24; versions app/root/workspace -> 0.10.0.
+
+Stage Summary:
+- Phase 23 delivered: audit passed 8 of 12 boundaries unchanged, fixed 5 hardening gaps
+  (OS-handoff scheme gate, sender firewall session identity + exact origin, sync
+  permission-check deny, explicit tab webSecurity, global webview ban), every fact locked
+  by tests. Contract unchanged at 1.15.0. Next: phase 24 — hardening & E2E suites per
+  docs/PHASES.md.

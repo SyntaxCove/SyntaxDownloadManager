@@ -58,7 +58,34 @@ export function blockNewWindows(win: BrowserWindow): void {
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 }
 
-/** Content-Security-Policy delivered as an onLoadInjected header — belt and braces with index.html. */
+/**
+ * Phase 23 (F-A): OS handoffs are http/https only. `shell.openExternal` with a `file:`
+ * or custom-scheme URL (e.g. `ms-msdt:`, `search-ms:`) is a known Windows code-execution
+ * class — the URL is dropped instead of forwarded, and nothing is echoed back.
+ */
+export function isWebUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === "http:" || new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Phase 23 (F-C): the synchronous half of the permission policy. `setPermissionCheckHandler`
+ * answers non-interactive checks (clipboard read queries, notifications probes, …); the shell
+ * session grants none — interactive requests are denied by `denyByDefaultPermissions()` too.
+ */
+export function denyByDefaultChecks() {
+  // none granted in the shell window; browser tabs configure their own policy.
+  return (_wc: unknown, _permission: string, _details?: unknown): boolean => false;
+}
+
+/**
+ * Content-Security-Policy delivered as an onHeadersReceived header — belt and braces with
+ * the meta tag in index.html (the meta covers dev and prod; this header hardens the
+ * packaged file:// load specifically).
+ */
 export const RENDERER_CSP = [
   "default-src 'self'",
   "script-src 'self'",
