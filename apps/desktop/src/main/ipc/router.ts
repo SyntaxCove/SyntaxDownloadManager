@@ -40,8 +40,21 @@ export class IpcRouter {
   private readonly handlers = new Map<string, RegisteredHandler>();
   /** Event consumers (e.g. the Electron bridge forwards validated events to renderer windows). */
   private readonly eventListeners = new Set<(event: string, payload: unknown) => void>();
+  /** Phase 22: monotonic session counters (integer increments only — no hot-path timing). */
+  private requestsServed = 0;
+  private eventsEmitted = 0;
+  private invalidDropped = 0;
 
   constructor(private readonly log?: (msg: string) => void) {}
+
+  /** Phase 22: current monotonic counters (a copy — callers cannot mutate the originals). */
+  counters(): { requestsServed: number; eventsEmitted: number; invalidDropped: number } {
+    return {
+      requestsServed: this.requestsServed,
+      eventsEmitted: this.eventsEmitted,
+      invalidDropped: this.invalidDropped,
+    };
+  }
 
   /**
    * Register a method handler. `paramsSchema`/`resultSchema` enforce the contract at runtime;
@@ -75,6 +88,7 @@ export class IpcRouter {
       const parsed = payloadSchema.safeParse(payload);
       if (!parsed.success) {
         this.log?.(`[ipc] dropped invalid event payload for ${event}: ${parsed.error.message}`);
+        this.invalidDropped++;
         return;
       }
       validated = parsed.data;
@@ -82,8 +96,10 @@ export class IpcRouter {
     const envelope = makeEvent(event, validated);
     if (!EventEnvelope.safeParse(envelope).success) {
       this.log?.(`[ipc] dropped unserializable event envelope for ${event}`);
+      this.invalidDropped++;
       return;
     }
+    this.eventsEmitted++;
     for (const listener of this.eventListeners) listener(event, validated);
   }
 
@@ -94,6 +110,7 @@ export class IpcRouter {
   async dispatch(raw: unknown, ctx: RpcContext, sink: MessageSink): Promise<void> {
     const request = RequestEnvelope.safeParse(raw);
     if (!request.success) {
+      this.invalidDropped++;
       sink.send(
         makeError(unknownId(raw), {
           code: "parse_error",
@@ -103,6 +120,7 @@ export class IpcRouter {
       );
       return;
     }
+    this.requestsServed++;
     const { id, method, params } = request.data;
     const registered = this.handlers.get(method);
     if (!registered) {

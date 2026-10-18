@@ -430,5 +430,42 @@
     "uptimeMs": 3600000,
     "contractVersion": "1.14.0",
     "protocolVersion": 1
+  },
+  "performanceSnapshot": {
+    "boot": {
+      "phases": [
+        {
+          "phase": "main-modules-evaluated",
+          "durationMs": 7
+        },
+        {
+          "phase": "app-ready",
+          "durationMs": 86
+        },
+        {
+          "phase": "window-created",
+          "durationMs": 6
+        },
+        {
+          "phase": "core-spawned",
+          "durationMs": 2
+        },
+        {
+          "phase": "core-ready",
+          "durationMs": 41
+        }
+      ],
+      "totalToCoreReadyMs": 142,
+      "coreSpawnToReadyMs": 41,
+      "recordedAt": 1791000000000
+    },
+    "ipc": {
+      "requestsServed": 12,
+      "eventsEmitted": 58,
+      "invalidDropped": 0
+    },
+    "mainRssBytes": 184281088,
+    "coreRssBytes": 17584128,
+    "sampledAt": 1791000001000
   }
 }

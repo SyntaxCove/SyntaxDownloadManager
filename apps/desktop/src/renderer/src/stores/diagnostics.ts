@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { HealthReport, LogRecord, LogLevel } from "@syntaxdm/contracts";
+import type { HealthReport, LogRecord, LogLevel, PerformanceSnapshot } from "@syntaxdm/contracts";
 import { rpc } from "../bridge.js";
 import { publishToast } from "../app/toasts.js";
 import { describeError } from "./settings.js";
@@ -9,10 +9,13 @@ import { describeError } from "./settings.js";
  * main-served snapshots pulled on demand (page mount, manual refresh, bounded auto
  * refresh); there are no push events for diagnostics — a per-line firehose over IPC is
  * noise, not signal. Export is a consent flow: app.pickDirectory → diagnostics.exportLogs.
+ * Phase 22 adds the performance snapshot (boot timings, memory, IPC counters) on the
+ * same pull model.
  */
 
 interface DiagnosticsStoreState {
   report: HealthReport | null;
+  perf: PerformanceSnapshot | null;
   records: LogRecord[];
   levelFilter: LogLevel | undefined;
   loading: boolean;
@@ -22,6 +25,7 @@ interface DiagnosticsStoreState {
   lastExportPath: string | null;
   error: string | null;
   loadReport: () => Promise<void>;
+  loadPerf: () => Promise<void>;
   loadLogs: () => Promise<void>;
   setLevelFilter: (level: LogLevel | undefined) => void;
   exportLogs: () => Promise<void>;
@@ -29,6 +33,7 @@ interface DiagnosticsStoreState {
 
 export const useDiagnosticsStore = create<DiagnosticsStoreState>((set, get) => ({
   report: null,
+  perf: null,
   records: [],
   levelFilter: undefined,
   loading: false,
@@ -46,6 +51,15 @@ export const useDiagnosticsStore = create<DiagnosticsStoreState>((set, get) => (
       set({ error: describeError(err) });
     } finally {
       set({ loading: false });
+    }
+  },
+
+  loadPerf: async () => {
+    try {
+      const { snapshot } = await rpc("perf.getSnapshot", {});
+      set({ perf: snapshot, error: null });
+    } catch (err) {
+      set({ error: describeError(err) });
     }
   },
 

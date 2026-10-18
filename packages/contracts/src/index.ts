@@ -14,6 +14,7 @@ export * from "./domain/scheduler.js";
 export * from "./domain/transitions.js";
 export * from "./domain/update.js";
 export * from "./domain/diagnostics.js";
+export * from "./domain/perf.js";
 
 export * from "./protocol/envelope.js";
 export * from "./protocol/methods.js";

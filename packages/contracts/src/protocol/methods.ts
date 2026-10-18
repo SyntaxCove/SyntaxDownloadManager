@@ -59,6 +59,9 @@ import {
   DiagnosticsExportLogsParams, DiagnosticsExportLogsResult,
   DiagnosticsHealthParams, DiagnosticsHealthResult,
 } from "../domain/diagnostics.js";
+import {
+  PerfGetSnapshotParams, PerfGetSnapshotResult,
+} from "../domain/perf.js";
 
 /**
  * Method registry: method name → { params, result } schemas. Both sides of every boundary
@@ -241,6 +244,8 @@ export const METHODS = {
   },
   // ---- core (v1.14, Phase 20): storage + process health snapshot ----
   "diagnostics.health": { server: "core", params: DiagnosticsHealthParams, result: DiagnosticsHealthResult },
+  // ---- main (v1.15, Phase 22): performance snapshot — boot timings, memory, IPC counters ----
+  "perf.getSnapshot": { server: "main", params: PerfGetSnapshotParams, result: PerfGetSnapshotResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;
 
 export type MethodName = keyof typeof METHODS;

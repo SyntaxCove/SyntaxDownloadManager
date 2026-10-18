@@ -13,7 +13,7 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { ArrowSyncRegular, ArrowExportLtrRegular, ArrowExportRtlRegular } from "@fluentui/react-icons";
-import type { HealthReport, LogLevel } from "@syntaxdm/contracts";
+import type { HealthReport, LogLevel, PerformanceSnapshot } from "@syntaxdm/contracts";
 import { useDiagnosticsStore } from "../stores/diagnostics.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useI18n } from "../i18n/context.js";
@@ -268,6 +268,42 @@ function ToolkitUpdaterCards({ report }: { report: HealthReport }): ReactNode {
   );
 }
 
+function PerfCard({ perf }: { perf: PerformanceSnapshot }): ReactNode {
+  const styles = useStyles();
+  const { t } = useI18n();
+  const ms = (v: number): string => t("perf.k.ms", { n: formatNumber(v, t.lang) });
+  return (
+    <div className={styles.card}>
+      <Text as="h2" className={styles.cardTitle}>{t("perf.card.title")}</Text>
+      <div className={styles.grid}>
+        <KV
+          k={t("perf.k.bootToCoreReady")}
+          v={perf.boot.totalToCoreReadyMs === null ? t("perf.k.pending") : ms(perf.boot.totalToCoreReadyMs)}
+        />
+        <KV
+          k={t("perf.k.coreSpawnToReady")}
+          v={perf.boot.coreSpawnToReadyMs === null ? t("perf.k.pending") : ms(perf.boot.coreSpawnToReadyMs)}
+        />
+        <KV k={t("perf.k.mainRss")} v={formatBytes(perf.mainRssBytes, t.lang)} />
+        <KV
+          k={t("perf.k.coreRss")}
+          v={perf.coreRssBytes === null ? t("perf.k.unavailable") : formatBytes(perf.coreRssBytes, t.lang)}
+        />
+        <KV k={t("perf.k.requestsServed")} v={formatNumber(perf.ipc.requestsServed, t.lang)} />
+        <KV k={t("perf.k.eventsEmitted")} v={formatNumber(perf.ipc.eventsEmitted, t.lang)} />
+        <KV k={t("perf.k.invalidDropped")} v={formatNumber(perf.ipc.invalidDropped, t.lang)} />
+      </div>
+      {perf.boot.phases.length > 0 ? (
+        <div className={styles.grid}>
+          {perf.boot.phases.map((p) => (
+            <KV key={p.phase} k={t(`perf.phase.${p.phase}`)} v={ms(p.durationMs)} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function LogTail(): ReactNode {
   const styles = useStyles();
   const { t } = useI18n();
@@ -325,11 +361,13 @@ export function DiagnosticsPage(): ReactNode {
   const styles = useStyles();
   const { t, dir } = useI18n();
   const report = useDiagnosticsStore((s) => s.report);
+  const perf = useDiagnosticsStore((s) => s.perf);
   const loaded = useDiagnosticsStore((s) => s.loaded);
   const loading = useDiagnosticsStore((s) => s.loading);
   const error = useDiagnosticsStore((s) => s.error);
   const exporting = useDiagnosticsStore((s) => s.exporting);
   const loadReport = useDiagnosticsStore((s) => s.loadReport);
+  const loadPerf = useDiagnosticsStore((s) => s.loadPerf);
   const loadLogs = useDiagnosticsStore((s) => s.loadLogs);
   const exportLogs = useDiagnosticsStore((s) => s.exportLogs);
   const settings = useSettingsStore((s) => s.settings);
@@ -337,10 +375,12 @@ export function DiagnosticsPage(): ReactNode {
 
   useEffect(() => {
     void loadReport();
+    void loadPerf();
     void loadLogs();
     // Bounded auto-refresh while the page is visible; cleared on unmount.
     const timer = setInterval(() => {
       void loadReport();
+      void loadPerf();
       void loadLogs();
     }, 10_000);
     return () => clearInterval(timer);
@@ -361,6 +401,7 @@ export function DiagnosticsPage(): ReactNode {
             size="small"
             onClick={() => {
               void loadReport();
+              void loadPerf();
               void loadLogs();
             }}
             disabled={loading}
@@ -391,6 +432,7 @@ export function DiagnosticsPage(): ReactNode {
         <>
           <AppCard report={report} />
           <CoreCard report={report} />
+          {perf ? <PerfCard perf={perf} /> : null}
           <ToolkitUpdaterCards report={report} />
           <div className={styles.card}>
             <Text as="h2" className={styles.cardTitle}>{t("diag.files.title")}</Text>

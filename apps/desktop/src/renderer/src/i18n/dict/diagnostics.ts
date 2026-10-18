@@ -62,6 +62,23 @@ export const diagnosticsEn = {
   "diag.verbose.desc":
     "Records debug-level detail. Applies to the app log immediately and to the download core the next time it starts.",
   "diag.verbose.aria": "Verbose logging",
+
+  "perf.card.title": "Performance",
+  "perf.k.ms": "{n} ms",
+  "perf.k.bootToCoreReady": "Boot to core ready",
+  "perf.k.coreSpawnToReady": "Core cold start",
+  "perf.k.mainRss": "App memory (RSS)",
+  "perf.k.coreRss": "Core memory (RSS)",
+  "perf.k.requestsServed": "IPC requests served",
+  "perf.k.eventsEmitted": "IPC events emitted",
+  "perf.k.invalidDropped": "Invalid messages dropped",
+  "perf.k.pending": "not finished yet",
+  "perf.k.unavailable": "unavailable",
+  "perf.phase.main-modules-evaluated": "Main modules evaluated",
+  "perf.phase.app-ready": "Electron ready",
+  "perf.phase.window-created": "Shell window created",
+  "perf.phase.core-spawned": "Core spawned",
+  "perf.phase.core-ready": "Core ready",
 };
 
 export const diagnosticsFa: Record<keyof typeof diagnosticsEn, string> = {
@@ -125,4 +142,21 @@ export const diagnosticsFa: Record<keyof typeof diagnosticsEn, string> = {
   "diag.verbose.desc":
     "جزئیات سطح اشکال‌زدایی را ثبت می‌کند. برای گزارش برنامه بلافاصله و برای هسته دریافت در راه‌اندازی بعدی اعمال می‌شود.",
   "diag.verbose.aria": "گزارش‌گیری پرحجم",
+
+  "perf.card.title": "کارایی",
+  "perf.k.ms": "{n} م‌ث",
+  "perf.k.bootToCoreReady": "راه‌اندازی تا آماده شدن هسته",
+  "perf.k.coreSpawnToReady": "راه‌اندازی سرد هسته",
+  "perf.k.mainRss": "حافظه برنامه (RSS)",
+  "perf.k.coreRss": "حافظه هسته (RSS)",
+  "perf.k.requestsServed": "درخواست‌های IPC پاسخ‌داده‌شده",
+  "perf.k.eventsEmitted": "رویدادهای IPC منتشرشده",
+  "perf.k.invalidDropped": "پیام‌های نامعتبر دورانداخته‌شده",
+  "perf.k.pending": "هنوز پایان نیافته",
+  "perf.k.unavailable": "در دسترس نیست",
+  "perf.phase.main-modules-evaluated": "بارگذاری ماژول‌های اصلی",
+  "perf.phase.app-ready": "الکترون آماده شد",
+  "perf.phase.window-created": "پنجره ایجاد شد",
+  "perf.phase.core-spawned": "هسته فراخوانی شد",
+  "perf.phase.core-ready": "هسته آماده شد",
 };

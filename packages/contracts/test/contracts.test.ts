@@ -20,6 +20,7 @@ import {
   UpdateState, UpdateStatus, UpdateUnavailableReason,
   CoreHealthSnapshot, LogRecord, DiagnosticsGetRecentLogsParams,
   DiagnosticsExportLogsParams, DiagnosticsExportLogsResult,
+  PerformanceSnapshot, BootTimingReport, IpcCounters, BootPhase,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -946,6 +947,12 @@ describe("v1.11 settings domain completion (Phase 16)", () => {
     if (maj === 1) expect(min).toBeGreaterThanOrEqual(12);
     else expect(maj).toBeGreaterThan(1);
   });
+
+  it("contract version advanced to at least 1.15.0 (Phase 22 perf domain is additive)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(15);
+    else expect(maj).toBeGreaterThan(1);
+  });
 });
 
 describe("v1.12 notifications + tray settings (Phase 17)", () => {
@@ -1161,5 +1168,60 @@ describe("diagnostics (Phase 20)", () => {
     expect(() => DiagnosticsExportLogsParams.parse({ directory: "" })).toThrow();
     const res = DiagnosticsExportLogsResult.parse({ path: "/tmp/diag/syntaxdm-diagnostics-1.zip", bytes: 10 });
     expect(res.bytes).toBe(10);
+  });
+});
+
+describe("performance (Phase 22, v1.15)", () => {
+  it("perf.getSnapshot is registered as main-served with bounded result schemas", () => {
+    expect(METHODS["perf.getSnapshot"].server).toBe("main");
+    expect(METHODS["perf.getSnapshot"].params?.safeParse({}).success).toBe(true);
+  });
+
+  it("the performanceSnapshot fixture parses and round-trips the exact wire shape", () => {
+    const snap = PerformanceSnapshot.parse(domainFixture.performanceSnapshot);
+    expect(snap.boot.totalToCoreReadyMs).toBe(142);
+    expect(snap.boot.coreSpawnToReadyMs).toBe(41);
+    expect(snap.coreRssBytes).toBe(17584128);
+    expect(snap.ipc.requestsServed).toBe(12);
+    // Deterministic wire shape: what TS parsed is byte-equal to what it re-serializes.
+    expect(JSON.parse(JSON.stringify(snap))).toEqual(domainFixture.performanceSnapshot);
+  });
+
+  it("pre-ready snapshots are legal: core-derived fields are nullable", () => {
+    const pre = PerformanceSnapshot.parse({
+      boot: { phases: [{ phase: "app-ready", durationMs: 88 }], totalToCoreReadyMs: null, coreSpawnToReadyMs: null, recordedAt: 1791000000000 },
+      ipc: { requestsServed: 0, eventsEmitted: 1, invalidDropped: 0 },
+      mainRssBytes: 120000000,
+      coreRssBytes: null,
+      sampledAt: 1791000000001,
+    });
+    expect(pre.boot.coreSpawnToReadyMs).toBeNull();
+    expect(pre.coreRssBytes).toBeNull();
+  });
+
+  it("boot phases are a closed enum; negative durations are rejected", () => {
+    expect(BootPhase.options).toEqual([
+      "main-modules-evaluated", "app-ready", "window-created", "core-spawned", "core-ready",
+    ]);
+    expect(() =>
+      BootTimingReport.parse({
+        phases: [{ phase: "app-ready", durationMs: -1 }],
+        totalToCoreReadyMs: null, coreSpawnToReadyMs: null, recordedAt: 0,
+      }),
+    ).toThrow();
+    // Unknown phases cannot enter the wire.
+    expect(() =>
+      BootTimingReport.parse({
+        phases: [{ phase: "first-paint", durationMs: 5 }],
+        totalToCoreReadyMs: null, coreSpawnToReadyMs: null, recordedAt: 0,
+      }),
+    ).toThrow();
+  });
+
+  it("ipc counters are integer-bounded and monotonic-shaped", () => {
+    const c = IpcCounters.parse({ requestsServed: 3, eventsEmitted: 7, invalidDropped: 1 });
+    expect(c.requestsServed).toBe(3);
+    expect(() => IpcCounters.parse({ requestsServed: 1.5, eventsEmitted: 0, invalidDropped: 0 })).toThrow();
+    expect(() => IpcCounters.parse({ requestsServed: -1, eventsEmitted: 0, invalidDropped: 0 })).toThrow();
   });
 });

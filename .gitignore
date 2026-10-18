@@ -32,3 +32,10 @@ skills/
 tool-results/
 download/
 .env
+
+# Stray core-database artifacts (the core's default SYNTAXDM_DB fallback name)
+syntaxdm-core.db
+syntaxdm-core.db-shm
+syntaxdm-core.db-wal
+*.db-wal
+*.db-shm

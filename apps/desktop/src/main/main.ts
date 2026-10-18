@@ -21,6 +21,8 @@ import { registerNotifyEngine, type OsNotificationPort } from "./domains/notify.
 import { createElectronUpdater } from "./domains/updates-adapter.js";
 import { registerUpdateDomain } from "./domains/updates.js";
 import { registerDiagnosticsDomain } from "./domains/diagnostics.js";
+import { registerPerfDomain } from "./domains/perf.js";
+import { BootClock } from "./perf/boot-clock.js";
 import {
   TrayController,
   countsFromStatuses,
@@ -49,6 +51,11 @@ if (!gotLock) {
 } else {
   app.enableSandbox();
 
+  // Phase 22: the boot clock starts at the earliest observable point of the entry module —
+  // mark() is called at lifecycle points that already exist below (zero behavior change).
+  const bootClock = new BootClock();
+  bootClock.mark("main-modules-evaluated");
+
   app.on("second-instance", () => {
     const [win] = BrowserWindow.getAllWindows();
     if (win) {
@@ -60,6 +67,7 @@ if (!gotLock) {
   });
 
   void app.whenReady().then(async () => {
+    bootClock.mark("app-ready");
     const appRoot = app.isPackaged ? process.resourcesPath : resolve(__dirname, "../..");
     // Phase 17: stable Windows notification identity (OS toast grouping + Action Center).
     // Dev caveat: unpackaged runs have no Start-menu shortcut carrying this AUM ID, so
@@ -116,6 +124,7 @@ if (!gotLock) {
     createMainWindow(paths, { width: 360, height: 240 }, (d: RendererDiagnostic) => {
       logger.error("renderer", d.msg, d.data);
     });
+    bootClock.mark("window-created");
 
     const mainWindow = (): BrowserWindow | undefined => BrowserWindow.getAllWindows()[0];
     const focusShellWindow = (): void => {
@@ -242,6 +251,9 @@ if (!gotLock) {
         .catch(() => undefined); // core not ready yet — the ready handler re-applies
     };
 
+    // Phase 22: log the finished boot report ONCE per session (flag set below).
+    let bootReportLogged = false;
+
     supervisor.on("state", (status: string) => {
       // Broadcast lifecycle to every renderer (downloads page shows a banner).
       router.emit("core.state", EVENTS["core.state"].payload, { status });
@@ -250,12 +262,19 @@ if (!gotLock) {
       // and left policy/clock to heal within the 10-minute timer; a restarted core now
       // gets the full settings immediately. All pushes are idempotent).
       if (status === "ready") {
+        bootClock.mark("core-ready");
         pushRuntimeProxies();
         pushToolkitPaths(supervisor, toolkitManager.readyToolPaths());
         applyCoreLimits();
         applyCorePolicy();
         applySchedulerClock();
         seedTrayCounts();
+        // Phase 22: log the finished boot report ONCE per session — real device numbers
+        // reach the log pipeline, the diagnostics tail, and every exported zip.
+        if (!bootReportLogged) {
+          bootReportLogged = true;
+          logger.info("perf", "boot timing report", bootClock.report());
+        }
       }
     });
     registerDownloadDomain(router, supervisor, settingsStore);
@@ -364,7 +383,11 @@ if (!gotLock) {
       coreHealthTimeoutMs: 3_000,
     });
 
+    // ---- Phase 22: performance snapshot (boot timings, memory, IPC counters) ----
+    registerPerfDomain(router, { supervisor, bootClock, logger });
+
     supervisor.start();
+    bootClock.mark("core-spawned");
 
     router.onEvent((name, payload) => {
       if (name === "settings.changed") {

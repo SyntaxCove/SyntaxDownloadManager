@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { HealthReport, SETTINGS_DEFAULTS, UpdateState } from "@syntaxdm/contracts";
+import { HealthReport, SETTINGS_DEFAULTS, UpdateState, CONTRACT_VERSION } from "@syntaxdm/contracts";
 import { JsonlLogger } from "../logging/logger.js";
 import {
   assembleHealthReport,
@@ -128,7 +128,7 @@ describe("assembleHealthReport", () => {
     // Parse-asserted inside; assert the key projections here.
     expect(HealthReport.safeParse(report).success).toBe(true);
     expect(report.generatedAt).toBe(NOW);
-    expect(report.versions.contract).toBe("1.14.0");
+    expect(report.versions.contract).toBe(CONTRACT_VERSION);
     expect(report.core.supervision.state).toBe("ready");
     expect(report.core.supervision.restarts).toBe(2);
     expect(report.core.snapshot?.dbQuickCheck).toBe("ok");

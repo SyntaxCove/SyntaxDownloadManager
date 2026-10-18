@@ -850,3 +850,60 @@ Stage Summary:
   and localizes both in-app toasts and OS notifications. 474-key dictionaries are
   compile-checked for fa/en parity. Honest boundaries documented (error codes, log
   data, boot splash stay English; no binaries → source release only).
+
+---
+Task ID: 22
+Agent: main
+Task: Phase 22 — Performance budgets (startup, memory, UI latency) ("فاز ۲۲")
+
+Work Log:
+- Sandbox reset recovery first (12th): rustup stable/minimal + rustfmt/clippy reinstalled;
+  baseline re-verified green (typecheck, 112 contracts + 314 desktop vitest, 270 cargo,
+  vite build) before planning. Git credentials wiped by the reset — push handled at commit
+  time (see below).
+- Ground truth measured with a calibration probe (scripts/measure-core-perf.sh, kept as a
+  repo tool): core spawn→ready 38–42 ms (debug), RSS after ready ~17 MB, JSONL echo
+  round-trip 82–91 µs, renderer bundle 1,075,944 B single JS chunk.
+- Plan: docs/phases/phase-22-plan.md — budgets as JSON source of truth + three enforcement
+  surfaces + honest boundary: GUI wall-clock is instrumented (not sandbox-enforceable —
+  no Electron binary here) and reported on real Windows runs.
+- Budgets: scripts/perf-budgets.json (core cold start 2 s / RSS 64 MiB / echo 2 ms;
+  renderer total JS 1.2 MB / largest chunk 1.2 MB / CSS 150 kB; TS dispatch 1 s per 2000,
+  store hot path 1 s, queue sort 500 ms) — every entry carries its measured baseline and a
+  budget≥measured integrity test.
+- Contracts v1.15.0 additive: domain/perf.ts (BootPhase closed enum ×5, BootPhaseTiming,
+  BootTimingReport with nullable core-derived totals, IpcCounters, PerformanceSnapshot,
+  perf.getSnapshot main-served) + performanceSnapshot fixture + version pin ≥1.15 +
+  dc-protocol constant mirror 1.15.0 (zero other Rust surface, main-served precedent).
+- Main: perf/boot-clock.ts (injected-clock BootClock, 5 marks, duplicate/unknown guards,
+  skew clamping; main.ts marks at pre-existing lifecycle points — zero behavior change;
+  boot report logged ONCE per session via JsonlLogger component "perf"); ipc/router.ts
+  monotonic counters (requestsServed/eventsEmitted/invalidDropped — integer increments
+  only, no per-request timing); core-supervisor.ts sampleCoreRssBytes (Linux /proc VmRSS,
+  null off-Linux/dead pid, never throws); domains/perf.ts assembling the snapshot from
+  independently-degrading ingredients.
+- Renderer: diagnostics store loadPerf + DiagnosticsPage Performance card (boot ladder,
+  cold start, both RSS figures, IPC counters) on the existing 10 s bounded auto-refresh;
+  16 new i18n keys per language (en/fa parity compile-enforced).
+- Gates wired: scripts/check-budgets.mjs into verify-all.sh after the renderer build
+  (bundle breach fails the gate); core/crates/download-core/tests/perf.rs (3 tests over
+  the real spawned binary: cold-start, RSS cfg(unix), echo average); renderer
+  __tests__/perf.test.ts (dispatch throughput, store hot path, queue sort — observed
+  values printed and recorded in budgets.json: 7.2 ms / 41.5 ms / 6.0 ms);
+  main __tests__/perf.test.ts (11 tests: boot clock, counters, RSS sampling incl. self-pid
+  /proc path, budgets integrity).
+- Fix during Test/Fix: diagnostics health-report test pinned contract "1.14.0" → now
+  asserts CONTRACT_VERSION (bump-resilient); import.meta banned in CJS main tests →
+  cwd-walk file resolution (Phase 19 drift-guard strategy); noUncheckedIndexedAccess in
+  the hot-path test; BootClock type-only/value import split.
+- Gate: scripts/verify-all.sh end-to-end "all checks passed" — typecheck clean; vitest
+  118 contracts (+6) + 328 desktop (+14); budget gate ok (1,079,543 / 1,200,000 B, +3.6 kB
+  from this phase's card); cargo fmt/clippy clean, 273 tests (+3 perf).
+
+Stage Summary:
+- Phase 22 delivered: performance is now numbers with consequences — a single JSON budget
+  table enforced by a build gate, 3 real-binary Rust budget tests, 3 TS latency gates,
+  BootClock instrumentation that reports true startup numbers on every Windows run,
+  monotonic IPC counters, core RSS sampling, and a localized Diagnostics Performance card.
+  Contracts 1.15.0; app 0.9.0; workspace 0.9.0. Next: phase 23 — security audit (IPC
+  surface, CSP, permission policy review) per docs/PHASES.md.

@@ -49,7 +49,7 @@
 | 19 | Packaging — electron-builder NSIS installer (user-side build) | delivered (2026-10-15) |
 | 20 | Diagnostics — structured logs, log export, health report | delivered (2026-10-17) |
 | 21 | Accessibility + i18n (fa / en) | delivered (2026-10-17) |
-| 22 | Performance budgets — startup, memory, UI latency | pending |
+| 22 | Performance budgets — startup, memory, UI latency | delivered (2026-10-18) |
 | 23 | Security audit — IPC surface, CSP, permission policy review | pending |
 | 24–31 | Hardening, E2E suites, release engineering, docs, 1.0.0 | pending |
 

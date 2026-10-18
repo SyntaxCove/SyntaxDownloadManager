@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
@@ -97,6 +98,24 @@ export class CoreSupervisor extends EventEmitter {
   /** Time since the current ready transition (null while not ready). */
   get readyUptimeMs(): number | null {
     return this.state === "ready" ? Math.max(0, Date.now() - this.readySince) : null;
+  }
+
+  /**
+   * Phase 22: sample the core subprocess RSS (bytes). Linux reads /proc/<pid>/status;
+   * every other platform returns null (the wire type is nullable for exactly this reason —
+   * Windows numbers come from user-side runs via Diagnostics). Never throws: a missing
+   * process or an unreadable /proc is reported as null, not an error.
+   */
+  async sampleCoreRssBytes(): Promise<number | null> {
+    const pid = this.child?.pid;
+    if (pid === undefined || process.platform !== "linux") return null;
+    try {
+      const status = await readFile(`/proc/${pid}/status`, "utf8");
+      const m = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
+      return m ? Number(m[1]) * 1024 : null;
+    } catch {
+      return null;
+    }
   }
 
   /** verboseLogging setting → core spawn env; effective on the next launch. */

@@ -1,0 +1,56 @@
+{
+  "$comment": "Syntax Download Manager — performance budgets (Phase 22). Single source of truth consumed by scripts/check-budgets.mjs (build gate, runs after the renderer build) and by vitest perf tests. Every budget carries the sandbox-measured baseline it was calibrated from. Values are honest ceilings with headroom for CI noise; they exist to catch pathological regressions, not to be rubber-stamped.",
+  "measuredAt": "2026-10-18",
+  "environment": "Linux sandbox, debug (dev) profile Rust build, Node 24, release-mode vite bundle",
+  "core": {
+    "coldStartReadyMs": {
+      "budget": 2000,
+      "measured": 42,
+      "note": "spawn -> core.ready over the real binary; debug profile. Release is faster. Catches blocking startup work (sync I/O on the boot path, accidental await-on-init)."
+    },
+    "rssAfterReadyKb": {
+      "budget": 65536,
+      "measured": 17168,
+      "note": "VmRSS after the first ready transition (unix /proc sampling; Windows checked user-side via Diagnostics). ~4x headroom over a booted core."
+    },
+    "echoAvgUs": {
+      "budget": 2000,
+      "measured": 91,
+      "note": "average core.ping round-trip over the spawned binary (write + read + JSONL parse), 100 samples. ~20x headroom; catches per-request sync work or double parsing."
+    }
+  },
+  "renderer": {
+    "maxTotalJsBytes": {
+      "budget": 1200000,
+      "measured": 1075944,
+      "note": "sum of all .js assets in dist/renderer/assets (sourcemaps excluded). ~11.6% headroom over the Phase 22 baseline; catches new heavyweight deps or accidental double imports."
+    },
+    "maxLargestChunkBytes": {
+      "budget": 1200000,
+      "measured": 1075944,
+      "note": "largest single .js asset. A future code split must not grow any chunk past the total-bytes budget of today."
+    },
+    "maxTotalCssBytes": {
+      "budget": 150000,
+      "measured": 0,
+      "note": "sum of all .css assets (Fluent v9 styles are runtime-injected today, hence 0). Future CSS must not silently balloon."
+    }
+  },
+  "ts": {
+    "ipcDispatch2000Ms": {
+      "budget": 1000,
+      "measured": 7.2,
+      "note": "wall-clock for 2000 fully validated IpcRouter.dispatch round-trips (envelope + params + result zod schemas). Observed 3.6 us/op in vitest; the 0.5 ms/op ceiling (~140x headroom) exists to catch pathological per-request work, not noise."
+    },
+    "uiStoreHotPathMs": {
+      "budget": 1000,
+      "measured": 41.5,
+      "note": "2000 upsertJob + 2000 patchProgress over a 200-job list (the downloads-page hot path). Observed 41.5 ms; ~24x headroom."
+    },
+    "uiQueueSortMs": {
+      "budget": 500,
+      "measured": 6.1,
+      "note": "100 compareQueueDisplay sorts of a 500-job list. Observed 6.1 ms; ~80x headroom."
+    }
+  }
+}
