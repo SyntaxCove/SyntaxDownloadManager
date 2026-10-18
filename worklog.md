@@ -907,3 +907,14 @@ Stage Summary:
   monotonic IPC counters, core RSS sampling, and a localized Diagnostics Performance card.
   Contracts 1.15.0; app 0.9.0; workspace 0.9.0. Next: phase 23 — security audit (IPC
   surface, CSP, permission policy review) per docs/PHASES.md.
+
+Follow-up (Phase 22 commit logistics):
+- Commit 17f114d landed locally as SyntaxCove with the full English phase message.
+- Push BLOCKED: the sandbox reset wiped ~/.git-credentials and no PAT is available in
+  this session (`git push` fails with no username prompt possible). Local main is ahead
+  of origin/main by exactly this one commit; origin remains at 53f2c42 (phase 21).
+- Release: skipped for now — phase 22 ships no binaries (source-only precedent), so the
+  GitHub release will be created together with the push once the user re-provides a PAT.
+- Standing reminder to the user: rotate the GitHub PAT (it was shared in chat once and
+  has now been lost twice to sandbox resets — a fresh fine-grained token scoped to
+  SyntaxCove/SyntaxDownloadManager with Contents read/write is sufficient).
