@@ -35,6 +35,8 @@ use dc_protocol::{
 };
 use dc_storage::{JobStore, SegmentRow};
 use futures_util::StreamExt;
+use md5::Md5;
+use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -45,6 +47,7 @@ use tokio_util::sync::CancellationToken;
 use crate::media::{self, InspectLimits};
 use crate::proxy::{host_matches_bypass, host_of, proxy_url, ProxyMap, RuntimeProxy};
 use crate::rate_limit::Bucket;
+use crate::reconcile::{reconcile, ReconcileAction, ReconcileFacts};
 use crate::recover::{classify_source_failure, revalidate, RevalidateVerdict, SourceSignals};
 use crate::segments::{
     journal_from_plan, journal_matches_plan, normalize_expected, plan_windows, to_hex, Window,
@@ -585,21 +588,29 @@ impl Engine {
         };
 
         // ---- destination resolution (once; the part file is bound to this path) ----
-        let base_name = job
-            .filename
-            .clone()
-            .or_else(|| probe.filename_hint.clone())
-            .or_else(|| filename_from_url(&job.url))
-            .unwrap_or_else(|| "download.bin".into());
-        let dir = PathBuf::from(&job.destination_dir);
-        tokio::fs::create_dir_all(&dir)
-            .await
-            .map_err(EngineError::Io)?;
-        let candidate = dir.join(sanitize_filename(&base_name));
-        let final_path = if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
-            uniquify(&candidate).await
-        } else {
-            candidate
+        // Phase 28: a resumed job keeps its persisted destination — the part file is
+        // bound to that exact path, and re-uniquifying (e.g. to "name (2)" after a
+        // crash-mid-completion put the final file in place) would misbind the journal.
+        let final_path = match job.destination_path.clone().filter(|p| !p.is_empty()) {
+            Some(persisted) => PathBuf::from(persisted),
+            None => {
+                let base_name = job
+                    .filename
+                    .clone()
+                    .or_else(|| probe.filename_hint.clone())
+                    .or_else(|| filename_from_url(&job.url))
+                    .unwrap_or_else(|| "download.bin".into());
+                let dir = PathBuf::from(&job.destination_dir);
+                tokio::fs::create_dir_all(&dir)
+                    .await
+                    .map_err(EngineError::Io)?;
+                let candidate = dir.join(sanitize_filename(&base_name));
+                if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
+                    uniquify(&candidate).await
+                } else {
+                    candidate
+                }
+            }
         };
         let part_path = part_file(&final_path);
 
@@ -703,7 +714,81 @@ impl Engine {
                 }
             }
 
+            // ---- Phase 28 part/journal reconciliation ----
+            // The journal may only claim bytes some on-disk file proves. Everything else
+            // is re-downloaded (integrity outranks bytes) or — when the pre-crash
+            // completion verified the artifact by a signal we can re-check now — adopted
+            // from the final file (crash between rename and status update).
             let offset_mode = windows.iter().all(|w| w.end.is_some());
+            let journal_written: u64 = journal.iter().map(|s| s.written_bytes).sum();
+            let part_meta = tokio::fs::metadata(&part_path).await;
+            let final_meta = tokio::fs::metadata(&final_path).await;
+            let candidate_for_hash = if part_meta.is_err() && final_meta.is_ok() {
+                Some(final_path.clone())
+            } else {
+                None
+            };
+            let expected_matches = match (
+                &candidate_for_hash,
+                job.checksum_algorithm,
+                &job.checksum_expected,
+            ) {
+                (Some(path), Some(algorithm), Some(expected)) => {
+                    let actual = hash_file_streaming(path, algorithm)
+                        .await
+                        .map_err(EngineError::Io)?;
+                    Some(actual.eq_ignore_ascii_case(expected))
+                }
+                _ => None,
+            };
+            let action = reconcile(&ReconcileFacts {
+                journal_written_total: journal_written,
+                part_exists: part_meta.is_ok(),
+                part_len: part_meta.as_ref().map(|m| m.len()).unwrap_or(0),
+                final_exists: final_meta.is_ok(),
+                final_len: final_meta.as_ref().map(|m| m.len()).unwrap_or(0),
+                total_bytes: if offset_mode { job.total_bytes } else { None },
+                has_expected_checksum: job.checksum_expected.is_some(),
+                expected_matches,
+            });
+            match action {
+                ReconcileAction::Proceed => {}
+                ReconcileAction::ClampToPart(provable) => {
+                    tracing::info!(
+                        job = %job.id,
+                        claimed = journal_written,
+                        provable,
+                        "journal leads the part — clamping to provable bytes"
+                    );
+                    journal[0].written_bytes = provable;
+                    self.store.update_segment_progress(
+                        job.id.as_str(),
+                        0,
+                        provable,
+                        "downloading",
+                    )?;
+                }
+                ReconcileAction::ResetJournal => {
+                    tracing::info!(
+                        job = %job.id,
+                        claimed = journal_written,
+                        "journal claims bytes nothing on disk proves — clean restart"
+                    );
+                    self.store.delete_segments(job.id.as_str())?;
+                    journal = journal_from_plan(&windows);
+                    self.store
+                        .replace_segments(job.id.as_str(), &journal)
+                        .map_err(EngineError::Contract)?;
+                }
+                ReconcileAction::AdoptFinal => {
+                    tracing::info!(
+                        job = %job.id,
+                        "part missing, verified final file present — adopting without re-download"
+                    );
+                    return self.adopt_final_file(job).await;
+                }
+            }
+            let has_written = journal.iter().any(|s| s.written_bytes > 0);
             let initial_written: u64 = journal.iter().map(|s| s.written_bytes).sum();
 
             // Align the part file with the journal before any writer opens it.
@@ -914,9 +999,51 @@ impl Engine {
         }
     }
 
+    /// Phase 28 (F-2): the previous run completed and renamed before the status update —
+    /// the final file on disk IS the artifact (size-verified now; hash-verified when an
+    /// expected checksum exists — `reconcile` refuses adoption otherwise). Record the
+    /// verification, mark completed, drop the segment rows. No bytes are downloaded.
+    async fn adopt_final_file(&self, job: &mut DownloadJob) -> Result<(), EngineError> {
+        let path = PathBuf::from(job.destination_path.clone().unwrap_or_default());
+        let algorithm = job.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Sha256);
+        let digest = hash_file_streaming(&path, algorithm)
+            .await
+            .map_err(EngineError::Io)?;
+        job.checksum_actual = Some(digest);
+        if let Some(expected) = &job.checksum_expected {
+            let matches =
+                expected.eq_ignore_ascii_case(job.checksum_actual.as_deref().unwrap_or_default());
+            job.checksum_verified = Some(matches);
+            debug_assert!(matches, "adopted a file the reconcile hash already refused");
+        }
+        job.status = "completed".into();
+        job.error_code = None;
+        job.speed_bps = None;
+        job.eta_seconds = None;
+        if let Some(total) = job.total_bytes {
+            job.received_bytes = total.max(job.received_bytes);
+        }
+        touch(job);
+        let _ = self.store.delete_segments(job.id.as_str());
+        self.store.update_job(job)?;
+        self.emit_job(job);
+        Ok(())
+    }
+
     /// Persist cursors + received count when a run stops without completing.
     fn finalize_run(&self, job: &mut DownloadJob, state: &RunState, context: &str) {
         let cursors = state.cursors.lock().expect("cursors mutex poisoned");
+        // Phase 28 (F-3): the journal may only claim durable bytes. The aborted tasks'
+        // final writes sit in the page cache — one file-level sync covers every segment's
+        // post-flush delta BEFORE the cursors are persisted. If the part is gone
+        // (completion renamed it), there is nothing to claim; the next run's
+        // reconciliation decides.
+        if let Some(final_path) = &job.destination_path {
+            let part = PathBuf::from(format!("{final_path}.part"));
+            if let Ok(f) = std::fs::OpenOptions::new().write(true).open(&part) {
+                let _ = f.sync_all();
+            }
+        }
         for (idx, written) in cursors.iter().enumerate() {
             let _ = self.store.update_segment_progress(
                 job.id.as_str(),
@@ -1153,7 +1280,8 @@ impl Engine {
         })
     }
 
-    /// Completion: size check → SHA-256 pass → expected-checksum verdict → fsync → rename.
+    /// Completion: size check → digest pass (the expected checksum's algorithm, SHA-256
+    /// when none) → expected-checksum verdict → fsync → rename.
     async fn complete(
         &self,
         job: &mut DownloadJob,
@@ -1175,21 +1303,13 @@ impl Engine {
             }
         }
 
-        // Streaming SHA-256 over the finished part file.
-        let mut file = tokio::fs::File::open(part_path)
+        // Streaming digest over the finished part file. Phase 28 (F-4): the verdict must
+        // hash with the algorithm the job actually declared — comparing a sha1/md5
+        // expectation against a SHA-256 digest failed every honest download of that kind.
+        let algorithm = job.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Sha256);
+        let digest = hash_file_streaming(part_path, algorithm)
             .await
             .map_err(EngineError::Io)?;
-        let mut hasher = Sha256::new();
-        let mut buf = vec![0u8; HASH_CHUNK];
-        loop {
-            let n = file.read(&mut buf).await.map_err(EngineError::Io)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        drop(file);
-        let digest = to_hex(&hasher.finalize());
         job.checksum_actual = Some(digest);
 
         if let Some(expected) = job.checksum_expected.clone() {
@@ -1419,6 +1539,11 @@ impl Engine {
             while left > 0 {
                 let next = tokio::select! {
                     _ = stop.cancelled() => {
+                        // Best-effort durability before the cursor persist (F-3): a failed
+                        // sync here is caught by the next run's reconciliation, which never
+                        // trusts journal bytes the disk cannot prove.
+                        let _ = file.flush().await;
+                        let _ = file.sync_data().await;
                         drop(file);
                         flush_segment_cursor(&store, &job, seg_index, written);
                         return Ok(SegmentOutcome::Stopped);
@@ -1439,6 +1564,8 @@ impl Engine {
                             g = job_bucket.acquire(take as u64, &stop) => g,
                         };
                         if !granted {
+                            let _ = file.flush().await;
+                            let _ = file.sync_data().await;
                             drop(file);
                             flush_segment_cursor(&store, &job, seg_index, written);
                             return Ok(SegmentOutcome::Stopped);
@@ -1462,6 +1589,12 @@ impl Engine {
                         }
                         if since_flush >= JOURNAL_FLUSH_BYTES {
                             file.flush().await.map_err(EngineError::Io)?;
+                            // F-3 (Phase 28): the cursor may only claim DURABLE bytes —
+                            // fsync before the journal advances, so a power loss can never
+                            // put zeros under a claimed range ("journal never leads the
+                            // file" made honest against power loss, not just process
+                            // crashes).
+                            file.sync_data().await.map_err(EngineError::Io)?;
                             flush_segment_cursor(&store, &job, seg_index, written);
                             since_flush = 0;
                         }
@@ -1477,6 +1610,9 @@ impl Engine {
                 }
             }
             file.flush().await.map_err(EngineError::Io)?;
+            // F-3: durable before the journal may mark progress ("done" or the finalize
+            // cursors) for this attempt's bytes.
+            file.sync_data().await.map_err(EngineError::Io)?;
             drop(file);
 
             if state.restart.load(Ordering::SeqCst) {
@@ -1590,6 +1726,53 @@ impl Engine {
 
 async fn backoff_sleep(attempt: usize) {
     tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_MS * attempt as u64)).await;
+}
+
+/// Streaming digest of a file, chunked at HASH_CHUNK (Phase 28: shared by the completion
+/// pass and the crash-after-rename adoption path; honors every ChecksumAlgorithm the wire
+/// allows — F-4).
+pub async fn hash_file_streaming(
+    path: &Path,
+    algorithm: ChecksumAlgorithm,
+) -> std::io::Result<String> {
+    let file = tokio::fs::File::open(path).await?;
+    let mut reader = tokio::io::BufReader::with_capacity(HASH_CHUNK, file);
+    let mut buf = vec![0u8; HASH_CHUNK];
+    match algorithm {
+        ChecksumAlgorithm::Sha256 => {
+            let mut h = Sha256::new();
+            loop {
+                let n = reader.read(&mut buf).await?;
+                if n == 0 {
+                    break;
+                }
+                h.update(&buf[..n]);
+            }
+            Ok(to_hex(&h.finalize()))
+        }
+        ChecksumAlgorithm::Sha1 => {
+            let mut h = Sha1::new();
+            loop {
+                let n = reader.read(&mut buf).await?;
+                if n == 0 {
+                    break;
+                }
+                h.update(&buf[..n]);
+            }
+            Ok(to_hex(&h.finalize()))
+        }
+        ChecksumAlgorithm::Md5 => {
+            let mut h = Md5::new();
+            loop {
+                let n = reader.read(&mut buf).await?;
+                if n == 0 {
+                    break;
+                }
+                h.update(&buf[..n]);
+            }
+            Ok(to_hex(&h.finalize()))
+        }
+    }
 }
 
 /// Durable journal cursor for one segment. Callers invoke this AFTER the bytes reached the

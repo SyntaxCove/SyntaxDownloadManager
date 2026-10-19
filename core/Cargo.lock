@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "dc-bt"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "dc-protocol",
  "rand",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "dc-protocol"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "dc-storage"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "dc-protocol",
  "rusqlite",
@@ -305,12 +305,13 @@ dependencies = [
 
 [[package]]
 name = "download-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "dc-bt",
  "dc-protocol",
  "dc-storage",
  "futures-util",
+ "md-5",
  "reqwest",
  "serde",
  "serde_json",
@@ -887,6 +888,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
+]
+
+[[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest",
 ]
 
 [[package]]

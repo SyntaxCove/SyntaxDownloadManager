@@ -8,7 +8,7 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–27 of 31 are delivered and fully tested. Windows x64
+> **Status:** development phases 0–28 of 31 are delivered and fully tested. Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — releases are
 > built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
 > with **SHA-256 checksums** on the
@@ -262,7 +262,7 @@ core test suite on the shipping platform.
 
 ## Roadmap
 
-Delivered: **phases 0–27** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–28** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
 auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**,
@@ -272,10 +272,14 @@ three real defects including a silent wire-contract violation that had always di
 `deletePartialFile` — **release engineering**: CI on GitHub Actions, a tag-triggered
 Windows artifact pipeline through the documented packaging script, and SHA-256
 checksums on every shipped binary — and **in-app help**: a localized Help page with
-topic guides, FAQ and troubleshooting wired to the engine's real error codes).
+topic guides, FAQ and troubleshooting wired to the engine's real error codes — and a
+**data-integrity validation sweep** that reconciles the segment journal against what is
+actually on disk (external `.part` deletion/truncation, crash-between-rename windows,
+power-loss durability) and honors every declared checksum algorithm, with the fix for each
+of the four real defects the sweep found locked by adversarial tests).
 
-Next: **phase 28 — data-integrity validation sweep (checksum/recovery deep
-verification)**, followed by the remaining phases in `docs/PHASES.md`.
+Next: **phase 29 — performance validation (real-device budget report harness)**, followed
+by the remaining phases in `docs/PHASES.md`.
 
 ## Security & policy stance
 

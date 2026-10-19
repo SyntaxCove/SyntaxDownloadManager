@@ -90,7 +90,10 @@ pub struct DownloadJob {
     pub checksum_algorithm: Option<ChecksumAlgorithm>,
     #[serde(rename = "checksumExpected", skip_serializing_if = "Option::is_none")]
     pub checksum_expected: Option<String>,
-    /// Streaming SHA-256 over the finished part file (always serialized; null before hashing).
+    /// Streaming digest over the finished part file, computed with the expected
+    /// checksum's algorithm (SHA-256 when the job carries none) — always serialized;
+    /// null before hashing. (Phase 28: sha1/md5 expectations are honored, so the digest
+    /// is not always SHA-256.)
     #[serde(rename = "checksumActual")]
     pub checksum_actual: Option<String>,
     /// Expected-vs-actual verdict; null = never compared (always serialized).

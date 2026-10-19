@@ -55,7 +55,7 @@
 | 25 | E2E suites — headless renderer+main+core integration | delivered (2026-10-19) |
 | 26 | Release engineering — CI, checksums, artifact pipeline | delivered (2026-10-19) |
 | 27 | Docs — in-app help, FAQ, troubleshooting | delivered (2026-10-19) |
-| 28 | Data-integrity validation sweep — checksum/recovery deep verification | pending |
+| 28 | Data-integrity validation sweep — checksum/recovery deep verification | delivered (2026-10-20) |
 | 29 | Performance validation — real-device budget report harness | pending |
 | 30 | Security & privacy final review — supply chain, SBOM | pending |
 | 31 | 1.0.0 — final QA, version, release | pending |

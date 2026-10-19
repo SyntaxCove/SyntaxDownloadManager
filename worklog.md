@@ -1182,3 +1182,43 @@ Stage Summary:
 - Two real defects fixed en route (F-1 i18n toasts, F-2 CI flake) and documented in
   docs/phases/phase-27.md. Remote: main at <final>, tag v0.14.0 → release v0.14.0.
   Next: phase 28 — data-integrity validation sweep.
+
+---
+Task ID: 28
+Agent: main
+Task: فاز ۲۸ (interpretation rule: phases 0–27 were already delivered/pushed/released —
+v0.14.0 confirmed on the remote — so this session executed Phase 28 only): Data-integrity
+validation sweep — checksum/recovery deep verification.
+
+Work Log:
+- Re-read engine.rs/recover.rs/segments.rs/manager.rs/dc-storage and all existing suites
+  line-by-line; mapped covered vs uncovered integrity surface.
+- Found four REAL defect classes: F-1 journal-claims-unproven-bytes (deleted/truncated
+  .part → zero-hole splice, corrupt completion without a checksum); F-2 crash between the
+  completion rename and the status update (phantom all-done journal + re-uniquified
+  destination → all-zero artifact adoptable path); F-3 journal cursors persisted after
+  page-cache flush instead of fsync (power-loss exposure of the "journal never leads the
+  file" guarantee); F-4 sha1/md5 expectations compared against a SHA-256 digest (every
+  honest sha1/md5 download failed checksum_mismatch).
+- Implemented: src/reconcile.rs (pure decision table, 7 unit tests incl. a full
+  cross-product sweep); engine wiring (reconciliation before the part is touched,
+  destination_path rebinding on resume, adopt_final_file with hash/size proof);
+  sync_data() before every journal advance (periodic flush, done mark, stop paths,
+  finalize_run file-level sync); hash_file_streaming() honoring the job's declared
+  algorithm (md-5 crate added to the workspace).
+- Tests: tests/integrity.rs (11 adversarial drills, byte-identity asserted everywhere);
+  tests/torrent.rs fixture gained a per-piece corruption budget + 2 drills (rejection +
+  re-fetch to byte identity; typed checksum_mismatch surrender).
+- Fixed en route: clippy too_many_arguments on the fixture (allow + comment); integrity
+  suite timing (part-size-based pause signal; adopt assertions count the mandatory probe).
+- Verification: verify-all green with Rust on PATH — 118 contracts + 376 desktop + 300
+  cargo, budget gate (1,146,759/1,200,000 B), checksums selftest, fmt/clippy clean
+  (tool-results/verify-all-p28.log); the 20 E2E suites ran against the rebuilt binary.
+- Versions: app/root/workspace 0.14.0 → 0.15.0; contract 1.15.0 untouched.
+
+Stage Summary:
+- Phase 28 delivered: the journal may only claim bytes some on-disk file proves; the
+  crash-mid-completion window adopts the verified artifact instead of synthesizing zeros;
+  the journal is durable before it advances; every declared checksum algorithm is honored.
+- Four real defects fixed and locked by 20 new tests (7 reconcile + 11 integrity + 2
+  torrent). Next: phase 29 — performance validation (real-device budget report harness).

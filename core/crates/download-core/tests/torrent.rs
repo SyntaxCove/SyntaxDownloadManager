@@ -2,7 +2,7 @@
 //! fake HTTP tracker (bencode announce), fake UDP tracker (BEP 15), a fake seeder that can
 //! also serve magnet metadata (BEP 9/10), and a fake leecher for the upload path.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -288,6 +288,29 @@ impl FakeSeeder {
         metadata: Option<Vec<u8>>,
         delay_ms: u64,
     ) -> Self {
+        Self::start_full(info_hash, data, piece_len, metadata, delay_ms, None).await
+    }
+
+    /// Phase 28 drill fixture: serve with a per-piece corruption budget (piece index →
+    /// remaining corrupt serves, u32::MAX = always). A corrupted serve flips one byte, so
+    /// the assembled piece fails its SHA-1 and the session's re-fetch path is exercised.
+    async fn start_with_corruption(
+        info_hash: [u8; 20],
+        data: Vec<u8>,
+        piece_len: usize,
+        corruption: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>,
+    ) -> Self {
+        Self::start_full(info_hash, data, piece_len, None, 0, Some(corruption)).await
+    }
+
+    async fn start_full(
+        info_hash: [u8; 20],
+        data: Vec<u8>,
+        piece_len: usize,
+        metadata: Option<Vec<u8>>,
+        delay_ms: u64,
+        corruption: Option<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>>,
+    ) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let stats = Arc::new(SeederStats {
@@ -307,9 +330,11 @@ impl FakeSeeder {
                 let data = data.clone();
                 let piece_len = piece_len;
                 let metadata = metadata.clone();
+                let corruption = corruption.clone();
                 tokio::spawn(async move {
                     serve_peer(
                         stream, info_hash, data, piece_len, metadata, stats_task, delay_ms,
+                        corruption,
                     )
                     .await;
                 });
@@ -323,6 +348,7 @@ impl FakeSeeder {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // test fixture plumbing
 async fn serve_peer(
     stream: tokio::net::TcpStream,
     info_hash: [u8; 20],
@@ -331,6 +357,7 @@ async fn serve_peer(
     metadata: Option<Vec<u8>>,
     stats: Arc<SeederStats>,
     delay_ms: u64,
+    corruption: Option<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>>,
 ) {
     stats.connections.fetch_add(1, Ordering::SeqCst);
     let mut conn = PeerConn::new(stream);
@@ -380,9 +407,19 @@ async fn serve_peer(
                 let start = i as usize * piece_len + b as usize;
                 let end = (start + l as usize).min(data.len());
                 if start <= end && end <= data.len() {
-                    let _ = conn
-                        .send(&Message::Piece(i, b, data[start..end].to_vec()))
-                        .await;
+                    let mut block = data[start..end].to_vec();
+                    // Phase 28: spend the piece's corruption budget — one flipped byte
+                    // makes the assembled piece fail its SHA-1 on the leecher.
+                    if let Some(map) = &corruption {
+                        let mut budget = map.lock().unwrap();
+                        if let Some(remaining) = budget.get_mut(&i) {
+                            if *remaining > 0 {
+                                *remaining -= 1;
+                                block[0] = block[0].wrapping_add(0x5A);
+                            }
+                        }
+                    }
+                    let _ = conn.send(&Message::Piece(i, b, block)).await;
                 }
             }
             Message::Extended(0, payload) => {
@@ -970,6 +1007,100 @@ async fn magnet_metadata_timeout_pauses_recoverable() {
         resumed.status
     );
     assert!(resumed.error_code.is_none());
+    let _ = env.manager.shutdown().await;
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 28 — piece-corruption drills (the SHA-1 rejection paths were never
+// exercised by any earlier suite)
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn corrupt_piece_once_is_rejected_and_refetched_to_byte_identity() {
+    let dir = tempdir("corrupt-once");
+    let env = TestEnv::new(dir.join("db.sqlite")).await;
+    let data = payload(TOTAL);
+    let info_hash =
+        dc_bt::metainfo::parse(&build_metainfo_bytes("sample.bin", &data, PIECE_LEN, ""))
+            .unwrap()
+            .info_hash;
+    // Piece 1 is corrupted on its FIRST serve only: the assembled piece must fail its
+    // SHA-1, be re-queued by the picker, and verify on the honest re-serve.
+    let corruption = Arc::new(Mutex::new(HashMap::from([(1u32, 1u32)])));
+    let seeder =
+        FakeSeeder::start_with_corruption(info_hash, data.clone(), PIECE_LEN, corruption).await;
+    let tracker = FakeTracker::start(seeder.addr).await;
+    let announce = format!("http://{}/announce", tracker.addr);
+    let torrent_bytes = build_metainfo_bytes("sample.bin", &data, PIECE_LEN, &announce);
+
+    let job = env
+        .manager
+        .add(dc_protocol::TorrentAddParams {
+            magnet_uri: None,
+            torrent_file_b64: Some(b64(&torrent_bytes)),
+            destination_dir: env.dest.to_string_lossy().to_string(),
+            proxy_profile_id: None,
+        })
+        .await
+        .unwrap();
+    let status = env.wait_status(job.id.as_str(), &["seeding"], 30).await;
+    assert_eq!(
+        status, "seeding",
+        "one corrupt serve must not stop the swarm"
+    );
+
+    // Re-fetch proof: piece 1 was requested at least twice (initial + post-rejection).
+    let served = seeder.stats.requested.lock().unwrap().clone();
+    let piece1_serves = served.iter().filter(|(i, _)| *i == 1).count();
+    assert!(
+        piece1_serves >= 2,
+        "piece 1 must be re-requested after its hash rejection (served {piece1_serves}x)"
+    );
+
+    // The corrupt byte never reached the payload: byte-identical output.
+    let on_disk = std::fs::read(env.dest.join("sample.bin")).unwrap();
+    assert_eq!(on_disk, data, "rejected corrupt bytes must never persist");
+    let _ = env.manager.shutdown().await;
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn persistently_corrupt_piece_fails_the_job_typed() {
+    let dir = tempdir("corrupt-always");
+    let env = TestEnv::new(dir.join("db.sqlite")).await;
+    let data = payload(TOTAL);
+    let info_hash =
+        dc_bt::metainfo::parse(&build_metainfo_bytes("sample.bin", &data, PIECE_LEN, ""))
+            .unwrap()
+            .info_hash;
+    // Piece 2 is corrupted on EVERY serve: after PIECE_MAX_FAILURES rejections the
+    // session must surrender with the typed checksum_mismatch code, never write it.
+    let corruption = Arc::new(Mutex::new(HashMap::from([(2u32, u32::MAX)])));
+    let seeder =
+        FakeSeeder::start_with_corruption(info_hash, data.clone(), PIECE_LEN, corruption).await;
+    let tracker = FakeTracker::start(seeder.addr).await;
+    let announce = format!("http://{}/announce", tracker.addr);
+    let torrent_bytes = build_metainfo_bytes("sample.bin", &data, PIECE_LEN, &announce);
+
+    let job = env
+        .manager
+        .add(dc_protocol::TorrentAddParams {
+            magnet_uri: None,
+            torrent_file_b64: Some(b64(&torrent_bytes)),
+            destination_dir: env.dest.to_string_lossy().to_string(),
+            proxy_profile_id: None,
+        })
+        .await
+        .unwrap();
+    let status = env.wait_status(job.id.as_str(), &["failed"], 30).await;
+    assert_eq!(status, "failed");
+    let row = env.store.get_torrent_job(job.id.as_str()).unwrap().unwrap();
+    assert_eq!(
+        row.error_code.as_deref(),
+        Some("checksum_mismatch"),
+        "a corrupting swarm must fail typed, not silently"
+    );
     let _ = env.manager.shutdown().await;
     std::fs::remove_dir_all(&dir).ok();
 }

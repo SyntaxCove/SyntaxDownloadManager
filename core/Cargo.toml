@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.14.0"
+version = "0.15.0"
 edition = "2021"
 license = "MIT"
 
@@ -29,6 +29,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 sha2 = "0.11.0"
 # BitTorrent engine (v1.8, Phase 13) — verified against crates.io max stable this session
 sha1 = "0.11.0"
+# md-5 (Phase 28) — completion verdicts must honor every ChecksumAlgorithm the wire allows
+md-5 = "0.11.0"
 rand = "0.10.3"
 
 dc-protocol = { path = "crates/dc-protocol" }
