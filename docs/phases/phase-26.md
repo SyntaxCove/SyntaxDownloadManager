@@ -79,7 +79,10 @@ Pushing a `v*` tag runs one Windows job (60 min timeout, `contents: write`):
   gate run logged in `tool-results/verify-all-p26.log`), performance budget gate
   respected, checksums selftest ok (6 checks), fmt/clippy clean.
 - Workflow YAML parse-checked for both files.
-- **Real CI**: recorded after push — see the update note at the end of this section.
+- **Real CI**: pushed to `main` and watched on GitHub Actions — run
+  [39281151589](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/runs/39281151589)
+  (commit `5f36848`) is **green on real runners**: `verify (ubuntu, node+rust)` success
+  and `core tests (windows, msvc)` success. The gate passes outside the sandbox.
 - **Real pipeline**: recorded after the `v0.13.0` tag build — the acceptance bar is that
   the published release carries the NSIS installer, the portable zip, blockmaps,
   `latest.yml` and `.sha256` sidecars with the checksum table in the notes, and that the
