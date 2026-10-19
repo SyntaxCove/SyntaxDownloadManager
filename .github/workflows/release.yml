@@ -87,7 +87,12 @@ jobs:
           $assets = Get-ChildItem $rel -File |
             Where-Object { $_.Name -match '\.(exe|zip|blockmap)$|latest\.yml$' } |
             ForEach-Object { $_.FullName }
-          node scripts/checksums.mjs @assets --markdown $notes | Out-Host
+          $table = "checksum-table.md"
+          node scripts/checksums.mjs @assets --markdown $table | Out-Host
+          # --markdown writes the table to its own file; composing here keeps the
+          # intro (version, unsigned-build notice) ahead of the table. F-2: passing
+          # $notes directly would clobber the intro with the table.
+          Add-Content -Path $notes -Value (Get-Content -Path $table -Raw)
 
       - name: Publish the GitHub release (created by the pipeline, not by hand)
         shell: pwsh

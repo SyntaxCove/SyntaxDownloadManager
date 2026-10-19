@@ -1081,3 +1081,55 @@ Stage Summary:
   themselves: three real defects fixed (a silent wire-contract violation that had always
   disabled deletePartialFile, an unlink/writer race, a stale-response store regression).
   Next: phase 26 — release engineering (CI, checksums, artifact pipeline).
+
+---
+Task ID: 26
+Agent: main
+Task: فاز ۲۶ (interpretation rule: phases are sequential; phases 24–25 were already
+delivered/pushed/released in the prior session — v0.11.0/v0.12.0 confirmed on the
+remote — so this session executed Phase 26 only): Release engineering — CI, checksums,
+artifact pipeline.
+
+Work Log:
+- Sandbox had been reset again: rebuilt ~/.git-credentials from the PAT (chmod 600,
+  credential.helper store), reinstalled rustup stable + rustfmt/clippy in background,
+  recreated the gitignored tool-results/make-release.py helper.
+- Read docs/PHASES.md row 26 (authoritative scope); wrote docs/phases/phase-26-plan.md.
+- Implemented scripts/checksums.mjs (zero-dep SHA-256, 4 MiB streaming, sha256sum -c
+  sidecars, markdown table, --selftest with 6 checks incl. known vector + loud ENOENT).
+- Implemented .github/workflows/ci.yml (ubuntu verify = the full verify-all gate incl.
+  E2E over the real debug core binary + budgets + selftest; windows-latest cargo test
+  job; concurrency groups; npm/rust caches) and .github/workflows/release.yml (v* tags:
+  version guard, build-windows.ps1 as the only packaging path, checksums over
+  exe/zip/blockmaps/latest.yml, gh release create --verify-tag with notes+assets).
+- verify-all.sh gained the selftest after the budget gate. Version 0.12.0 → 0.13.0
+  (root + desktop package.json + root pin + package-lock + core/Cargo.toml workspace).
+- README: CI badge, Releases & checksums section (Get-FileHash / sha256sum -c, unsigned
+  notice), status 0–26, roadmap next = phase 27.
+- Local gate green: 118 contracts + 365 desktop + 280 cargo + budget gate + selftest ok
+  (tool-results/verify-all-p26.log). YAML parse-checked both workflows.
+- Pushed (5f36848) → real CI run 39281151589: verify (ubuntu) + core tests (windows,
+  msvc) both SUCCESS. Recorded in phase-26.md (commit 304eaee).
+- Tagged v0.13.0 → release run 39285412563 FAILED: F-1 — electron-builder self-publish
+  attempt on CI tag builds (github publish provider demands GH_TOKEN). Fixed
+  build-windows.ps1 with --publish never (pipeline is the only publisher), retagged at
+  53d53db → release run 39287930316 SUCCESS: published v0.13.0 with 8 assets
+  (Setup exe 122,123,934 B + blockmap, portable zip 167,748,683 B, latest.yml + .sha256
+  sidecars).
+- Byte-level acceptance: downloaded the published portable zip in the sandbox;
+  sha256sum -c against the published sidecar = OK (ed5f1e4a…f16532a); zip intact (130
+  entries, no corruption). F-2 found and fixed: checksums --markdown had clobbered the
+  release-notes intro; workflow now composes intro + table into separate files; the
+  published v0.13.0 notes body was repaired via API with the intro restored above the
+  UNCHANGED pipeline-generated checksum table (tool-results/fix-release-notes.py).
+
+Stage Summary:
+- Phase 26 delivered: the repository now enforces its own quality gate (CI on real
+  runners, both platforms) and manufactures its own releases (tag → Windows build →
+  checksums → published release with verify-able artifacts). v0.13.0 is the first
+  release produced end-to-end by the pipeline, byte-verified in the sandbox.
+- Two real pipeline defects (F-1 self-publish race, F-2 notes clobber) caught by the
+  first real runs and fixed in-repo — the pipeline proved itself by failing honestly
+  before it passed.
+- Remote: main at <final-commit>, tag v0.13.0 → release v0.13.0. Contract 1.15.0
+  unchanged; app 0.13.0. Next: phase 27 — docs (in-app help, FAQ, troubleshooting).

@@ -72,17 +72,25 @@ Pushing a `v*` tag runs one Windows job (60 min timeout, `contents: write`):
   optional asset upload as the **manual fallback**; the CI pipeline is the primary
   release path from this phase on.
 
-### 5. Defect the pipeline caught on its first real run (F-1)
+### 5. Defects the pipeline caught on its first real runs (F-1, F-2)
 
-The first `v0.13.0` release build (run 39285412563) failed at the electron-builder
-step: on a CI tag build, electron-builder sees the `github` publish provider from the
-packaging config (which Phase 18's electron-updater reads) and tries to publish by
-itself, demanding `GH_TOKEN` — a second, uncontrolled publish path that would race the
-pipeline's own `gh release create`. Fix: `build-windows.ps1` now passes
-`--publish never` explicitly — humans and CI share one packaging path and
-**electron-builder never publishes**; the pipeline is the only publisher. Auto-update
-is unaffected: electron-updater only reads the feed from the published release, and the
-pipeline attaches `latest.yml` to that release.
+- **F-1 — electron-builder tried to self-publish (run 39285412563, failure).** On a CI
+  tag build, electron-builder sees the `github` publish provider from the packaging
+  config (which Phase 18's electron-updater reads) and tries to publish by itself,
+  demanding `GH_TOKEN` — a second, uncontrolled publish path that would race the
+  pipeline's own `gh release create`. Fix: `build-windows.ps1` now passes
+  `--publish never` explicitly — humans and CI share one packaging path and
+  **electron-builder never publishes**; the pipeline is the only publisher.
+  Auto-update is unaffected: electron-updater only reads the feed from the published
+  release, and the pipeline attaches `latest.yml` to that release.
+- **F-2 — release-notes intro was clobbered (run 39287930316, success with a broken
+  body).** The checksum step passed the notes file directly to `checksums.mjs
+  --markdown`, whose write is a replace — the version intro and the unsigned-build
+  notice were overwritten by the table. Fix: the workflow renders the table to its own
+  file and composes intro + table; checksums.mjs itself was already correct (its
+  selftest locks the replace semantics of `--markdown`). The published v0.13.0 notes
+  were repaired afterwards via the API by restoring the intro above the unchanged
+  pipeline-generated table (the checksums were never touched).
 
 ## Verification
 
@@ -95,10 +103,20 @@ pipeline attaches `latest.yml` to that release.
   [39281151589](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/runs/39281151589)
   (commit `5f36848`) is **green on real runners**: `verify (ubuntu, node+rust)` success
   and `core tests (windows, msvc)` success. The gate passes outside the sandbox.
-- **Real pipeline**: recorded after the `v0.13.0` tag build — the acceptance bar is that
-  the published release carries the NSIS installer, the portable zip, blockmaps,
-  `latest.yml` and `.sha256` sidecars with the checksum table in the notes, and that the
-  portable zip downloaded from the release matches its published sidecar byte-for-byte.
+- **Real pipeline (v0.13.0, run
+  [39287930316](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/runs/39287930316)
+  on commit `53d53db`)**: **success on a real Windows runner** — the pipeline built
+  through `build-windows.ps1`, computed checksums, and published
+  [the release](https://github.com/SyntaxCove/SyntaxDownloadManager/releases/tag/v0.13.0)
+  with **8 assets**: `SyntaxDownloadManager-Setup-0.13.0.exe` (122,123,934 B) +
+  `.blockmap` + `SyntaxDownloadManager-0.13.0-portable.zip` (167,748,683 B) +
+  `latest.yml` (the Phase 18 auto-update feed) + a `.sha256` sidecar for each.
+  **Byte-level acceptance**: the portable zip was downloaded from the release in the
+  sandbox and `sha256sum -c` against the published `.sha256` sidecar reported **OK**
+  (digest `ed5f1e4a…f16532a`, matching the notes table); the zip opened cleanly (130
+  entries, zero corrupt, real Electron app layout). The first run of the pipeline
+  failed (F-1) and the second succeeded but with a clobbered notes body (F-2); both
+  defects are fixed in-repo and documented above.
 
 ## Honest scope notes
 
