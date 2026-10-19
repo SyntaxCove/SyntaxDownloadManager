@@ -958,9 +958,17 @@ async fn magnet_metadata_timeout_pauses_recoverable() {
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    // recoverable: resume re-enters the metadata phase (queued again)
+    // recoverable: resume re-enters the metadata phase. The returned row is sampled
+    // through a race window — the ack is "queued", but on a loaded runner the engine
+    // may already have advanced to "metadata" before we read it. Both mean "running
+    // again with the error cleared"; asserting exactly "queued" flaked on CI (F-2,
+    // phase 27: run 39291290441).
     let resumed = env.manager.resume(job.id.as_str()).await.unwrap();
-    assert_eq!(resumed.status, "queued");
+    assert!(
+        resumed.status == "queued" || resumed.status == "metadata",
+        "resume must re-enter the metadata phase (got: {})",
+        resumed.status
+    );
     assert!(resumed.error_code.is_none());
     let _ = env.manager.shutdown().await;
     std::fs::remove_dir_all(&dir).ok();

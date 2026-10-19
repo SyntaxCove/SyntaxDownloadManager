@@ -51,7 +51,18 @@ hardcoded-English user-visible strings left from Phase 21. Fixed via `currentT()
 new `diag.toast.*` keys in both dictionaries — the same seam the toasts bus already
 uses; a help-suite test now locks the titles against regression.
 
-### 4. Tests (`__tests__/help.test.ts`, 11 tests)
+### 4. CI flake fixed en route (F-2)
+
+The prior docs commit's CI run (39291290441) failed intermittently at
+`magnet_metadata_timeout_pauses_recoverable` (crates/download-core/tests/torrent.rs):
+the resume assertion expected exactly `queued`, but the returned row is sampled through
+a race window and on a loaded runner the engine had already advanced to `metadata` —
+which is the documented, intended behavior of resume. The assertion now accepts both
+legal transient states (`queued` || `metadata`) with the error cleared; the full
+torrent suite (7/7) passes locally and the flake class is documented in the test
+comment.
+
+### 5. Tests (`__tests__/help.test.ts`, 11 tests)
 
 - Structure: unique ids across all three registries; minimum content counts; every
   key resolves via `translatorFor("en")` **and** `("fa")` with non-empty text (the
