@@ -50,7 +50,13 @@ Copy-Item (Join-Path $Root "core/target/release/download-core.exe") $coreStage -
 Write-Host "== [4/5] electron-builder: NSIS installer + portable zip =="
 Push-Location (Join-Path $Root "apps/desktop")
 try {
-    npx electron-builder --win nsis zip
+    # --publish never: the electron-builder config declares a github publish provider
+    # (it is what electron-updater reads for the Phase 18 auto-update feed), but on a CI
+    # tag build electron-builder would try to publish itself and demand GH_TOKEN. The
+    # Phase 26 release pipeline (release.yml) is the ONLY publisher — it runs this same
+    # script, then attaches checksummed artifacts to the release via gh. Humans and CI
+    # share one packaging path; neither auto-publishes from electron-builder.
+    npx electron-builder --win nsis zip --publish never
     if ($LASTEXITCODE -ne 0) { throw "electron-builder failed" }
 } finally {
     Pop-Location
