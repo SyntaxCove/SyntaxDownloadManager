@@ -5,6 +5,8 @@ export const diagnosticsEn = {
   "diag.refresh": "Refresh",
   "diag.exportLogs": "Export logs…",
   "diag.exporting": "Exporting…",
+  "diag.toast.exported": "Diagnostics exported",
+  "diag.toast.exportFailed": "Export failed",
   "diag.collecting": "Collecting diagnostics…",
 
   "diag.card.app": "Application",
@@ -86,6 +88,8 @@ export const diagnosticsFa: Record<keyof typeof diagnosticsEn, string> = {
   "diag.refresh": "بازخوانی",
   "diag.exportLogs": "برون‌بری گزارش‌ها…",
   "diag.exporting": "در حال برون‌بری…",
+  "diag.toast.exported": "گزارش‌های عیب‌یابی برون‌بری شد",
+  "diag.toast.exportFailed": "برون‌بری شکست خورد",
   "diag.collecting": "در حال گردآوری عیب‌یابی…",
 
   "diag.card.app": "برنامه",

@@ -9,6 +9,7 @@ import { proxyFa } from "./proxy.js";
 import { libraryFa } from "./library.js";
 import { settingsFa } from "./settings.js";
 import { diagnosticsFa } from "./diagnostics.js";
+import { helpFa } from "./help.js";
 
 /**
  * The composed Persian dictionary. The `Record<TKey, string>` annotation is the
@@ -27,4 +28,5 @@ export const fa: Record<TKey, string> = Object.freeze({
   ...libraryFa,
   ...settingsFa,
   ...diagnosticsFa,
+  ...helpFa,
 });

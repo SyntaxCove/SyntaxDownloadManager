@@ -7,7 +7,7 @@ import {
   tokens,
   Tooltip,
 } from "@fluentui/react-components";
-import { SettingsRegular, GlobeRegular, ArrowDownloadRegular, ShieldTaskRegular, VideoClipMultipleRegular, ArrowSquareDownRegular, LibraryRegular, ClockRegular, PulseRegular } from "@fluentui/react-icons";
+import { SettingsRegular, GlobeRegular, ArrowDownloadRegular, ShieldTaskRegular, VideoClipMultipleRegular, ArrowSquareDownRegular, LibraryRegular, ClockRegular, PulseRegular, QuestionCircleRegular } from "@fluentui/react-icons";
 import { SettingsPage } from "../pages/SettingsPage.js";
 import { BrowsePage } from "../pages/BrowsePage.js";
 import { DownloadsPage } from "../pages/DownloadsPage.js";
@@ -17,6 +17,7 @@ import { TorrentsPage } from "../pages/TorrentsPage.js";
 import { SchedulerPage } from "../pages/SchedulerPage.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage.js";
+import { HelpPage } from "../pages/HelpPage.js";
 import { ToastHost } from "./ToastHost.js";
 import { useI18n } from "../i18n/context.js";
 
@@ -64,7 +65,7 @@ const useStyles = makeStyles({
   content: { flex: 1, minHeight: 0, overflow: "auto", padding: "16px" },
 });
 
-type View = "browse" | "downloads" | "media" | "torrents" | "scheduler" | "library" | "proxy" | "settings" | "diagnostics";
+type View = "browse" | "downloads" | "media" | "torrents" | "scheduler" | "library" | "proxy" | "settings" | "diagnostics" | "help";
 
 // Drag regions are vendor-specific CSS; Griffel has no typed shorthand, so they are applied
 // as inline styles with an explicit cast.
@@ -80,6 +81,7 @@ const NAV: ReadonlyArray<{ id: View; key: string; icon: React.ReactElement }> = 
   { id: "library", key: "nav.library", icon: <LibraryRegular /> },
   { id: "proxy", key: "nav.proxy", icon: <ShieldTaskRegular /> },
   { id: "diagnostics", key: "nav.diagnostics", icon: <PulseRegular /> },
+  { id: "help", key: "nav.help", icon: <QuestionCircleRegular /> },
   { id: "settings", key: "nav.settings", icon: <SettingsRegular /> },
 ];
 
@@ -134,6 +136,7 @@ export function AppShell(): ReactNode {
           {view === "library" ? <LibraryPage /> : null}
           {view === "proxy" ? <ProxyPage /> : null}
           {view === "diagnostics" ? <DiagnosticsPage /> : null}
+          {view === "help" ? <HelpPage onOpenDiagnostics={() => setView("diagnostics")} /> : null}
           {view === "settings" ? <SettingsPage /> : null}
         </main>
       </div>

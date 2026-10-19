@@ -8,7 +8,7 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–26 of 31 are delivered and fully tested. Windows x64
+> **Status:** development phases 0–27 of 31 are delivered and fully tested. Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — releases are
 > built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
 > with **SHA-256 checksums** on the
@@ -32,7 +32,9 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 > (the full headless verification plus a Windows MSVC core-test job), a **tag-triggered
 > artifact pipeline** that builds the Windows installer and portable zip through the
 > documented packaging script on a real Windows runner, and **SHA-256 checksums** for
-> every shipped binary.
+> every shipped binary. Phase 27 added a fully localized **in-app Help surface** — topic
+> guides, FAQ and step-by-step troubleshooting that speak the engine's own typed error
+> vocabulary, in English and Persian (RTL).
 
 ---
 
@@ -260,19 +262,20 @@ core test suite on the shipping platform.
 
 ## Roadmap
 
-Delivered: **phases 0–26** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–27** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
 auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**,
 **performance budgets**, **security audit**, **hardening**, **E2E suites** — headless
 renderer+main+core integration over the real Rust core binary, which found and fixed
 three real defects including a silent wire-contract violation that had always disabled
-`deletePartialFile` — and **release engineering**: CI on GitHub Actions, a tag-triggered
+`deletePartialFile` — **release engineering**: CI on GitHub Actions, a tag-triggered
 Windows artifact pipeline through the documented packaging script, and SHA-256
-checksums on every shipped binary).
+checksums on every shipped binary — and **in-app help**: a localized Help page with
+topic guides, FAQ and troubleshooting wired to the engine's real error codes).
 
-Next: **phase 27 — docs (in-app help, FAQ, troubleshooting)**, followed by the
-remaining phases in `docs/PHASES.md`.
+Next: **phase 28 — data-integrity validation sweep (checksum/recovery deep
+verification)**, followed by the remaining phases in `docs/PHASES.md`.
 
 ## Security & policy stance
 

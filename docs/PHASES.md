@@ -54,7 +54,7 @@
 | 24 | Hardening — fault injection, framing limits, crash recovery | delivered (2026-10-18) |
 | 25 | E2E suites — headless renderer+main+core integration | delivered (2026-10-19) |
 | 26 | Release engineering — CI, checksums, artifact pipeline | delivered (2026-10-19) |
-| 27 | Docs — in-app help, FAQ, troubleshooting | pending |
+| 27 | Docs — in-app help, FAQ, troubleshooting | delivered (2026-10-19) |
 | 28 | Data-integrity validation sweep — checksum/recovery deep verification | pending |
 | 29 | Performance validation — real-device budget report harness | pending |
 | 30 | Security & privacy final review — supply chain, SBOM | pending |

@@ -40,6 +40,7 @@ export const commonEn = {
   "nav.library": "Library",
   "nav.proxy": "Proxy",
   "nav.diagnostics": "Diagnostics",
+  "nav.help": "Help",
   "nav.settings": "Settings",
   "nav.primary": "Primary",
 
@@ -92,6 +93,7 @@ export const commonFa: Record<keyof typeof commonEn, string> = {
   "nav.library": "کتابخانه",
   "nav.proxy": "پروکسی",
   "nav.diagnostics": "عیب‌یابی",
+  "nav.help": "راهنما",
   "nav.settings": "تنظیمات",
   "nav.primary": "ناوبری اصلی",
 

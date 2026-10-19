@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { HealthReport, LogRecord, LogLevel, PerformanceSnapshot } from "@syntaxdm/contracts";
 import { rpc } from "../bridge.js";
 import { publishToast } from "../app/toasts.js";
+import { currentT } from "../i18n/context.js";
 import { describeError } from "./settings.js";
 
 /**
@@ -91,14 +92,17 @@ export const useDiagnosticsStore = create<DiagnosticsStoreState>((set, get) => (
         bytes: number;
       };
       set({ lastExportPath: result.path });
+      // Phase 27 (F-1): these two titles were the last hardcoded-English user-visible
+      // strings from Phase 21 — resolved through the module-level translator like the
+      // toasts bus itself does.
       publishToast({
-        title: "Diagnostics exported",
+        title: currentT()("diag.toast.exported"),
         body: result.path,
         intent: "success",
       });
     } catch (err) {
       publishToast({
-        title: "Export failed",
+        title: currentT()("diag.toast.exportFailed"),
         body: describeError(err),
         intent: "error",
       });

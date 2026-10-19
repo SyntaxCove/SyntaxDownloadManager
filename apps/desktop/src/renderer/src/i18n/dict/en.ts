@@ -8,6 +8,7 @@ import { proxyEn } from "./proxy.js";
 import { libraryEn } from "./library.js";
 import { settingsEn } from "./settings.js";
 import { diagnosticsEn } from "./diagnostics.js";
+import { helpEn } from "./help.js";
 
 /**
  * The composed English dictionary — the single source of truth for the i18n key set.
@@ -27,6 +28,7 @@ export const en = Object.freeze({
   ...libraryEn,
   ...settingsEn,
   ...diagnosticsEn,
+  ...helpEn,
 });
 
 export type TKey = keyof typeof en;
