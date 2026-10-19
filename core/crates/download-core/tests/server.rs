@@ -379,6 +379,109 @@ async fn create_with_checksum_completes_over_rpc() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Phase 25 regression: pause a mid-flight download, then remove it with
+/// `deletePartialFile: true` — the `.part` sidecar MUST be gone from disk. The removal
+/// races the engine task's exit; the manager must not unlink while a writer could
+/// still touch the file (an unlinked-then-refilled sidecar is a user-visible leak).
+#[tokio::test]
+async fn remove_paused_job_deletes_part_file() {
+    // 1 MiB deterministic body streamed slowly enough for a mid-flight pause.
+    let body: Vec<u8> = (0..(1024 * 1024u32))
+        .map(|i| ((i as u64 * 17 + 3) % 256) as u8)
+        .collect();
+    let server = common_test_server::SlowServer::start(body, 8 * 1024, 15).await;
+
+    let (mut w, mut r) = spawn_serve().await;
+
+    let dir = std::env::temp_dir().join(format!(
+        "dc-rm-part-{}-{}",
+        std::process::id(),
+        dc_protocol::new_ulid()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let create = serde_json::json!({
+        "v": 1, "id": "c1", "method": "download.create",
+        "params": {
+            "url": server.base_url(),
+            "destinationDir": dir.display().to_string(),
+            "filename": "removable.bin"
+        }
+    });
+    let response = request(&mut w, &mut r, &create.to_string()).await;
+    assert_eq!(response["ok"], true, "create must succeed: {response}");
+    let job_id = response["result"]["job"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let get_req = |id: &str, job: &str| {
+        serde_json::json!({"v":1,"id":id,"method":"download.get","params":{"id":job}}).to_string()
+    };
+
+    // Wait for real mid-flight bytes.
+    let mut streaming = false;
+    for _ in 0..400 {
+        let get = request(&mut w, &mut r, &get_req("g", &job_id)).await;
+        if get["result"]["job"]["status"] == "downloading"
+            && get["result"]["job"]["receivedBytes"].as_u64().unwrap_or(0) > 128 * 1024
+        {
+            streaming = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(streaming, "job must stream before the pause");
+
+    // Pause and wait until the row actually reads `paused`.
+    let pause = request(
+        &mut w,
+        &mut r,
+        &serde_json::json!({"v":1,"id":"p","method":"download.pause","params":{"id":job_id}})
+            .to_string(),
+    )
+    .await;
+    assert_eq!(pause["ok"], true, "pause must be accepted: {pause}");
+    let mut paused = false;
+    for _ in 0..200 {
+        let get = request(&mut w, &mut r, &get_req("g", &job_id)).await;
+        if get["result"]["job"]["status"] == "paused" {
+            paused = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(paused, "job must reach paused");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await; // let the task exit
+
+    let destination_path = {
+        let get = request(&mut w, &mut r, &get_req("g", &job_id)).await;
+        get["result"]["job"]["destinationPath"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let part_path = std::path::PathBuf::from(format!("{destination_path}.part"));
+    assert!(part_path.exists(), "the paused job must have a part file");
+
+    let remove = request(
+        &mut w,
+        &mut r,
+        &serde_json::json!({"v":1,"id":"rm","method":"download.remove",
+            "params":{"id":job_id,"deletePartialFile":true}})
+        .to_string(),
+    )
+    .await;
+    assert_eq!(remove["ok"], true, "remove must succeed: {remove}");
+    assert!(
+        !part_path.exists(),
+        "remove with deletePartialFile must delete the .part sidecar (found {})",
+        part_path.display()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 mod common_test_server {
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -411,6 +514,96 @@ mod common_test_server {
         pub fn base_url(&self) -> String {
             format!("http://{}/file", self.addr)
         }
+    }
+
+    /// Throttled variant: streams `chunk_bytes` every `delay_ms` so tests can pause a
+    /// download mid-flight. Range requests supported (resume legs).
+    pub struct SlowServer {
+        addr: std::net::SocketAddr,
+    }
+
+    impl SlowServer {
+        pub async fn start(body: Vec<u8>, chunk_bytes: usize, delay_ms: u64) -> Arc<Self> {
+            let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+            let addr = listener.local_addr().unwrap();
+            let body = Arc::new(body);
+            tokio::spawn(async move {
+                loop {
+                    let Ok((socket, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let b = body.clone();
+                    tokio::spawn(async move {
+                        serve_file_slow(socket, b, chunk_bytes, delay_ms).await;
+                    });
+                }
+            });
+            Arc::new(Self { addr })
+        }
+
+        pub fn base_url(&self) -> String {
+            format!("http://{}/slow", self.addr)
+        }
+    }
+
+    async fn serve_file_slow(
+        mut socket: TcpStream,
+        body: Arc<Vec<u8>>,
+        chunk_bytes: usize,
+        delay_ms: u64,
+    ) {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = socket.read(&mut chunk).await.unwrap_or(0);
+            if n == 0 {
+                return;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let request = String::from_utf8_lossy(&buf).to_lowercase();
+        let mut range_start: Option<u64> = None;
+        let mut range_end: Option<u64> = None;
+        for line in request.lines() {
+            if let Some(v) = line.strip_prefix("range: bytes=") {
+                let mut parts = v.trim().split('-');
+                range_start = parts.next().and_then(|s| s.parse().ok());
+                range_end = parts.next().and_then(|s| s.parse().ok());
+            }
+        }
+        let len = body.len();
+        let (status_head, start) = match (range_start, range_end) {
+            (Some(s), e) if s < len as u64 => {
+                let end = e.map(|x| (x as usize).min(len - 1)).unwrap_or(len - 1);
+                (
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nETag: \"slow-e2e\"\r\nContent-Range: bytes {s}-{end}/{len}\r\nConnection: close\r\n\r\n",
+                        end - s as usize + 1
+                    ),
+                    s as usize,
+                )
+            }
+            _ => (
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len}\r\nAccept-Ranges: bytes\r\nETag: \"slow-e2e\"\r\nConnection: close\r\n\r\n"
+                ),
+                0,
+            ),
+        };
+        socket.write_all(status_head.as_bytes()).await.ok();
+        let mut offset = start;
+        while offset < len {
+            let end = (offset + chunk_bytes).min(len);
+            if socket.write_all(&body[offset..end]).await.is_err() {
+                return; // client went away (pause) — stop serving
+            }
+            offset = end;
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        socket.flush().await.ok();
     }
 
     async fn serve_file(mut socket: TcpStream, body: Arc<Vec<u8>>) {

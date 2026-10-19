@@ -1033,3 +1033,51 @@ Stage Summary:
 - Phase 24 delivered: the process boundary, the crash path, and the persistence layer
   now survive adversarial input with tests proving it. Contract unchanged at 1.15.0.
   Next: phase 25 — E2E suites (headless renderer+main+core integration).
+
+---
+Task ID: 25
+Agent: Z.ai (main agent)
+Task: Phase 25 — E2E suites (headless renderer+main+core integration) per
+  docs/PHASES.md; full seven-step flow; commit + push + release per standing rule.
+
+Work Log:
+- Plan (docs/phases/phase-25-plan.md): separate-surface testing gap identified — nothing
+  proved the real main composition, the real Rust binary and the real renderer API layer
+  agree on the wire. Strategy: real everything, stubs only at the Electron port
+  interfaces (no Electron binary in the sandbox; honest scope note kept).
+- Implement: (1) extracted the shipped domain composition — src/main/composition.ts with
+  registerAppDomains (13 domains, shipped order) + pushCoreRuntimeState (ready-transition
+  re-push), called by BOTH main.ts and the E2E harness so suites drive the shipped
+  wiring, not a copy; (2) E2E harness src/e2e/harness.ts — temp userData per boot, real
+  SettingsStore/ProxyProfileStore(plaintext SafeStorageLike)/ToolkitManager/JsonlLogger/
+  BootClock/CoreSupervisor over the built debug binary, recording stub ports, preload-
+  faithful bridge mirror (router.handleRequest + EventEnvelope), node:http fixture server
+  (Range/ETag/Last-Modified/Content-Disposition/slow-stream/404, requests recorded);
+  (3) four suites / 20 tests: boot+diagnostics, download lifecycle (checksum verified
+  bytes, Range resume, failed-job survival, .part deletion, persistence across core
+  death), renderer bridge+stores, scheduler+history/bookmarks; (4) verify-all builds the
+  core binary before the TS step; desktop gains test:e2e + tsconfig.e2e.json.
+- Fix during Test (three real defects found by the suites):
+  F-1 core: RemoveParams lacked #[serde(rename = "deletePartialFile")] — serde silently
+  defaulted the flag to false on EVERY download.remove since Phase 5; .part sidecar was
+  never deleted. Renamed; audited every multi-word params field (no siblings); locked by
+  a new Rust regression test driving serve() with the camelCase wire name.
+  F-2 core: manager.remove unlinked the .part while the engine task could still be
+  exiting — now waits (bounded 5 s) for the task to remove its own handle first.
+  F-3 renderer: downloads store upsertJob let a stale async pause response (downloading)
+  clobber the newer paused event snapshot — updatedAt-ordered guard added (+3 unit
+  tests). Contract unchanged at 1.15.0 throughout.
+- Test: verify-all.sh end-to-end green — typecheck (main/renderer/e2e), 118 contracts +
+  365 desktop (343 prior + 20 E2E + 2 net new guard tests) + 280 cargo (+1), renderer
+  build + budget gate respected, fmt/clippy clean. Flake chased to the F-3 race and
+  fixed at the root, not by sleeping.
+- Document: docs/phases/phase-25.md report; docs/PHASES.md row 25 delivered; README
+  status 0–25 + roadmap -> phase 26 + verification-gate section extended; versions
+  0.12.0 (root, desktop, Rust workspace); contracts stay 1.15.0.
+
+Stage Summary:
+- Phase 25 delivered: 20 headless E2E tests now prove renderer↔main↔core agreement end
+  to end, and the shipped composition is shared code. The suites immediately paid for
+  themselves: three real defects fixed (a silent wire-contract violation that had always
+  disabled deletePartialFile, an unlink/writer race, a stale-response store regression).
+  Next: phase 26 — release engineering (CI, checksums, artifact pipeline).

@@ -61,8 +61,17 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
   upsertJob: (job) =>
     set((s) => {
       const idx = s.jobs.findIndex((j) => j.id === job.id);
-      const jobs = idx >= 0 ? s.jobs.map((j) => (j.id === job.id ? job : j)) : [job, ...s.jobs];
-      return { jobs };
+      if (idx >= 0) {
+        const existing = s.jobs[idx];
+        // Phase 25 guard: an async RPC response can land AFTER a newer authoritative
+        // event for the same job (pause: the stale "downloading" response overtaken by
+        // the "paused" snapshot). Events and rows carry monotonic updatedAt — a row
+        // older than the mirrored one must never regress the store.
+        if (existing && existing.updatedAt > job.updatedAt) return {};
+        const jobs = s.jobs.map((j) => (j.id === job.id ? job : j));
+        return { jobs };
+      }
+      return { jobs: [job, ...s.jobs] };
     }),
 
   patchProgress: (p) =>

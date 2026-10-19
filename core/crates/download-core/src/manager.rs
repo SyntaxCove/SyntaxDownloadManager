@@ -964,6 +964,20 @@ impl JobManager {
         if let Some((cmd_tx, stop)) = handle {
             let _ = cmd_tx.send(JobCommand::Cancel).await;
             stop.cancel();
+            // Phase 25 fix: wait for the engine task to observe the cancellation and
+            // exit (it removes its own handle) BEFORE touching its files — an in-flight
+            // writer must never outlive the `.part` unlink. Bounded: a wedged task must
+            // not hang remove() past 5 s.
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while self
+                .jobs
+                .lock()
+                .expect("jobs mutex poisoned")
+                .contains_key(id)
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
             self.jobs.lock().expect("jobs mutex poisoned").remove(id);
         }
         if !self.store.delete_job(id)? {

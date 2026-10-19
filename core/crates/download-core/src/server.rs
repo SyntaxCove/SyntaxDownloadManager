@@ -34,7 +34,11 @@ struct ReplaceUrlParams {
 #[derive(Deserialize)]
 struct RemoveParams {
     id: String,
-    #[serde(default)]
+    // Phase 25 fix: the wire name is camelCase (contracts `deletePartialFile`); without
+    // this rename serde silently defaulted the flag to `false` on EVERY remove, so the
+    // `.part` sidecar was never deleted. The cross-language fixtures did not cover this
+    // param — the E2E suites caught it.
+    #[serde(rename = "deletePartialFile", default)]
     delete_partial_file: bool,
 }
 

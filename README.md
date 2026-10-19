@@ -6,7 +6,7 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–24 of 31 are delivered and fully tested. Windows x64
+> **Status:** development phases 0–25 of 31 are delivered and fully tested. Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — a portable zip
 > ships on the [releases page](https://github.com/SyntaxCove/SyntaxDownloadManager/releases);
 > the installer exe is built from source via [`scripts/build-windows.ps1`](scripts/build-windows.ps1)
@@ -154,7 +154,11 @@ npm run test:core
 Every phase lands only after `scripts/verify-all.sh` passes end to end:
 
 - `tsc --noEmit` across all workspaces
-- Vitest suites for `@syntaxdm/contracts` and `@syntaxdm/desktop`
+- Vitest suites for `@syntaxdm/contracts` and `@syntaxdm/desktop` — including the **E2E
+  suites** (`apps/desktop/src/e2e`) that boot the real main-process composition over the
+  real Rust core binary and drive complete user stories (download lifecycle with real
+  bytes and HTTP Range resume, persistence across core death, renderer stores over the
+  live event stream, scheduler/history storage) headlessly
 - `vite build` production bundle
 - `cargo fmt --check`, `cargo clippy`, `cargo test` for the Rust workspace
 
@@ -204,13 +208,16 @@ toolkit bundle. All download/browser/media features work from a source checkout.
 
 ## Roadmap
 
-Delivered: **phases 0–24** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–25** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
 auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**,
-**performance budgets**, **security audit**, **hardening**).
+**performance budgets**, **security audit**, **hardening**, **E2E suites** — headless
+renderer+main+core integration over the real Rust core binary; found and fixed three
+real defects including a silent wire-contract violation that had always disabled
+`deletePartialFile`).
 
-Next: **phase 25 — E2E suites (headless renderer+main+core integration)**, followed by
+Next: **phase 26 — release engineering (CI, checksums, artifact pipeline)**, followed by
 the remaining phases in `docs/PHASES.md`.
 
 ## Security & policy stance

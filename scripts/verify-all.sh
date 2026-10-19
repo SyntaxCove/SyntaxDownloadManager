@@ -3,10 +3,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "[syntaxdm] typecheck (contracts, desktop)"
+if command -v cargo >/dev/null 2>&1; then
+  # Phase 25: build the core binary BEFORE the TS test step — the E2E suites
+  # (apps/desktop/src/e2e) supervise the real download-core subprocess.
+  echo "[syntaxdm] Rust core: build (debug binary for the E2E suites)"
+  cargo build --manifest-path core/Cargo.toml -p download-core
+fi
+
+echo "[syntaxdm] typecheck (contracts, desktop incl. E2E)"
 npm run typecheck
 
-echo "[syntaxdm] TS tests"
+echo "[syntaxdm] TS tests (unit + E2E)"
 npm run test
 
 echo "[syntaxdm] renderer build"
@@ -21,7 +28,7 @@ if command -v cargo >/dev/null 2>&1; then
   cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
   cargo test --manifest-path core/Cargo.toml
 else
-  echo "[syntaxdm] cargo not found — skipping Rust core checks (install rustup)"
+  echo "[syntaxdm] cargo not found — skipping Rust core checks (E2E suites skip visibly; install rustup)"
 fi
 
 echo "[syntaxdm] all checks passed"

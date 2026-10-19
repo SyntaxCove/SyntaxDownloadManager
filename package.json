@@ -1,8 +1,8 @@
 {
   "name": "syntax-download-manager",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
-  "description": "Syntax Download Manager \u2014 unified browser + advanced download manager (Electron + Rust core)",
+  "description": "Syntax Download Manager — unified browser + advanced download manager (Electron + Rust core)",
   "license": "SEE LICENSE IN LICENSE",
   "workspaces": [
     "packages/*",
@@ -24,5 +24,8 @@
     "@types/node": "24.9.1",
     "typescript": "5.9.3",
     "vitest": "5.0.3"
+  },
+  "apps/desktop": {
+    "version": "0.12.0"
   }
 }

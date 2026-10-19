@@ -180,3 +180,36 @@ describe("downloads store — create proxy choice (Phase 16)", () => {
     expect(useDownloadsStore.getState().jobs[0]?.proxyProfileId).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
 });
+
+// ---- Phase 25: stale-response guard (E2E-found) ----
+
+describe("upsertJob stale-response guard", () => {
+  beforeEach(() => {
+    useDownloadsStore.setState({ jobs: [], loaded: false, core: "unknown" });
+  });
+
+  it("a newer event snapshot is never regressed by an older async RPC response", () => {
+    // Engine-async pause: the "paused" event (updatedAt T2) can land before the pause
+    // RPC resolves with the stale "downloading" row (updatedAt T1 < T2).
+    const pausedEvent = jobFixture({ status: "paused", updatedAt: 1700000002000 });
+    const staleResponse = jobFixture({ status: "downloading", updatedAt: 1700000001000 });
+
+    useDownloadsStore.getState().upsertJob(pausedEvent);
+    useDownloadsStore.getState().upsertJob(staleResponse);
+
+    expect(useDownloadsStore.getState().jobs[0]?.status).toBe("paused");
+  });
+
+  it("a genuinely newer row still replaces the mirrored one", () => {
+    useDownloadsStore.getState().upsertJob(jobFixture({ status: "downloading", updatedAt: 1000 }));
+    useDownloadsStore.getState().upsertJob(jobFixture({ status: "completed", updatedAt: 2000 }));
+    expect(useDownloadsStore.getState().jobs[0]?.status).toBe("completed");
+  });
+
+  it("equal updatedAt still applies (idempotent re-upsert of the same snapshot)", () => {
+    useDownloadsStore.getState().upsertJob(jobFixture({ status: "paused", updatedAt: 1000 }));
+    useDownloadsStore.getState().upsertJob(jobFixture({ status: "paused", updatedAt: 1000 }));
+    expect(useDownloadsStore.getState().jobs).toHaveLength(1);
+    expect(useDownloadsStore.getState().jobs[0]?.status).toBe("paused");
+  });
+});

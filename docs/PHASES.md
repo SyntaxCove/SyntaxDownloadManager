@@ -52,7 +52,7 @@
 | 22 | Performance budgets — startup, memory, UI latency | delivered (2026-10-18) |
 | 23 | Security audit — IPC surface, CSP, permission policy review | delivered (2026-10-18) |
 | 24 | Hardening — fault injection, framing limits, crash recovery | delivered (2026-10-18) |
-| 25 | E2E suites — headless renderer+main+core integration | pending |
+| 25 | E2E suites — headless renderer+main+core integration | delivered (2026-10-19) |
 | 26 | Release engineering — CI, checksums, artifact pipeline | pending |
 | 27 | Docs — in-app help, FAQ, troubleshooting | pending |
 | 28 | Data-integrity validation sweep — checksum/recovery deep verification | pending |

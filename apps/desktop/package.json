@@ -1,16 +1,17 @@
 {
   "name": "@syntaxdm/desktop",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
-  "description": "Syntax Download Manager desktop shell \u2014 Electron main, preload bridge, React renderer",
+  "description": "Syntax Download Manager desktop shell — Electron main, preload bridge, React renderer",
   "type": "commonjs",
   "main": "./dist/main/main.js",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.e2e.json --noEmit",
     "build:main": "tsc -p tsconfig.build-main.json",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "test": "vitest run",
+    "test:e2e": "vitest run src/e2e",
     "start": "npm run build && electron .",
     "dist": "electron-builder --win nsis zip",
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload/preload.cjs --sourcemap=external"

@@ -6,22 +6,15 @@ import { IpcRouter } from "./ipc/router.js";
 import { bindElectronRpc } from "./ipc/electron-rpc.js";
 import { createMainWindow, type RendererDiagnostic } from "./window.js";
 import { resolveAppPaths } from "./paths.js";
-import { SettingsStore, registerSettingsDomain } from "./domains/settings.js";
+import { SettingsStore } from "./domains/settings.js";
 import { registerBrowserDomain } from "./domains/browser.js";
-import { registerDownloadDomain } from "./domains/download.js";
-import { registerMediaDomain } from "./domains/media.js";
-import { registerTorrentDomain } from "./domains/torrent.js";
-import { registerSchedulerDomain } from "./domains/scheduler.js";
-import { ProxyProfileStore, registerProxyDomain } from "./domains/proxy.js";
-import { registerToolkitDomain, pushToolkitPaths } from "./domains/toolkit.js";
-import { registerBrowserDataDomain } from "./domains/browser-data.js";
-import { registerAppDomain } from "./domains/app-reveal.js";
-import { registerAppDialogs, electronDirectoryPicker } from "./domains/app-dialogs.js";
-import { registerNotifyEngine, type OsNotificationPort } from "./domains/notify.js";
+import { ProxyProfileStore } from "./domains/proxy.js";
+import { pushToolkitPaths } from "./domains/toolkit.js";
+import { electronDirectoryPicker } from "./domains/app-dialogs.js";
+import type { OsNotificationPort } from "./domains/notify.js";
 import { createElectronUpdater } from "./domains/updates-adapter.js";
 import { registerUpdateDomain } from "./domains/updates.js";
-import { registerDiagnosticsDomain } from "./domains/diagnostics.js";
-import { registerPerfDomain } from "./domains/perf.js";
+import { registerAppDomains, pushCoreRuntimeState } from "./composition.js";
 import { BootClock } from "./perf/boot-clock.js";
 import {
   TrayController,
@@ -115,7 +108,6 @@ if (!gotLock) {
 
     const settingsStore = new SettingsStore(app.getPath("userData"));
     await settingsStore.load();
-    registerSettingsDomain(router, settingsStore);
     // verboseLogging (Phase 20): the setting only RATCHETS up above the env baseline
     // when enabled; disabling returns to the env/default level. Live for the main logger.
     const applyLogLevel = (): void => {
@@ -273,11 +265,7 @@ if (!gotLock) {
       // gets the full settings immediately. All pushes are idempotent).
       if (status === "ready") {
         bootClock.mark("core-ready");
-        pushRuntimeProxies();
-        pushToolkitPaths(supervisor, toolkitManager.readyToolPaths());
-        applyCoreLimits();
-        applyCorePolicy();
-        applySchedulerClock();
+        pushCoreRuntimeState({ supervisor, settings: settingsStore, toolkit: toolkitManager, pushRuntimeProxies });
         seedTrayCounts();
         // Phase 22: log the finished boot report ONCE per session — real device numbers
         // reach the log pipeline, the diagnostics tail, and every exported zip.
@@ -287,19 +275,6 @@ if (!gotLock) {
         }
       }
     });
-    registerDownloadDomain(router, supervisor, settingsStore);
-    registerMediaDomain(router, supervisor);
-    registerTorrentDomain(router, supervisor);
-    registerSchedulerDomain(router, supervisor);
-    registerBrowserDataDomain(router, supervisor);
-    registerAppDomain(router, supervisor, {
-      showItemInFolder: (p) => shell.showItemInFolder(p),
-      openPath: (p) => shell.openPath(p),
-    });
-    registerProxyDomain(router, proxyStore, supervisor, pushRuntimeProxies, settingsStore);
-    registerToolkitDomain(router, toolkitManager, supervisor);
-    registerAppDialogs(router, electronDirectoryPicker());
-
     // ---- Phase 17: OS notifications ----
     const notificationPort: OsNotificationPort = {
       supported: () => Notification.isSupported(),
@@ -309,7 +284,6 @@ if (!gotLock) {
         n.show();
       },
     };
-    registerNotifyEngine(router, { port: notificationPort, settings: settingsStore });
 
     // ---- Phase 17: tray icon (creation is guarded — without a live tray, close-to-tray
     // self-disables and closing keeps the Phase 2 quit behavior) ----
@@ -371,16 +345,26 @@ if (!gotLock) {
         void supervisor.stop(4_000);
       },
     });
-    registerUpdateDomain(router, updateController);
-    updateController.startAutoChecks();
 
-    // ---- Phase 20: diagnostics — health report, log tail, log export ----
-    registerDiagnosticsDomain(router, {
-      logger,
+    // ---- Phase 25: the shipped domain composition (settings, download, media, torrent,
+    // scheduler, browser-data, app-reveal, proxy, toolkit, dialogs, notify, diagnostics,
+    // perf) — extracted so the E2E suites drive the exact same registration surface.
+    registerAppDomains({
+      router,
       supervisor,
       settings: settingsStore,
+      proxyStore,
       toolkit: toolkitManager,
-      updater: updateController,
+      logger,
+      bootClock,
+      updateController,
+      pushRuntimeProxies,
+      shell: {
+        showItemInFolder: (p) => shell.showItemInFolder(p),
+        openPath: (p) => shell.openPath(p),
+      },
+      directoryPicker: electronDirectoryPicker(),
+      notificationPort,
       appFacts: {
         version: app.getVersion(),
         electronVersion: process.versions.electron ?? "unknown",
@@ -392,9 +376,8 @@ if (!gotLock) {
       },
       coreHealthTimeoutMs: 3_000,
     });
-
-    // ---- Phase 22: performance snapshot (boot timings, memory, IPC counters) ----
-    registerPerfDomain(router, { supervisor, bootClock, logger });
+    registerUpdateDomain(router, updateController);
+    updateController.startAutoChecks();
 
     supervisor.start();
     bootClock.mark("core-spawned");
