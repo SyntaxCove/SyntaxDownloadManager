@@ -1,15 +1,20 @@
 # Syntax Download Manager
 
+[![ci](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/workflows/ci.yml/badge.svg)](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/workflows/ci.yml)
+
 A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-based browser with an advanced, resumable download manager — powered by a supervised **Rust core** process. Think "1DM-class" downloading, built natively for Windows 11.
 
 - **Unified browser** — real tabbed browsing on Electron `WebContentsView` with Fluent UI tabs, address bar, bookmarks, history, and per-tab proxy routing
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–25 of 31 are delivered and fully tested. Windows x64
-> packaging is in place (electron-builder NSIS installer + portable zip) — a portable zip
-> ships on the [releases page](https://github.com/SyntaxCove/SyntaxDownloadManager/releases);
-> the installer exe is built from source via [`scripts/build-windows.ps1`](scripts/build-windows.ps1)
+> **Status:** development phases 0–26 of 31 are delivered and fully tested. Windows x64
+> packaging is in place (electron-builder NSIS installer + portable zip) — releases are
+> built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
+> with **SHA-256 checksums** on the
+> [releases page](https://github.com/SyntaxCove/SyntaxDownloadManager/releases)
+> (see [Releases & checksums](#releases--checksums)); the installer exe can also be built
+> from source via [`scripts/build-windows.ps1`](scripts/build-windows.ps1)
 > (see [Run on Windows](#run-on-windows)). Built-in **Diagnostics** (structured logs, log
 > export, health report) shipped with phase 20, phase 21 added full **interface
 > localization — English and Persian (فارسی, RTL) — with an accessibility pass** (live
@@ -23,6 +28,11 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 > core (4 MiB lines, 64 in-flight, content never echoed), bounded renderer crash
 > recovery (3 reloads per 60 s, never a reload loop), and storage corruption drills
 > (garbage input fails typed, corruption never reports a false-green integrity check).
+> Phase 26 turned delivery itself into engineering: a **CI gate on GitHub Actions**
+> (the full headless verification plus a Windows MSVC core-test job), a **tag-triggered
+> artifact pipeline** that builds the Windows installer and portable zip through the
+> documented packaging script on a real Windows runner, and **SHA-256 checksums** for
+> every shipped binary.
 
 ---
 
@@ -34,6 +44,7 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - [Development](#development)
 - [Verification gate](#verification-gate)
 - [Run on Windows](#run-on-windows)
+- [Releases & checksums](#releases--checksums)
 - [Documentation](#documentation)
 - [Roadmap](#roadmap)
 - [Security & policy stance](#security--policy-stance)
@@ -161,6 +172,12 @@ Every phase lands only after `scripts/verify-all.sh` passes end to end:
   live event stream, scheduler/history storage) headlessly
 - `vite build` production bundle
 - `cargo fmt --check`, `cargo clippy`, `cargo test` for the Rust workspace
+- `node scripts/checksums.mjs --selftest` — the Phase 26 release-engineering tooling
+  drills its own digest math, sidecar format and failure modes
+
+The same gate runs on **GitHub Actions** (`.github/workflows/ci.yml`) on every push and
+pull request, plus a Windows MSVC job that runs the Rust core suite on the shipping
+platform — the sandbox gate and the CI gate are one and the same.
 
 The suites cover the download engine (segmenting, resume, integrity, recovery, rebind),
 proxy fail-closed routing, media pipeline parsing, torrent stack units, scheduler recurrence
@@ -199,6 +216,41 @@ npm start
 First launch creates the local database and (for media features) fetches the pinned
 toolkit bundle. All download/browser/media features work from a source checkout.
 
+## Releases & checksums
+
+Tagging a release (`v*`) triggers `.github/workflows/release.yml`: a Windows runner
+checks that the tag matches `package.json`, runs the exact same
+[`scripts/build-windows.ps1`](scripts/build-windows.ps1) a human would run
+(contracts + desktop + Rust core in release mode + electron-builder), computes SHA-256
+checksums over the produced bytes, and publishes the GitHub release with every asset
+attached — the installer, the portable zip, the differential-update blockmaps, the
+`latest.yml` auto-update feed, and a `.sha256` sidecar for each binary artifact.
+
+Every published release notes carries a checksum table. Verify your download before
+running it:
+
+```powershell
+# Windows (PowerShell)
+Get-FileHash .\SyntaxDownloadManager-<version>-portable.zip
+# compare against the SHA-256 in the release notes, or:
+sha256sum -c SyntaxDownloadManager-<version>-portable.zip.sha256   # if you have Git for Windows
+```
+
+```bash
+# Linux / macOS
+sha256sum -c SyntaxDownloadManager-<version>-portable.zip.sha256
+```
+
+**Unsigned build notice:** binaries are not code-signed yet (no certificate). Windows
+SmartScreen may show a warning on first run — choose "More info → Run anyway" if the
+checksum matches, and see the phase 19 report for the planned signing upgrade path.
+
+Continuous integration (`.github/workflows/ci.yml`) runs on every push and pull
+request: the full headless verification gate (contracts, typecheck, desktop unit + E2E
+suites over the real Rust core binary, fmt/clippy/cargo test, renderer build,
+performance budget gate, checksum selftest) plus a Windows MSVC job that runs the Rust
+core test suite on the shipping platform.
+
 ## Documentation
 
 - [`docs/PHASES.md`](docs/PHASES.md) — the authoritative 0–31 phase map and build rules
@@ -208,17 +260,19 @@ toolkit bundle. All download/browser/media features work from a source checkout.
 
 ## Roadmap
 
-Delivered: **phases 0–25** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–26** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
 auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**,
 **performance budgets**, **security audit**, **hardening**, **E2E suites** — headless
-renderer+main+core integration over the real Rust core binary; found and fixed three
-real defects including a silent wire-contract violation that had always disabled
-`deletePartialFile`).
+renderer+main+core integration over the real Rust core binary, which found and fixed
+three real defects including a silent wire-contract violation that had always disabled
+`deletePartialFile` — and **release engineering**: CI on GitHub Actions, a tag-triggered
+Windows artifact pipeline through the documented packaging script, and SHA-256
+checksums on every shipped binary).
 
-Next: **phase 26 — release engineering (CI, checksums, artifact pipeline)**, followed by
-the remaining phases in `docs/PHASES.md`.
+Next: **phase 27 — docs (in-app help, FAQ, troubleshooting)**, followed by the
+remaining phases in `docs/PHASES.md`.
 
 ## Security & policy stance
 

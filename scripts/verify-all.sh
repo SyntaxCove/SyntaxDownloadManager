@@ -22,6 +22,9 @@ npm run build:desktop
 echo "[syntaxdm] performance budgets (renderer bundle, Phase 22 gate)"
 node scripts/check-budgets.mjs
 
+echo "[syntaxdm] checksum tooling selftest (Phase 26 release engineering)"
+node scripts/checksums.mjs --selftest
+
 if command -v cargo >/dev/null 2>&1; then
   echo "[syntaxdm] Rust core: fmt check, clippy, tests"
   cargo fmt --manifest-path core/Cargo.toml --all -- --check

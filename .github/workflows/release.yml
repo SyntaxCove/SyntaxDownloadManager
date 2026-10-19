@@ -1,0 +1,105 @@
+# Syntax Download Manager — release artifact pipeline (Phase 26).
+#
+# Pushing a tag `v*` builds the Windows x64 artifacts on a real Windows runner
+# through the SAME packaging script a human runs (scripts/build-windows.ps1 —
+# the pipeline cannot drift from the documented manual path), computes SHA-256
+# checksums over the produced bytes, and publishes the GitHub release with all
+# assets attached:
+#
+#   SyntaxDownloadManager-Setup-<version>.exe       assisted per-user installer
+#   SyntaxDownloadManager-Setup-<version>.exe.sha256
+#   SyntaxDownloadManager-<version>-portable.zip    unpack-and-run
+#   SyntaxDownloadManager-<version>-portable.zip.sha256
+#   SyntaxDownloadManager-<version>-portable.zip.blockmap  (differential updates)
+#   latest.yml                                      (Phase 18 auto-update feed)
+#
+# Version guard: the tag must equal "v" + the root package.json version, so a
+# tag can never publish binaries built from mismatched sources.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: windows artifacts + checksums + publish
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version guard (tag == package.json version)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne "v$pkg") {
+            throw "tag $tag does not match package.json version v$pkg — refusing to build"
+          }
+          Write-Host "version guard ok: $tag == v$pkg"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      # Full dependency install (Electron binary download included) is done by
+      # build-windows.ps1 itself — npm ci would race its npm install.
+      - name: Build artifacts (build-windows.ps1 — contracts+desktop+core+electron-builder)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+
+      - name: SHA-256 checksums + release notes table
+        shell: pwsh
+        run: |
+          $rel = "apps/desktop/release"
+          $notes = "release-notes.md"
+          $intro = @"
+          ## Syntax Download Manager ${{ github.ref_name }}
+
+          Built by the Phase 26 release pipeline on Windows x64: NSIS installer
+          (assisted, per-user) and portable zip (unpack-and-run). SHA-256 sidecars
+          (``*.sha256``) are attached next to the binaries they cover.
+
+          **Unsigned build notice:** binaries are not code-signed (no certificate
+          yet). Windows SmartScreen may warn on first run — see the phase 19
+          report for the planned signing upgrade path. Verify your download with
+          the checksum table below before running it.
+          "@
+          Set-Content -Path $notes -Value $intro
+          $assets = Get-ChildItem $rel -File |
+            Where-Object { $_.Name -match '\.(exe|zip|blockmap)$|latest\.yml$' } |
+            ForEach-Object { $_.FullName }
+          node scripts/checksums.mjs @assets --markdown $notes | Out-Host
+
+      - name: Publish the GitHub release (created by the pipeline, not by hand)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rel = "apps/desktop/release"
+          $assets = @()
+          $assets += Get-ChildItem $rel -File |
+            Where-Object { $_.Name -match '\.(exe|zip|blockmap)$|latest\.yml$|\.sha256$' } |
+            ForEach-Object { $_.FullName }
+          gh release create "${{ github.ref_name }}" @assets `
+            --verify-tag `
+            --title "Syntax Download Manager ${{ github.ref_name }}" `
+            --notes-file release-notes.md

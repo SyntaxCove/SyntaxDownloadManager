@@ -1,0 +1,103 @@
+# Syntax Download Manager — continuous integration (Phase 26).
+#
+# Runs the same headless gate as scripts/verify-all.sh on GitHub's runners:
+#   - verify:       contracts + desktop unit + E2E suites (over the REAL debug
+#                   download-core binary) + fmt/clippy/cargo test + renderer
+#                   build + performance budget gate + checksums selftest;
+#   - core-windows: the Rust core must compile and pass on the shipping
+#                   platform (Windows x64 MSVC), not only on the Linux sandbox.
+#
+# The wire contract is frozen at v1.15.0 — CI does not mutate it; it verifies it.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (ubuntu, node+rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # No test launches Electron; the E2E suites supervise the real debug
+      # download-core subprocess. Skipping the Electron binary keeps CI fast
+      # and matches the headless verification contract.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust toolchain (fmt, clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Install workspace dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build contracts (typecheck and tests consume the dist)
+        run: npm run build:contracts
+
+      - name: Typecheck (contracts, desktop main/renderer/e2e)
+        run: npm run typecheck
+
+      - name: Build the debug core binary (the E2E suites supervise it for real)
+        run: cargo build --manifest-path core/Cargo.toml -p download-core
+
+      - name: TS tests (unit + E2E over the real core)
+        run: npm run test
+
+      - name: Rust fmt check
+        run: cargo fmt --manifest-path core/Cargo.toml --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path core/Cargo.toml
+
+      - name: Renderer build
+        run: npm run build:desktop
+
+      - name: Performance budget gate (Phase 22)
+        run: node scripts/check-budgets.mjs
+
+      - name: Checksum tooling selftest (Phase 26)
+        run: node scripts/checksums.mjs --selftest
+
+  core-windows:
+    name: core tests (windows, msvc)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Rust tests (windows)
+        run: cargo test --manifest-path core/Cargo.toml
