@@ -80,3 +80,14 @@ The fake seeder gained a per-piece corruption budget and two drills lock the beh
   the live sampler test (process-level proxy for the page-cache discipline).
 - Release artifacts (v0.15.0) are produced by the Phase 26 pipeline; supply-chain/SBOM is
   Phase 30.
+
+## Real-run record
+
+- CI run **39318770922** (commit daad9bc): `verify` (ubuntu, node+rust) and `core tests`
+  (windows, msvc) both **success**.
+- Release pipeline run **39320258790** (tag v0.15.0): **success** — third consecutive
+  production run of the Phase 26 pipeline, notes composition intact (intro + unsigned
+  notice ahead of the generated checksum table). 8 assets: NSIS Setup exe (122,167,664 B)
+  + blockmap, portable zip (167,805,981 B) + blockmap, latest.yml, each with a .sha256
+  sidecar. Byte-level acceptance: the published portable zip downloaded in the sandbox and
+  `sha256sum -c` reports **OK**; 130 zip entries intact (`testzip` clean).

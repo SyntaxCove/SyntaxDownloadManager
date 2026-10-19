@@ -1221,4 +1221,8 @@ Stage Summary:
   crash-mid-completion window adopts the verified artifact instead of synthesizing zeros;
   the journal is durable before it advances; every declared checksum algorithm is honored.
 - Four real defects fixed and locked by 20 new tests (7 reconcile + 11 integrity + 2
-  torrent). Next: phase 29 — performance validation (real-device budget report harness).
+  torrent).
+- Release: CI run 39318770922 both jobs green; release pipeline run 39320258790 SUCCESS
+  (tag v0.15.0) — 8 assets, notes composition verified in production for the third
+  consecutive run, published portable zip sha256sum -c OK with 130 entries intact.
+- Next: phase 29 — performance validation (real-device budget report harness).
