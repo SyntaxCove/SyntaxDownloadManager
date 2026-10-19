@@ -1133,3 +1133,52 @@ Stage Summary:
   before it passed.
 - Remote: main at <final-commit>, tag v0.13.0 → release v0.13.0. Contract 1.15.0
   unchanged; app 0.13.0. Next: phase 27 — docs (in-app help, FAQ, troubleshooting).
+
+---
+Task ID: 27
+Agent: main
+Task: فاز ۲۷ (interpretation rule: phases are sequential; 24–26 were already
+delivered/pushed/released — v0.11.0–v0.13.0 confirmed on the remote — so this session
+executed Phase 27 only): Docs — in-app help, FAQ, troubleshooting.
+
+Work Log:
+- Sandbox reset again: rebuilt ~/.git-credentials from the PAT, reinstalled rustup
+  (minimal profile) + rustfmt/clippy after the gate caught their absence mid-run.
+- Explored the renderer (subagent report): AppShell view registry, Phase 21 i18n
+  fragments pattern, Phase 20 diagnostics store/contracts, test conventions.
+- Wrote docs/phases/phase-27-plan.md (design: content registry of i18n KEYS, engine
+  vocabulary links, page UX, F-1 toast cleanup, test plan, honest scope notes).
+- Implemented: dict/help.ts (helpEn/helpFa — 124 keys × 2 languages, ZWNJ Persian);
+  pages/help/content.ts (HELP_TOPICS ×10, HELP_FAQ ×10, HELP_TROUBLE ×9 with
+  errorCodes locked to downloads.hint.*, plus pure filterHelp search); HelpPage.tsx
+  (TabList Topics/FAQ/Troubleshooting + SearchBox + Accordions + symptom cards with
+  Open diagnostics cross-links + About card from the pull-only diagnostics store);
+  AppShell wiring (View "help", NAV entry between Diagnostics and Settings, render
+  line); dict/common.ts nav.help; en.ts/fa.ts composition.
+- F-1 fixed: diagnostics export toasts (the last hardcoded-English user-visible
+  strings from Phase 21) localized via currentT() + new diag.toast.* keys,
+  regression-locked in the help suite.
+- F-2 fixed: CI flake found on the prior docs commit's run (39291290441) —
+  magnet_metadata_timeout_pauses_recoverable asserted exactly "queued" on resume while
+  a loaded runner can already show "metadata" (the documented resume behavior);
+  assertion now accepts both legal transients; torrent suite 7/7 green.
+- Tests: __tests__/help.test.ts (11) — unique ids, minimum counts, translator-throws
+  existence proof in BOTH languages, engine error-code lock, search drills en+fa;
+  i18n parity suite auto-extended over the 124 new keys.
+- Verification: verify-all green (118 contracts + 376 desktop + 280 cargo, budgets,
+  selftest, fmt/clippy — tool-results/verify-all-p27.log); real CI runs 39305427773
+  and 39306436878 both green; version 0.13.0 → 0.14.0 everywhere; contract 1.15.0
+  untouched.
+- Release v0.14.0 via the Phase 26 pipeline (run 39306440186, SUCCESS — second real
+  pipeline run, repeatability proof): 8 assets, F-2-fixed notes composition verified
+  in production (intro + unsigned notice ahead of the checksum table), portable zip
+  downloaded and sha256sum -c OK (e82b3d1a…61de5, 130 entries intact).
+
+Stage Summary:
+- Phase 27 delivered: the app now explains itself — localized Help page whose
+  troubleshooting speaks the engine's typed error vocabulary and cross-links into
+  Diagnostics; docs cannot drift from the engine (test-locked) or go half-localized
+  (compile-locked).
+- Two real defects fixed en route (F-1 i18n toasts, F-2 CI flake) and documented in
+  docs/phases/phase-27.md. Remote: main at <final>, tag v0.14.0 → release v0.14.0.
+  Next: phase 28 — data-integrity validation sweep.

@@ -82,12 +82,23 @@ comment.
   **118 contracts + 376 desktop + 280 cargo** (11 net-new help tests; 365 prior + 11),
   budget gate respected (help page inside the renderer bundle budget), fmt/clippy clean
   (log: `tool-results/verify-all-p27.log`).
-- **Real CI**: recorded after push — run identifiers go into this section once the runs
-  complete.
-- **Release v0.14.0**: tagged; the Phase 26 pipeline builds and publishes the release
-  end-to-end on a real Windows runner — the pipeline's second real run (repeatability
-  proof) with the F-2-fixed notes composition (intro + checksum table) verified in
-  production.
+- **Real CI**: run
+  [39305427773](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/runs/39305427773)
+  (commit `8a867a4`) and run
+  [39306436878](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/runs/39306436878)
+  (commit `99c855e`, after the F-2 flake fix) — **both green on real runners** (ubuntu
+  verify + windows MSVC core tests).
+- **Real pipeline (v0.14.0, run
+  [39306440186](https://github.com/SyntaxCove/SyntaxDownloadManager/actions/runs/39306440186)
+  on commit `99c855e`)**: **success on a real Windows runner** — the Phase 26
+  pipeline's second real run (repeatability proof). The published
+  [release](https://github.com/SyntaxCove/SyntaxDownloadManager/releases/tag/v0.14.0)
+  carries **8 assets** (Setup exe 122,162,246 B + blockmap, portable zip 167,798,767 B,
+  `latest.yml`, `.sha256` sidecars) and the **F-2-fixed notes composition verified in
+  production**: intro + unsigned-build notice ahead of the pipeline-generated checksum
+  table. **Byte-level acceptance**: the portable zip downloaded from the release passed
+  `sha256sum -c` against its published sidecar (digest `e82b3d1a…61de5`, 130 entries,
+  zero corrupt).
 
 ## Honest scope notes
 
