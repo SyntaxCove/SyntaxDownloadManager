@@ -8,7 +8,7 @@ import { makeRequest, newUlid, type DownloadJob } from "@syntaxdm/contracts";
 import { compareQueueDisplay, useDownloadsStore } from "../stores/downloads.js";
 
 /**
- * Phase 22 perf gate — the TS-side latency budgets from scripts/perf-budgets.json:
+ * Phase 22 perf gate — the TS-side latency budgets from apps/desktop/resources/perf-budgets.json:
  *  - validated IPC dispatch throughput (the boundary every renderer↔main call crosses);
  *  - the downloads-store hot path (upsertJob / patchProgress over a realistic job list —
  *    the code that runs on every progress tick while a download is active);
@@ -21,8 +21,9 @@ import { compareQueueDisplay, useDownloadsStore } from "../stores/downloads.js";
  */
 
 const here = join(fileURLToPath(import.meta.url), "..");
-// apps/desktop/src/renderer/src/__tests__ → repo root is six levels up.
-const budgetsPath = resolve(here, "..", "..", "..", "..", "..", "..", "scripts", "perf-budgets.json");
+// apps/desktop/src/renderer/src/__tests__ → apps/desktop (four levels up) ships the
+// budgets under resources/ (Phase 29: same file the packaged app reads at runtime).
+const budgetsPath = resolve(here, "..", "..", "..", "..", "resources", "perf-budgets.json");
 const budgets = JSON.parse(readFileSync(budgetsPath, "utf8")) as {
   ts: { ipcDispatch2000Ms: { budget: number }; uiStoreHotPathMs: { budget: number }; uiQueueSortMs: { budget: number } };
 };

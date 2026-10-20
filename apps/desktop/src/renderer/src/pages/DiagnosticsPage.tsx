@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Text,
   Button,
@@ -12,11 +12,12 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { ArrowSyncRegular, ArrowExportLtrRegular, ArrowExportRtlRegular } from "@fluentui/react-icons";
-import type { HealthReport, LogLevel, PerformanceSnapshot } from "@syntaxdm/contracts";
+import { ArrowSyncRegular, ArrowExportLtrRegular, ArrowExportRtlRegular, CopyRegular } from "@fluentui/react-icons";
+import type { BudgetReport, BudgetMeasurement, HealthReport, LogLevel, PerformanceSnapshot } from "@syntaxdm/contracts";
 import { useDiagnosticsStore } from "../stores/diagnostics.js";
 import { useSettingsStore } from "../stores/settings.js";
 import { useI18n } from "../i18n/context.js";
+import { budgetReportToMarkdown } from "../perf/report-markdown.js";
 import { formatBytes, formatNumber } from "../i18n/format.js";
 
 /**
@@ -304,6 +305,112 @@ function PerfCard({ perf }: { perf: PerformanceSnapshot }): ReactNode {
   );
 }
 
+function BudgetReportCard(): ReactNode {
+  const styles = useStyles();
+  const { t } = useI18n();
+  const report = useDiagnosticsStore((s) => s.budgetReport);
+  const running = useDiagnosticsStore((s) => s.budgetRunning);
+  const runError = useDiagnosticsStore((s) => s.budgetError);
+  const run = useDiagnosticsStore((s) => s.runBudgetReport);
+  const [copied, setCopied] = useState(false);
+
+  const formatActual = (m: BudgetMeasurement): string => {
+    if (m.actual === null) return t("perf.report.chip.skipped");
+    if (m.unit === "bytes") return formatBytes(m.actual, t.lang);
+    const n = formatNumber(m.actual, t.lang);
+    return m.unit === "ms" ? t("perf.unit.ms", { n }) : m.unit === "us" ? t("perf.unit.us", { n }) : t("perf.unit.kb", { n });
+  };
+
+  const onCopy = (): void => {
+    if (!report) return;
+    navigator.clipboard
+      .writeText(budgetReportToMarkdown(report))
+      .then(() => setCopied(true))
+      .then(() => setTimeout(() => setCopied(false), 2_000))
+      .catch(() => setCopied(false));
+  };
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.row}>
+        <div>
+          <Text as="h2" className={styles.cardTitle}>{t("perf.report.title")}</Text>
+          <Text className={styles.logDir}>{t("perf.report.desc")}</Text>
+        </div>
+        <div className={styles.actionsRow}>
+          <Button
+            icon={<CopyRegular />}
+            size="small"
+            onClick={onCopy}
+            disabled={!report || running}
+          >
+            {copied ? t("perf.report.copied") : t("perf.report.copy")}
+          </Button>
+          <Button
+            icon={<ArrowSyncRegular />}
+            size="small"
+            appearance="primary"
+            onClick={() => void run()}
+            disabled={running}
+          >
+            {running ? t("perf.report.running") : t("perf.report.run")}
+          </Button>
+        </div>
+      </div>
+
+      {runError ? (
+        <MessageBar intent="error">
+          <MessageBarBody>
+            {t("perf.report.failed")}: {runError}
+          </MessageBarBody>
+        </MessageBar>
+      ) : null}
+
+      {report ? (
+        <>
+          <div className={styles.row}>
+            <Text className={styles.logDir}>
+              {t("perf.report.summary", {
+                passed: formatNumber(report.summary.passed, t.lang),
+                breached: formatNumber(report.summary.breached, t.lang),
+                skipped: formatNumber(report.summary.skipped, t.lang),
+              })}
+            </Text>
+            <Badge
+              appearance="filled"
+              color={report.verdict === "healthy" ? "success" : "danger"}
+              size="medium"
+            >
+              {report.verdict === "healthy" ? t("perf.report.verdict.healthy") : t("perf.report.verdict.breached")}
+            </Badge>
+          </div>
+          <div className={styles.grid}>
+            {report.measurements.map((m) => (
+              <div key={m.id} className={styles.kv}>
+                <span className={styles.key}>
+                  {t(`perf.budget.${m.id}`)} — {formatActual(m)} / {m.budget} {m.unit === "bytes" ? "B" : m.unit}
+                </span>
+                <span className={styles.value}>
+                  <Badge
+                    appearance="tint"
+                    color={m.verdict === "pass" ? "success" : m.verdict === "breach" ? "danger" : "subtle"}
+                    size="small"
+                  >
+                    {t(`perf.report.chip.${m.verdict}`)}
+                  </Badge>{" "}
+                  <span className={styles.key}>{m.detail}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <Text className={styles.logDir}>{t("perf.report.empty")}</Text>
+      )}
+    </div>
+  );
+}
+
 function LogTail(): ReactNode {
   const styles = useStyles();
   const { t } = useI18n();
@@ -433,6 +540,7 @@ export function DiagnosticsPage(): ReactNode {
           <AppCard report={report} />
           <CoreCard report={report} />
           {perf ? <PerfCard perf={perf} /> : null}
+          <BudgetReportCard />
           <ToolkitUpdaterCards report={report} />
           <div className={styles.card}>
             <Text as="h2" className={styles.cardTitle}>{t("diag.files.title")}</Text>

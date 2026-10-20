@@ -2,6 +2,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { release as osRelease } from "node:os";
 import { join, resolve } from "node:path";
 import { describe } from "vitest";
 import { EVENTS, RequestEnvelope, type UpdateState } from "@syntaxdm/contracts";
@@ -386,6 +387,19 @@ export async function bootApp(opts: BootOptions = {}): Promise<AppHandle> {
       pid: process.pid,
       uptimeMs: () => Math.round(process.uptime() * 1000),
       memoryRssBytes: () => process.memoryUsage().rss,
+    },
+    perfReport: {
+      // The REAL budgets file from apps/desktop/resources — the same bytes the packaged
+      // app ships and the build gate enforces.
+      budgetsFile: resolve(REPO_ROOT, "apps", "desktop", "resources", "perf-budgets.json"),
+      bootClock,
+      supervisor,
+      appVersion,
+      platform: process.platform,
+      osRelease: osRelease(),
+      source: "headless-test",
+      rendererAssetsDir: resolve(REPO_ROOT, "apps", "desktop", "dist", "renderer", "assets"),
+      logger,
     },
   });
 

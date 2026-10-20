@@ -56,7 +56,7 @@
 | 26 | Release engineering — CI, checksums, artifact pipeline | delivered (2026-10-19) |
 | 27 | Docs — in-app help, FAQ, troubleshooting | delivered (2026-10-19) |
 | 28 | Data-integrity validation sweep — checksum/recovery deep verification | delivered (2026-10-20) |
-| 29 | Performance validation — real-device budget report harness | pending |
+| 29 | Performance validation — real-device budget report harness | delivered (2026-10-20) |
 | 30 | Security & privacy final review — supply chain, SBOM | pending |
 | 31 | 1.0.0 — final QA, version, release | pending |
 

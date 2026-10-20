@@ -1,5 +1,5 @@
 {
-  "$comment": "Syntax Download Manager — performance budgets (Phase 22). Single source of truth consumed by scripts/check-budgets.mjs (build gate, runs after the renderer build) and by vitest perf tests. Every budget carries the sandbox-measured baseline it was calibrated from. Values are honest ceilings with headroom for CI noise; they exist to catch pathological regressions, not to be rubber-stamped.",
+  "$comment": "Syntax Download Manager — performance budgets (Phase 22; shipped to the packaged app by Phase 29). Single source of truth consumed by scripts/check-budgets.mjs (build gate, runs after the renderer build), by vitest perf tests, and at runtime by the real-device budget report harness (Diagnostics page, perf.runReport). Every budget carries the sandbox-measured baseline it was calibrated from. Values are honest ceilings with headroom for CI noise; they exist to catch pathological regressions, not to be rubber-stamped.",
   "measuredAt": "2026-10-18",
   "environment": "Linux sandbox, debug (dev) profile Rust build, Node 24, release-mode vite bundle",
   "core": {
@@ -22,13 +22,13 @@
   "renderer": {
     "maxTotalJsBytes": {
       "budget": 1200000,
-      "measured": 1075944,
-      "note": "sum of all .js assets in dist/renderer/assets (sourcemaps excluded). ~11.6% headroom over the Phase 22 baseline; catches new heavyweight deps or accidental double imports."
+      "measured": 1158502,
+      "note": "sum of all .js assets in dist/renderer/assets (sourcemaps excluded). Baseline re-measured at Phase 29 (the Diagnostics budget-report card cost ~11.7 KB). Catches new heavyweight deps or accidental double imports."
     },
     "maxLargestChunkBytes": {
       "budget": 1200000,
-      "measured": 1075944,
-      "note": "largest single .js asset. A future code split must not grow any chunk past the total-bytes budget of today."
+      "measured": 1158502,
+      "note": "largest single .js asset (re-measured at Phase 29). A future code split must not grow any chunk past the total-bytes budget of today."
     },
     "maxTotalCssBytes": {
       "budget": 150000,

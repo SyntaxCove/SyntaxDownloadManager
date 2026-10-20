@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -102,20 +102,60 @@ export class CoreSupervisor extends EventEmitter {
 
   /**
    * Phase 22: sample the core subprocess RSS (bytes). Linux reads /proc/<pid>/status;
-   * every other platform returns null (the wire type is nullable for exactly this reason —
-   * Windows numbers come from user-side runs via Diagnostics). Never throws: a missing
-   * process or an unreadable /proc is reported as null, not an error.
+   * Phase 29 adds a Windows branch (PowerShell WorkingSet64 probe with a small TTL cache,
+   * so the 10 s diagnostics refresh and a budget-report run never stampede); every other
+   * platform returns null (the wire type is nullable for exactly this reason). Never
+   * throws: a missing process, an unreadable /proc or a failed probe is reported as null,
+   * not an error.
    */
   async sampleCoreRssBytes(): Promise<number | null> {
     const pid = this.child?.pid;
-    if (pid === undefined || process.platform !== "linux") return null;
-    try {
-      const status = await readFile(`/proc/${pid}/status`, "utf8");
-      const m = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
-      return m ? Number(m[1]) * 1024 : null;
-    } catch {
-      return null;
+    if (pid === undefined) return null;
+    if (process.platform === "linux") {
+      try {
+        const status = await readFile(`/proc/${pid}/status`, "utf8");
+        const m = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
+        return m ? Number(m[1]) * 1024 : null;
+      } catch {
+        return null;
+      }
     }
+    if (process.platform === "win32") return this.sampleWindowsRss(pid);
+    return null;
+  }
+
+  /**
+   * Phase 29: the Windows RSS probe — a short-lived PowerShell reading WorkingSet64 for
+   * the core's pid. Cached for a few seconds (the diagnostics page samples every 10 s and
+   * a budget report adds at most one extra sample; there is no reason to spawn PowerShell
+   * more often), single-flight (overlapping callers share one probe), and null on ANY
+   * failure — the sampler decorates a diagnostics surface, it must never throw.
+   */
+  private winRssCache: { value: number | null; at: number } | null = null;
+  private winRssInflight: Promise<number | null> | null = null;
+  private static readonly WIN_RSS_TTL_MS = 4_000;
+
+  private sampleWindowsRss(pid: number): Promise<number | null> {
+    const now = Date.now();
+    if (this.winRssCache && now - this.winRssCache.at < CoreSupervisor.WIN_RSS_TTL_MS) {
+      return Promise.resolve(this.winRssCache.value);
+    }
+    if (this.winRssInflight) return this.winRssInflight;
+    this.winRssInflight = new Promise<number | null>((resolveProbe) => {
+      execFile(
+        "powershell.exe",
+        buildWindowsRssProbeCommand(pid),
+        { timeout: 3_000, windowsHide: true },
+        (err, stdout) => {
+          const value = err ? null : parseWindowsRssOutput(String(stdout));
+          this.winRssCache = { value, at: Date.now() };
+          resolveProbe(value);
+        },
+      );
+    }).finally(() => {
+      this.winRssInflight = null;
+    });
+    return this.winRssInflight;
   }
 
   /** verboseLogging setting → core spawn env; effective on the next launch. */
@@ -311,4 +351,29 @@ export function resolveCoreBinaryPath(opts: {
   // dev layout: built by `cargo build` inside the monorepo
   const profile = process.env.SYNTAXDM_CORE_PROFILE ?? "debug";
   return join(opts.appRoot, "core", "target", profile, exe);
+}
+
+/**
+ * Phase 29 — the pure pieces of the Windows RSS probe, exported so unit tests can lock
+ * them without a Windows runner. The live branch is fenced: probe failure ⇒ null.
+ */
+
+/** Build the PowerShell argument vector probing a pid's WorkingSet64. */
+export function buildWindowsRssProbeCommand(pid: number): string[] {
+  // -NoProfile/-NonInteractive: no profile side effects, no prompts; errors must not hang.
+  return [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).WorkingSet64`,
+  ];
+}
+
+/** Parse the probe's stdout — a bare integer byte count — or null for anything else
+ *  (process gone prints an empty line; a non-numeric reply is not an RSS). */
+export function parseWindowsRssOutput(stdout: string): number | null {
+  const m = /^\s*(\d+)\s*$/m.exec(stdout);
+  if (!m) return null;
+  const value = Number(m[1]);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }

@@ -61,6 +61,8 @@ import {
 } from "../domain/diagnostics.js";
 import {
   PerfGetSnapshotParams, PerfGetSnapshotResult,
+  PerfProbeParams, PerfProbeResult,
+  PerfRunReportParams, PerfRunReportResult,
 } from "../domain/perf.js";
 
 /**
@@ -246,6 +248,9 @@ export const METHODS = {
   "diagnostics.health": { server: "core", params: DiagnosticsHealthParams, result: DiagnosticsHealthResult },
   // ---- main (v1.15, Phase 22): performance snapshot — boot timings, memory, IPC counters ----
   "perf.getSnapshot": { server: "main", params: PerfGetSnapshotParams, result: PerfGetSnapshotResult },
+  // ---- main (v1.16, Phase 29): real-device budget report harness ----
+  "perf.probe": { server: "main", params: PerfProbeParams, result: PerfProbeResult },
+  "perf.runReport": { server: "main", params: PerfRunReportParams, result: PerfRunReportResult },
 } satisfies Record<string, { server: "main" | "core" } & Partial<MethodEntry>>;
 
 export type MethodName = keyof typeof METHODS;

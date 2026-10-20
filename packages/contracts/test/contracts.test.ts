@@ -21,6 +21,8 @@ import {
   CoreHealthSnapshot, LogRecord, DiagnosticsGetRecentLogsParams,
   DiagnosticsExportLogsParams, DiagnosticsExportLogsResult,
   PerformanceSnapshot, BootTimingReport, IpcCounters, BootPhase,
+  BudgetReport, BudgetMeasurement, BudgetVerdict, BudgetId, BudgetUnit,
+  RendererMeasurements, PerfRunReportParams, PerfProbeResult,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1223,5 +1225,100 @@ describe("performance (Phase 22, v1.15)", () => {
     expect(c.requestsServed).toBe(3);
     expect(() => IpcCounters.parse({ requestsServed: 1.5, eventsEmitted: 0, invalidDropped: 0 })).toThrow();
     expect(() => IpcCounters.parse({ requestsServed: -1, eventsEmitted: 0, invalidDropped: 0 })).toThrow();
+  });
+});
+
+describe("budget report (Phase 29, v1.16)", () => {
+  const fixtureReport = domainFixture.budgetReport;
+
+  it("perf.probe and perf.runReport are registered as main-served", () => {
+    expect(METHODS["perf.probe"].server).toBe("main");
+    expect(METHODS["perf.runReport"].server).toBe("main");
+    expect(METHODS["perf.runReport"].params?.safeParse({}).success).toBe(true);
+    expect(METHODS["perf.runReport"].params?.safeParse({ renderer: { ipcDispatch2000Ms: 12, uiStoreHotPathMs: 40, uiQueueSortMs: 6 } }).success).toBe(true);
+    expect(PerfProbeResult.parse({ pong: true }).pong).toBe(true);
+  });
+
+  it("runReport params reject non-finite, negative or over-bound renderer numbers", () => {
+    expect(PerfRunReportParams.safeParse({ renderer: { ipcDispatch2000Ms: -1, uiStoreHotPathMs: 1, uiQueueSortMs: 1 } }).success).toBe(false);
+    expect(PerfRunReportParams.safeParse({ renderer: { ipcDispatch2000Ms: Number.NaN, uiStoreHotPathMs: 1, uiQueueSortMs: 1 } }).success).toBe(false);
+    expect(PerfRunReportParams.safeParse({ renderer: { ipcDispatch2000Ms: 3_600_001, uiStoreHotPathMs: 1, uiQueueSortMs: 1 } }).success).toBe(false);
+    expect(() => PerfRunReportParams.parse({ renderer: { ipcDispatch2000Ms: 1, uiStoreHotPathMs: 1, uiQueueSortMs: "fast" } })).toThrow();
+  });
+
+  it("the budgetReport fixture parses and round-trips the exact wire shape", () => {
+    const report = BudgetReport.parse(fixtureReport);
+    expect(report.verdict).toBe("breached");
+    expect(report.summary).toEqual({ total: 9, passed: 7, breached: 1, skipped: 1 });
+    // Round-trip: parsed → serialized → parsed is byte-identical JSON.
+    expect(JSON.parse(JSON.stringify(report))).toEqual(fixtureReport);
+  });
+
+  it("measurements carry the arithmetic truth — a lying verdict cannot parse", () => {
+    const base = { id: "core.coldStartReadyMs" as const, budget: 2000, unit: "ms" as const, detail: "x" };
+    // pass with actual above budget → rejected
+    expect(() => BudgetMeasurement.parse({ ...base, actual: 2001, verdict: "pass" })).toThrow(/cannot be a pass/);
+    // breach with actual at budget → rejected
+    expect(() => BudgetMeasurement.parse({ ...base, actual: 2000, verdict: "breach" })).toThrow(/cannot be a breach/);
+    // skipped with a number → rejected
+    expect(() => BudgetMeasurement.parse({ ...base, actual: 5, verdict: "skipped" })).toThrow(/null actual/);
+    // pass with null actual → rejected
+    expect(() => BudgetMeasurement.parse({ ...base, actual: null, verdict: "pass" })).toThrow(/requires a measured actual/);
+    // boundary honesty: actual === budget is a pass
+    expect(BudgetMeasurement.parse({ ...base, actual: 2000, verdict: "pass" }).verdict).toBe("pass");
+    expect(BudgetMeasurement.parse({ ...base, actual: 2000.5, verdict: "breach" }).verdict).toBe("breach");
+  });
+
+  it("ids, units, verdicts and sources are closed enums", () => {
+    expect(BudgetId.options).toHaveLength(9);
+    expect(BudgetUnit.options).toEqual(["ms", "us", "bytes", "kb"]);
+    expect(BudgetVerdict.options).toEqual(["pass", "breach", "skipped"]);
+    expect(() => BudgetMeasurement.parse({ id: "gpu.frameTimeMs", budget: 1, actual: 1, unit: "ms", verdict: "pass", detail: "x" })).toThrow();
+  });
+
+  it("the report enforces exactly-once ids and a self-consistent summary", () => {
+    const good = BudgetReport.parse(fixtureReport);
+    // duplicate id → rejected
+    const dup = { ...fixtureReport, measurements: [good.measurements[0], ...good.measurements] };
+    expect(() => BudgetReport.parse(dup)).toThrow(/duplicate budget ids/);
+    // missing id → rejected
+    const missing = { ...fixtureReport, measurements: good.measurements.slice(1) };
+    expect(() => BudgetReport.parse(missing)).toThrow(/missing measurement for/);
+    // summary mismatch → rejected
+    const badSummary = { ...fixtureReport, summary: { total: 9, passed: 8, breached: 0, skipped: 1 } };
+    expect(() => BudgetReport.parse(badSummary)).toThrow(/summary counts do not match/);
+    // parts must sum to total
+    const badSum = { ...fixtureReport, summary: { total: 9, passed: 6, breached: 1, skipped: 1 } };
+    expect(() => BudgetReport.parse(badSum)).toThrow(/must sum to total/);
+    // verdict must follow the breach count
+    const badVerdict = { ...fixtureReport, verdict: "healthy" };
+    expect(() => BudgetReport.parse(badVerdict)).toThrow(/verdict must be/);
+    // a fully-passing report is healthy
+    const allPass = {
+      ...fixtureReport,
+      measurements: good.measurements.map((m) =>
+        m.verdict === "skipped"
+          ? { ...m, actual: 5, verdict: "pass" }
+          : m.verdict === "breach"
+            ? { ...m, actual: m.budget, verdict: "pass" }
+            : m,
+      ),
+      summary: { total: 9, passed: 9, breached: 0, skipped: 0 },
+      verdict: "healthy",
+    };
+    expect(BudgetReport.parse(allPass).verdict).toBe("healthy");
+  });
+
+  it("renderer measurements schema bounds the three device numbers", () => {
+    const ok = RendererMeasurements.parse({ ipcDispatch2000Ms: 310.5, uiStoreHotPathMs: 44, uiQueueSortMs: 6.2 });
+    expect(ok.uiQueueSortMs).toBeCloseTo(6.2);
+    expect(() => RendererMeasurements.parse({ ipcDispatch2000Ms: 1, uiStoreHotPathMs: 1, uiQueueSortMs: -1 })).toThrow();
+    expect(() => RendererMeasurements.parse({ ipcDispatch2000Ms: Infinity, uiStoreHotPathMs: 1, uiQueueSortMs: 1 })).toThrow();
+  });
+
+  it("contract version advanced to at least 1.16.0 (Phase 29 budget report is additive)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(16);
+    else expect(maj).toBeGreaterThan(1);
   });
 });

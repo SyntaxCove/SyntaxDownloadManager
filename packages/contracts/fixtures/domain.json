@@ -467,5 +467,90 @@
     "mainRssBytes": 184281088,
     "coreRssBytes": 17584128,
     "sampledAt": 1791000001000
+  },
+  "budgetReport": {
+    "reportVersion": 1,
+    "generatedAt": 1791000002000,
+    "appVersion": "0.16.0",
+    "contractVersion": "1.16.0",
+    "platform": "win32",
+    "osRelease": "10.0.26100",
+    "source": "packaged-app",
+    "measurements": [
+      {
+        "id": "core.coldStartReadyMs",
+        "budget": 2000,
+        "actual": 38,
+        "unit": "ms",
+        "verdict": "pass",
+        "detail": "BootClock core-spawned → core-ready on this device's last boot"
+      },
+      {
+        "id": "core.rssAfterReadyKb",
+        "budget": 65536,
+        "actual": 17168,
+        "unit": "kb",
+        "verdict": "pass",
+        "detail": "PowerShell WorkingSet64 sample after the first ready transition"
+      },
+      {
+        "id": "core.echoAvgUs",
+        "budget": 2000,
+        "actual": 2500,
+        "unit": "us",
+        "verdict": "breach",
+        "detail": "average of 100 core.ping round-trips through the running core"
+      },
+      {
+        "id": "renderer.maxTotalJsBytes",
+        "budget": 1200000,
+        "actual": 1153440,
+        "unit": "bytes",
+        "verdict": "pass",
+        "detail": "sum of the packaged renderer's .js assets"
+      },
+      {
+        "id": "renderer.maxLargestChunkBytes",
+        "budget": 1200000,
+        "actual": 1153440,
+        "unit": "bytes",
+        "verdict": "pass",
+        "detail": "largest packaged renderer .js asset"
+      },
+      {
+        "id": "renderer.maxTotalCssBytes",
+        "budget": 150000,
+        "actual": 0,
+        "unit": "bytes",
+        "verdict": "pass",
+        "detail": "sum of the packaged renderer's .css assets (Fluent styles are runtime)"
+      },
+      {
+        "id": "ts.ipcDispatch2000Ms",
+        "budget": 1000,
+        "actual": 312.5,
+        "unit": "ms",
+        "verdict": "pass",
+        "detail": "2000 perf.probe round-trips through the real preload bridge"
+      },
+      {
+        "id": "ts.uiStoreHotPathMs",
+        "budget": 1000,
+        "actual": 44.2,
+        "unit": "ms",
+        "verdict": "pass",
+        "detail": "2000 upserts + 2000 patches over a throwaway 200-job store"
+      },
+      {
+        "id": "ts.uiQueueSortMs",
+        "budget": 500,
+        "actual": null,
+        "unit": "ms",
+        "verdict": "skipped",
+        "detail": "renderer measurements were not provided for this run"
+      }
+    ],
+    "summary": { "total": 9, "passed": 7, "breached": 1, "skipped": 1 },
+    "verdict": "breached"
   }
 }

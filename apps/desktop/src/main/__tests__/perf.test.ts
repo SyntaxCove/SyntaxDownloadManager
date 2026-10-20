@@ -12,7 +12,7 @@ import { makeRequest, newUlid } from "@syntaxdm/contracts";
 
 /**
  * Phase 22 — boot clock, router counters, and core-RSS sampling.
- * The enforced latency budgets live in scripts/perf-budgets.json and the perf gate
+ * The enforced latency budgets live in apps/desktop/resources/perf-budgets.json and the perf gate
  * (renderer __tests__/perf.test.ts + core tests/perf.rs + scripts/check-budgets.mjs);
  * this file pins the INSTRUMENTATION those budgets are read from.
  */
@@ -185,19 +185,19 @@ describe("CoreSupervisor.sampleCoreRssBytes (Phase 22)", () => {
 });
 
 describe("perf-budgets.json integrity (Phase 22)", () => {
-  /** Walk upward from cwd until scripts/perf-budgets.json is found (CJS-safe; same
-   *  strategy as the Phase 19 package-layout drift guard). */
-  function repoRoot(): string {
+  /** Walk upward from cwd until apps/desktop/resources/perf-budgets.json is found (CJS-safe;
+   *  same strategy as the Phase 19 package-layout drift guard). */
+  function desktopRoot(): string {
     let dir = process.cwd();
     for (let i = 0; i < 10; i++) {
-      if (existsSync(join(dir, "scripts", "perf-budgets.json"))) return dir;
+      if (existsSync(join(dir, "resources", "perf-budgets.json"))) return dir;
       dir = dirname(dir);
     }
     throw new Error(`perf-budgets.json not found upward from ${process.cwd()}`);
   }
 
   it("parses, carries measured baselines, and budgets never sit below reality", () => {
-    const budgets = JSON.parse(readFileSync(join(repoRoot(), "scripts", "perf-budgets.json"), "utf8"));
+    const budgets = JSON.parse(readFileSync(join(desktopRoot(), "resources", "perf-budgets.json"), "utf8"));
     for (const section of ["core", "renderer"]) {
       for (const [name, entry] of Object.entries(
         budgets[section] as Record<string, { budget: number; measured: number }>,

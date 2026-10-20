@@ -19,6 +19,7 @@ import { registerNotifyEngine, type OsNotificationPort } from "./domains/notify.
 import type { UpdateController } from "./domains/updates.js";
 import { registerDiagnosticsDomain, type DiagnosticsDeps } from "./domains/diagnostics.js";
 import { registerPerfDomain } from "./domains/perf.js";
+import type { BudgetReportDeps } from "./perf/budget-report.js";
 
 /**
  * Phase 25: the shipped domain composition, extracted from `main.ts` so the E2E suites
@@ -51,6 +52,8 @@ export interface AppDomainsDeps {
   notificationPort: OsNotificationPort;
   /** Process facts for the diagnostics health report. */
   appFacts: DiagnosticsDeps["appFacts"];
+  /** Phase 29: everything the real-device budget report harness needs. */
+  perfReport: BudgetReportDeps;
   /** RPC timeout for the core health snapshot (small). */
   coreHealthTimeoutMs?: number;
 }
@@ -71,6 +74,7 @@ export function registerAppDomains(deps: AppDomainsDeps): void {
     notificationPort,
     appFacts,
     coreHealthTimeoutMs,
+    perfReport,
   } = deps;
 
   registerSettingsDomain(router, settings);
@@ -93,7 +97,7 @@ export function registerAppDomains(deps: AppDomainsDeps): void {
     appFacts,
     ...(coreHealthTimeoutMs !== undefined ? { coreHealthTimeoutMs } : {}),
   });
-  registerPerfDomain(router, { supervisor, bootClock, logger });
+  registerPerfDomain(router, { supervisor, bootClock, logger, report: perfReport });
 }
 
 /**

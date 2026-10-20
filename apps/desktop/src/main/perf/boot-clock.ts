@@ -19,7 +19,7 @@ import { BootPhaseTiming, BootTimingReport } from "@syntaxdm/contracts";
  * (`component: "perf"`), which puts true device numbers into the Phase 20 log pipeline,
  * the diagnostics tail, and every exported diagnostics zip. Sandbox enforcement of these
  * numbers is impossible (no Electron GUI); the enforced budgets live in
- * scripts/perf-budgets.json and cover what this repo CAN measure honestly.
+ * apps/desktop/resources/perf-budgets.json and cover what this repo CAN measure honestly.
  */
 
 /** The ordered phase list — index IS the expected boot order. */

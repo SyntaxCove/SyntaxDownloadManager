@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Phase 22 build gate: enforce the renderer bundle budgets from scripts/perf-budgets.json.
+// Phase 22 build gate: enforce the renderer bundle budgets from apps/desktop/resources/perf-budgets.json
+// (moved from scripts/ in Phase 29 so the packaged app ships the same file the gate reads).
 // Runs in verify-all.sh AFTER `build:desktop` produces dist/renderer. Fails (exit 1) with a
 // clear report when any budget is breached. Sourcemaps are excluded (they are dev artifacts,
 // never shipped to the renderer's runtime).
@@ -9,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
-const budgetsPath = join(repoRoot, "scripts", "perf-budgets.json");
+const budgetsPath = join(repoRoot, "apps", "desktop", "resources", "perf-budgets.json");
 const assetsDir = join(repoRoot, "apps", "desktop", "dist", "renderer", "assets");
 
 const budgets = JSON.parse(readFileSync(budgetsPath, "utf8"));

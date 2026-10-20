@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, Notification, nativeImage, safeStorage, Tray, shell } from "electron";
 import { existsSync } from "node:fs";
+import { release as osRelease } from "node:os";
 import { resolve, join } from "node:path";
 import { EVENTS } from "@syntaxdm/contracts";
 import { IpcRouter } from "./ipc/router.js";
@@ -16,6 +17,7 @@ import { createElectronUpdater } from "./domains/updates-adapter.js";
 import { registerUpdateDomain } from "./domains/updates.js";
 import { registerAppDomains, pushCoreRuntimeState } from "./composition.js";
 import { BootClock } from "./perf/boot-clock.js";
+import { budgetReportSourceLabel, rendererAssetsDirUnder } from "./perf/report-env.js";
 import {
   TrayController,
   countsFromStatuses,
@@ -373,6 +375,17 @@ if (!gotLock) {
         pid: process.pid,
         uptimeMs: () => Math.round(process.uptime() * 1000),
         memoryRssBytes: () => process.memoryUsage().rss,
+      },
+      perfReport: {
+        budgetsFile: paths.perfBudgets,
+        bootClock,
+        supervisor,
+        appVersion: app.getVersion(),
+        platform: process.platform,
+        osRelease: osRelease(),
+        source: budgetReportSourceLabel(app.isPackaged),
+        rendererAssetsDir: rendererAssetsDirUnder(appRoot),
+        logger,
       },
       coreHealthTimeoutMs: 3_000,
     });

@@ -19,6 +19,7 @@
     { "from": "dist/renderer", "to": "dist/renderer" },
     { "from": "dist/preload", "to": "dist/preload" },
     { "from": "resources/toolchains.json", "to": "toolchains.json" },
+    { "from": "resources/perf-budgets.json", "to": "perf-budgets.json" },
     { "from": "resources/icons/syntaxdm-tray.png", "to": "syntaxdm-tray.png" },
     { "from": "build/core", "to": "bin/download-core" }
   ],

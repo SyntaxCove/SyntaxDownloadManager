@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import type { DownloadJob, QueueDirection } from "@syntaxdm/contracts";
 import { onEvent, rpc } from "../bridge.js";
 
@@ -9,7 +9,8 @@ import { onEvent, rpc } from "../bridge.js";
 
 export type CoreStatus = "starting" | "ready" | "restarting" | "unavailable" | "unknown";
 
-interface DownloadsState {
+/** Exported (Phase 29) so the perf bench can build a throwaway vanilla store of this shape. */
+export interface DownloadsState {
   jobs: DownloadJob[];
   core: CoreStatus;
   loaded: boolean;
@@ -46,7 +47,15 @@ interface DownloadsState {
   setProxy: (id: string, proxyProfileId: string | null) => Promise<void>;
 }
 
-export const useDownloadsStore = create<DownloadsState>((set, get) => ({
+/**
+ * The state creator, exported (Phase 29) so the device budget-report bench can build a
+ * THROWAWAY vanilla store from the exact same code the live singleton runs — the bench
+ * must measure the real hot path without ever touching the user's visible job list.
+ * `useDownloadsStore` stays the one app-wide instance.
+ */
+type SetState = StoreApi<DownloadsState>["setState"];
+type GetState = StoreApi<DownloadsState>["getState"];
+export const createDownloadsState = (set: SetState, get: GetState): DownloadsState => ({
   jobs: [],
   core: "unknown",
   loaded: false,
@@ -155,7 +164,10 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
     const { job } = await rpc("download.setProxy", { id, proxyProfileId });
     get().upsertJob(job);
   },
-}));
+});
+
+/** The one app-wide instance (wired into pages and the event subscription below). */
+export const useDownloadsStore = create<DownloadsState>(createDownloadsState);
 
 /** Wired once from main.tsx. */
 export function subscribeDownloadEvents(): void {

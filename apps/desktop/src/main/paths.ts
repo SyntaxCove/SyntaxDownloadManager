@@ -10,6 +10,8 @@ export interface AppPaths {
   readonly devServerUrl: string | null;
   /** Pinned media-tool manifest (Phase 10): dev = apps/desktop/resources, packaged = resourcesPath. */
   readonly toolchainsManifest: string;
+  /** Performance budgets source of truth (Phase 29): same resolution rule as toolchains. */
+  readonly perfBudgets: string;
   /** Tray icon (Phase 17): dev = apps/desktop/resources/icons, packaged = resourcesPath. */
   readonly trayIcon: string;
 }
@@ -28,6 +30,9 @@ export function resolveAppPaths(opts: {
   const toolchainsManifest = opts.isPackaged
     ? resolve(opts.appRoot, "toolchains.json")
     : resolve(opts.appRoot, "resources/toolchains.json");
+  const perfBudgets = opts.isPackaged
+    ? resolve(opts.appRoot, "perf-budgets.json")
+    : resolve(opts.appRoot, "resources/perf-budgets.json");
   const trayIcon = opts.isPackaged
     ? resolve(opts.appRoot, "syntaxdm-tray.png")
     : resolve(opts.appRoot, "resources/icons/syntaxdm-tray.png");
@@ -39,6 +44,7 @@ export function resolveAppPaths(opts: {
       devServerUrl,
       toolchainsManifest,
       trayIcon,
+      perfBudgets,
     };
   }
   return {
@@ -47,6 +53,7 @@ export function resolveAppPaths(opts: {
     devServerUrl: null,
     toolchainsManifest,
     trayIcon,
+    perfBudgets,
   };
 }
 

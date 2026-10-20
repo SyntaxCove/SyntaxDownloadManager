@@ -1226,3 +1226,60 @@ Stage Summary:
   (tag v0.15.0) — 8 assets, notes composition verified in production for the third
   consecutive run, published portable zip sha256sum -c OK with 130 entries intact.
 - Next: phase 29 — performance validation (real-device budget report harness).
+
+---
+Task ID: 29
+Agent: main
+Task: فاز ۲۹ (interpretation rule: phases 0–28 were already delivered/pushed/released —
+v0.15.0 confirmed on the remote — so this session executed Phase 29 only): Performance
+validation — real-device budget report harness.
+
+Work Log:
+- Read PHASES.md row 29 + phase-22.md + perf-budgets.json + check-budgets.mjs + BootClock;
+  identified the gap: budgets were enforced in-sandbox (build gate, vitest, cargo perf
+  tests) while real devices only logged boot numbers — no on-device pass/breach verdict.
+- Moved scripts/perf-budgets.json → apps/desktop/resources/perf-budgets.json (git mv;
+  toolchains.json precedent) so the packaged app ships the exact bytes CI enforces;
+  extraResources entry; paths.ts perfBudgets resolver; all consumers updated
+  (check-budgets.mjs, both vitest perf gates, comment references).
+- Contracts 1.15.0 → 1.16.0 (additive): BudgetId (closed 9), BudgetUnit, BudgetVerdict,
+  BudgetReportSource, BudgetMeasurement (superRefine enforces skipped⇔null actual,
+  pass⇔actual≤budget, breach⇔actual>budget — the wire type cannot lie), BudgetReportSummary
+  (parts sum to total), BudgetReport (exactly-once ids, summary matches measurements,
+  verdict implied by breach count), RendererMeasurements (bounded), perf.probe + perf.runReport
+  (main-served), budgetReport cross-language fixture; dc-protocol mirrors 1.16.0.
+- CoreSupervisor: win32 RSS branch (PowerShell WorkingSet64 probe, -NoProfile/-NonInteractive,
+  3s timeout, 4s TTL cache, single-flight, null-on-failure); exported pure helpers
+  (buildWindowsRssProbeCommand, parseWindowsRssOutput) unit-locked.
+- Renderer: perf/benches.ts (benchIpcDispatch over the real bridge, benchStoreHotPath on a
+  throwaway vanilla store from the exported createDownloadsState — live singleton provably
+  untouched via a sentinel test, benchQueueSort on the pure comparator); stores/downloads.ts
+  refactored to export the state creator (behavior identical); perf/report-markdown.ts.
+- Main: perf/budget-report.ts (assembleBudgetReport with independently-degrading producers,
+  loadBudgetsFile loud-fails on packaging bugs, measureCoreEchoUs requires ALL 100 pings,
+  inventoryRendererBundle skips when assets absent); perf domain gained perf.probe +
+  perf.runReport with single-flight; composition/main/E2E-harness wiring (source labels
+  packaged-app/dev/headless-test; report-env.ts helpers).
+- UI: Diagnostics Budget report card (run button → renderer benches → runReport; localized
+  table with pass/breach/skipped chips + per-row provenance; summary; overall verdict badge;
+  Copy report via navigator.clipboard with deterministic Markdown); 31 new i18n keys en+fa.
+- Fixed en route: three self-inflicted type errors (deps.now ?? Date.now() eagerly called —
+  now a wrapper; Partial<Record> producers; store creator's stale `}));` delimiter), the
+  JsonlLogger info(component,msg,fields) signature in fakes, and PerfDomainOptions.logger
+  narrowed to a structural Pick<JsonlLogger,"info"|"debug"> for testability.
+- Verification: verify-all green with Rust on PATH — 126 contracts (+8) + 400 desktop (+24)
+  + 300 cargo, budget gate respected (1,158,502/1,200,000 B; baselines re-measured honestly),
+  checksums selftest ok, fmt/clippy clean (tool-results/verify-all-p29.log); E2E suite 21
+  ran against the real core: healthy report with REAL cold-start/RSS/echo measurements,
+  breach math flips the verdict end-to-end, single-flight, 2,000 real probes.
+- Versions: app/root/workspace 0.15.0 → 0.16.0; contracts 1.15.0 → 1.16.0 (dc-protocol
+  mirrored; no Rust surface — main-served precedent).
+
+Stage Summary:
+- Phase 29 delivered: the app now grades ITSELF — the Diagnostics page measures the running
+  app against the shipped budgets and produces a schema-checked, log-persisted verdict
+  report; the verdict arithmetic is enforced by the wire contract itself.
+- One budget-home change (scripts → resources) makes CI-gate and device-report budgets
+  byte-identical by construction.
+- Release: tag v0.16.0 via the Phase 26 pipeline (details in the commit + docs).
+- Next: phase 30 — security & privacy final review (supply chain, SBOM).

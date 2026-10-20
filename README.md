@@ -8,7 +8,7 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–28 of 31 are delivered and fully tested. Windows x64
+> **Status:** development phases 0–29 of 31 are delivered and fully tested. Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — releases are
 > built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
 > with **SHA-256 checksums** on the
@@ -262,7 +262,7 @@ core test suite on the shipping platform.
 
 ## Roadmap
 
-Delivered: **phases 0–28** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–29** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
 auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**,
@@ -276,9 +276,13 @@ topic guides, FAQ and troubleshooting wired to the engine's real error codes —
 **data-integrity validation sweep** that reconciles the segment journal against what is
 actually on disk (external `.part` deletion/truncation, crash-between-rename windows,
 power-loss durability) and honors every declared checksum algorithm, with the fix for each
-of the four real defects the sweep found locked by adversarial tests).
+of the four real defects the sweep found locked by adversarial tests — and a **real-device
+budget report harness**: the Diagnostics page measures the running app against the shipped
+performance budgets (core cold start, core memory — including a new Windows RSS sampler —
+echo latency, bundle bytes, IPC dispatch, store hot path, queue ordering) and produces a
+schema-checked, log-persisted pass/breach verdict report the user can copy or export).
 
-Next: **phase 29 — performance validation (real-device budget report harness)**, followed
+Next: **phase 30 — security & privacy final review (supply chain, SBOM)**, followed
 by the remaining phases in `docs/PHASES.md`.
 
 ## Security & policy stance
