@@ -4,7 +4,8 @@
 #   - verify:       contracts + desktop unit + E2E suites (over the REAL debug
 #                   download-core binary) + fmt/clippy/cargo test + renderer
 #                   build + performance budget gate + checksums/SBOM selftests
-#                   + runtime dependency audit gate;
+#                   + runtime dependency audit gate + the Phase 31 final QA gate
+#                   (version alignment + phase-map completeness);
 #   - core-windows: the Rust core must compile and pass on the shipping
 #                   platform (Windows x64 MSVC), not only on the Linux sandbox.
 #
@@ -100,6 +101,11 @@ jobs:
 
       - name: Runtime dependency audit gate (Phase 30 — shipped deps must stay at zero)
         run: npm audit --omit=dev
+
+      - name: Final QA gate (Phase 31 — version alignment + phase map)
+        run: |
+          node scripts/final-qa.mjs --selftest
+          node scripts/final-qa.mjs
 
   core-windows:
     name: core tests (windows, msvc)

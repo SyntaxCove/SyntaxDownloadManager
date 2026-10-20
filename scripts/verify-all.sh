@@ -28,6 +28,10 @@ node scripts/checksums.mjs --selftest
 echo "[syntaxdm] SBOM generator selftest (Phase 30 supply chain)"
 node scripts/sbom.mjs --selftest
 
+echo "[syntaxdm] final QA gate (Phase 31: version alignment + phase-map completeness)"
+node scripts/final-qa.mjs --selftest
+node scripts/final-qa.mjs
+
 echo "[syntaxdm] runtime dependency audit gate (Phase 30: shipped deps must stay at zero)"
 npm audit --omit=dev
 

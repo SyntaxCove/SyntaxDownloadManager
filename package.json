@@ -1,6 +1,6 @@
 {
   "name": "syntax-download-manager",
-  "version": "0.17.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Syntax Download Manager — unified browser + advanced download manager (Electron + Rust core)",
   "license": "SEE LICENSE IN LICENSE",

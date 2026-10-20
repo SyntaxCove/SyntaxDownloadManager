@@ -58,7 +58,7 @@
 | 28 | Data-integrity validation sweep — checksum/recovery deep verification | delivered (2026-10-20) |
 | 29 | Performance validation — real-device budget report harness | delivered (2026-10-20) |
 | 30 | Security & privacy final review — supply chain, SBOM | delivered (2026-10-20) |
-| 31 | 1.0.0 — final QA, version, release | pending |
+| 31 | 1.0.0 — final QA, version, release | delivered (2026-10-20) |
 
 ## Contract versioning
 

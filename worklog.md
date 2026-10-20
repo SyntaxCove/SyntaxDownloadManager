@@ -1364,3 +1364,59 @@ Verification (post-push, real runs):
   published portable zip sha256sum -c OK (73a6ac02…, 131 entries, toolchains +
   perf-budgets resources present). Release notes carry the SBOM paragraph + checksum
   table.
+
+---
+Task ID: 31
+Agent: main
+Task: فاز ۳۱ (interpretation rule: phases 0–30 were already delivered/pushed/released
+— v0.17.0 confirmed on the remote — so this session executed Phase 31 only): 1.0.0 —
+final QA, version, release. The last phase of the map.
+
+Work Log:
+- Sandbox reset recovered first: rustup stable 1.99.1 reinstalled (+rustfmt/clippy),
+  git credentials rebuilt; node_modules intact; contracts dist rebuilt (en route fix:
+  the first verify-all attempt died at typecheck with "Cannot find module
+  '@syntaxdm/contracts'" because an earlier &&-chain had aborted before
+  build:contracts — rebuilt and re-ran the gate cleanly).
+- Wrote docs/phases/phase-31-plan.md (Q-1..Q-8 work items + acceptance criteria).
+- New scripts/final-qa.mjs — the codified final-QA gate (zero-dependency, read-only):
+  (1) version alignment across root+desktop package.json, the three package-lock.json
+  spots, core/Cargo.toml [workspace.package] and the Cargo.lock download-core entry;
+  (2) contracts wire version — package.json == src/version.ts CONTRACT_VERSION, and
+  explicitly != the app version (independent semver streams); (3) phase-map
+  completeness — every docs/PHASES.md row delivered (zero pending), report per phase,
+  the documented 6–19 reconstruction gap skipped, and the map's reconstruction note
+  asserted present. Ships with --selftest (consistent fixture clean; drifted fixture
+  flagged in exactly 3 spots; phase-map checks live). Wired into verify-all.sh AND
+  ci.yml next to the checksum/SBOM selftests; ci.yml header updated. The gate proved
+  itself on its first real runs: flagged the missing docs/phases/phase-31.md before
+  the report existed.
+- Version bump 0.17.0 → 1.0.0: root package.json, apps/desktop/package.json,
+  package-lock.json (top-level, packages[""], packages["apps/desktop"]),
+  core/Cargo.toml [workspace.package], core/Cargo.lock refreshed via cargo metadata
+  (all four dc-* crates inherit the workspace version → 1.0.0). Contracts stay 1.16.0
+  (no wire change). Grep-verified: no app source file hardcodes the version string —
+  the app takes it from package.json at build time. Lockfile consistency re-validated
+  with `npm ci --dry-run`.
+- Documentation final state: PHASES.md row 31 → delivered (32/32 rows); README status
+  → "**1.0.0** — all 31 development phases are delivered", verification-gate section
+  and CI paragraph document the final-QA gate, roadmap rewritten as a completed map
+  (the "Next:" line is gone — there is no next phase).
+- docs/phases/phase-31.md report with the final QA checklist table.
+- verify-all.sh end-to-end on the exact 1.0.0 sources: all checks passed — typecheck
+  clean; vitest 126 contracts + 400 desktop green (E2E over the real debug core
+  binary); renderer build ok with the Phase 22 budget gate respected; checksums
+  selftest ok (6 checks); SBOM selftest ok (356 components); final-qa selftest + gate
+  ok; npm audit --omit=dev: 0 vulnerabilities; fmt/clippy clean; 300 cargo tests
+  green. Log: tool-results/verify-all-p31.log.
+
+Stage Summary:
+- Phase 31 delivered: the release story is machine-checked (version alignment +
+  phase-map completeness enforced in CI from now on), the app is 1.0.0 everywhere,
+  and the 31-phase map is complete.
+- Artifacts: scripts/final-qa.mjs (new), verify-all.sh + ci.yml updated,
+  docs/phases/phase-31-plan.md, docs/phases/phase-31.md, README finalized, PHASES.md
+  complete; version 1.0.0 across root+desktop+lockfile+Cargo.toml+Cargo.lock;
+  contracts unchanged at 1.16.0.
+- Next: push, CI green, tag v1.0.0 → release pipeline (installer + portable zip +
+  SBOM + SHA-256 sidecars); post-push runs recorded below.
