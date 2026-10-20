@@ -1,13 +1,18 @@
-# Syntax Download Manager — continuous integration (Phase 26).
+# Syntax Download Manager — continuous integration (Phase 26, hardened in Phase 30).
 #
 # Runs the same headless gate as scripts/verify-all.sh on GitHub's runners:
 #   - verify:       contracts + desktop unit + E2E suites (over the REAL debug
 #                   download-core binary) + fmt/clippy/cargo test + renderer
-#                   build + performance budget gate + checksums selftest;
+#                   build + performance budget gate + checksums/SBOM selftests
+#                   + runtime dependency audit gate;
 #   - core-windows: the Rust core must compile and pass on the shipping
 #                   platform (Windows x64 MSVC), not only on the Linux sandbox.
 #
-# The wire contract is frozen at v1.15.0 — CI does not mutate it; it verifies it.
+# Supply-chain hardening (Phase 30): every action is pinned to a full commit SHA
+# (version in the trailing comment) so a hijacked tag cannot run in our context,
+# and checkouts do not persist the ephemeral github token (no job here pushes).
+#
+# The wire contract is frozen — CI does not mutate it; it verifies it.
 
 name: ci
 
@@ -34,20 +39,26 @@ jobs:
       # and matches the headless verification contract.
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      # actions/setup-node v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: npm
 
       - name: Install Rust toolchain (fmt, clippy)
-        uses: dtolnay/rust-toolchain@stable
+        # dtolnay/rust-toolchain, stable branch snapshot 2026-10
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           components: rustfmt, clippy
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        # Swatinem/rust-cache v2.9.2
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7
         with:
           workspaces: core
 
@@ -84,18 +95,29 @@ jobs:
       - name: Checksum tooling selftest (Phase 26)
         run: node scripts/checksums.mjs --selftest
 
+      - name: SBOM generator selftest (Phase 30)
+        run: node scripts/sbom.mjs --selftest
+
+      - name: Runtime dependency audit gate (Phase 30 — shipped deps must stay at zero)
+        run: npm audit --omit=dev
+
   core-windows:
     name: core tests (windows, msvc)
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # dtolnay/rust-toolchain, stable branch snapshot 2026-10
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        # Swatinem/rust-cache v2.9.2
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7
         with:
           workspaces: core
 

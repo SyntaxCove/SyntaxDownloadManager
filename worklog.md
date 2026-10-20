@@ -1287,3 +1287,66 @@ Stage Summary:
   (9dbf6bdc…d666b0, 131 entries intact — the +1 entry is exactly the new shipped
   resources/perf-budgets.json, which parses with the Phase 29 baselines).
 - Next: phase 30 — security & privacy final review (supply chain, SBOM).
+
+---
+Task ID: 30
+Agent: main
+Task: فاز ۳۰ (interpretation rule: phases 0–29 were already delivered/pushed/released
+— v0.16.0 confirmed on the remote — so this session executed Phase 30 only): Security
+& privacy final review — supply chain, SBOM.
+
+Work Log:
+- Read PHASES.md row 30 + phase-23 plan/report (the 12-boundary baseline) + release.yml/
+  ci.yml/build-windows.ps1/toolchains.json; verified sandbox (cargo 1.99.1, creds OK);
+  confirmed phases 0–29 delivered with v0.16.0 published (worklog Task ID: 29).
+- Re-verified all twelve Phase 23 trust boundaries against current sources with
+  line-level evidence (CSP meta+header, isTrustedRpcSender, denyByDefaultChecks,
+  webSecurity explicit ×2, will-attach-webview ban, 0 renderer XSS sinks, http(s)-only
+  URL admission in bar + all 5 core sites, safeStorage-only proxy secrets, https
+  fail-closed update feed) — zero regressions from phases 24–29.
+- Privacy review: complete egress inventory (update feed / sha256-pinned toolchain
+  fetch / user-driven traffic / BT swarm — nothing else), local-storage inventory,
+  secrets audit (diagnostics zip re-proven secret-free against the settings contract;
+  logger redaction re-read line by line) → docs/security-privacy-review.md.
+- Supply-chain findings + fixes: S-1 actions pinned to full commit SHAs (checkout
+  v4.4.0 11d5960a…, setup-node v4.4.0 49933ea5…, rust-cache v2.9.2 63fed3e2…, dtolnay
+  stable snapshot b725eda5…); S-2 persist-credentials:false everywhere; S-3 npm audit
+  --omit=dev hard gate in verify-all+CI + new weekly security-audit.yml (cargo-audit +
+  RustSec DB); S-4 stray "apps/desktop" key removed from root package.json (lockfile
+  verified unchanged); S-5 ACCEPTED+documented (8 moderate dev-chain findings inside
+  electron-builder build tooling — never shipped; runtime tree 0); S-6 cargo-audit
+  caught rustls 0.23.45 RUSTSEC-2026-0346/47/48/49 → cargo update -p rustls → 0.23.46,
+  re-audit clean, 300 cargo tests green; S-7 SECURITY.md + THIRD-PARTY-NOTICES.md;
+  S-8 SBOM below.
+- SBOM: scripts/sbom.mjs — zero-dep deterministic CycloneDX 1.5 (no serial/timestamp,
+  sorted, byte-identical rebuilds) with faithful node_modules resolution (workspace
+  links dereferenced, node-style upward walk, nested copies); inventories exactly what
+  ships: app.asar runtime closure (42) + renderer bundle closure (93) + electron (1) +
+  all 217 crates (registry crates carry Cargo.lock sha256 as component hashes; 4
+  first-party dc-* flagged) + 3 bundled toolchains (per-platform pinned sha256 + URL +
+  size + license); syntaxdm:delivery property per component; dev-only exclusion PROVED
+  by selftest (typescript/vitest/esbuild/electron-builder/@types must be absent);
+  --selftest wired into verify-all.sh + CI next to the checksums selftest; release.yml
+  now generates SyntaxDownloadManager-<version>-sbom.cdx.json on the Windows runner
+  from the exact released sources + .sha256 sidecar + checksum-table row.
+- Fixed en route: resolveDep() fell through to null for workspace paths outside any
+  node_modules (packages/contracts) — now falls back to install-root resolution (zod
+  joined the closure; selftest extended to assert it).
+- Operational: linker Bus error mid-phase diagnosed as sandbox disk exhaustion (99%);
+  purged stale build artifacts (1.9G incremental cache + old downloads) and re-verified
+  everything — tooling hiccup, not a code defect.
+- verify-all gate green with Rust on PATH: 126 contracts + 400 desktop + 300 cargo,
+  budget gate respected, checksums selftest ok, SBOM selftest ok (356 components),
+  npm audit --omit=dev: 0 vulnerabilities, fmt/clippy clean; app/root/workspace/lockfile
+  0.16.0 → 0.17.0; desktop suite re-run green post-bump (fixtures self-contained).
+
+Stage Summary:
+- Phase 30 delivered: the pre-1.0 security/privacy review with all findings fixed or
+  explicitly accepted, supply chain hardened end to end, rustls patched, and a
+  deterministic CycloneDX SBOM shipped in CI + every future release.
+- Artifacts: docs/phases/phase-30-plan.md, docs/phases/phase-30.md,
+  docs/security-privacy-review.md, SECURITY.md, THIRD-PARTY-NOTICES.md,
+  scripts/sbom.mjs, .github/workflows/security-audit.yml (new), ci.yml/release.yml/
+  verify-all.sh hardened, tool-results/verify-all-p30.log.
+- Contracts unchanged at 1.16.0; app 0.17.0. Next: phase 31 — 1.0.0 final QA, version,
+  release.

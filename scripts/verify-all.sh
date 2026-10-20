@@ -25,6 +25,12 @@ node scripts/check-budgets.mjs
 echo "[syntaxdm] checksum tooling selftest (Phase 26 release engineering)"
 node scripts/checksums.mjs --selftest
 
+echo "[syntaxdm] SBOM generator selftest (Phase 30 supply chain)"
+node scripts/sbom.mjs --selftest
+
+echo "[syntaxdm] runtime dependency audit gate (Phase 30: shipped deps must stay at zero)"
+npm audit --omit=dev
+
 if command -v cargo >/dev/null 2>&1; then
   echo "[syntaxdm] Rust core: fmt check, clippy, tests"
   cargo fmt --manifest-path core/Cargo.toml --all -- --check

@@ -1,20 +1,26 @@
-# Syntax Download Manager — release artifact pipeline (Phase 26).
+# Syntax Download Manager — release artifact pipeline (Phase 26, hardened in Phase 30).
 #
 # Pushing a tag `v*` builds the Windows x64 artifacts on a real Windows runner
 # through the SAME packaging script a human runs (scripts/build-windows.ps1 —
 # the pipeline cannot drift from the documented manual path), computes SHA-256
-# checksums over the produced bytes, and publishes the GitHub release with all
-# assets attached:
+# checksums over the produced bytes, generates a CycloneDX SBOM, and publishes
+# the GitHub release with all assets attached:
 #
 #   SyntaxDownloadManager-Setup-<version>.exe       assisted per-user installer
 #   SyntaxDownloadManager-Setup-<version>.exe.sha256
 #   SyntaxDownloadManager-<version>-portable.zip    unpack-and-run
 #   SyntaxDownloadManager-<version>-portable.zip.sha256
 #   SyntaxDownloadManager-<version>-portable.zip.blockmap  (differential updates)
+#   SyntaxDownloadManager-<version>-sbom.cdx.json   CycloneDX 1.5 SBOM (Phase 30)
+#   SyntaxDownloadManager-<version>-sbom.cdx.json.sha256
 #   latest.yml                                      (Phase 18 auto-update feed)
 #
 # Version guard: the tag must equal "v" + the root package.json version, so a
 # tag can never publish binaries built from mismatched sources.
+#
+# Supply-chain hardening (Phase 30): every action is pinned to a full commit SHA
+# (version in the trailing comment); the checkout does not persist the ephemeral
+# github token (publishing uses the GH_TOKEN env var, not stored git creds).
 
 name: release
 
@@ -31,11 +37,14 @@ permissions:
 
 jobs:
   release:
-    name: windows artifacts + checksums + publish
+    name: windows artifacts + sbom + checksums + publish
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Version guard (tag == package.json version)
         shell: pwsh
@@ -47,16 +56,19 @@ jobs:
           }
           Write-Host "version guard ok: $tag == v$pkg"
 
-      - uses: actions/setup-node@v4
+      # actions/setup-node v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: npm
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # dtolnay/rust-toolchain, stable branch snapshot 2026-10
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        # Swatinem/rust-cache v2.9.2
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7
         with:
           workspaces: core
 
@@ -65,6 +77,15 @@ jobs:
       - name: Build artifacts (build-windows.ps1 — contracts+desktop+core+electron-builder)
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1
+
+      # Phase 30: the SBOM is generated from the exact sources this release was
+      # built from (lockfiles + toolchains manifest) and ships as a release asset.
+      - name: Generate CycloneDX SBOM
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          node scripts/sbom.mjs --out "apps/desktop/release/SyntaxDownloadManager-$ver-sbom.cdx.json"
+          node scripts/sbom.mjs --selftest
 
       - name: SHA-256 checksums + release notes table
         shell: pwsh
@@ -78,20 +99,20 @@ jobs:
           (assisted, per-user) and portable zip (unpack-and-run). SHA-256 sidecars
           (``*.sha256``) are attached next to the binaries they cover.
 
-          **Unsigned build notice:** binaries are not code-signed (no certificate
-          yet). Windows SmartScreen may warn on first run — see the phase 19
-          report for the planned signing upgrade path. Verify your download with
-          the checksum table below before running it.
+          The CycloneDX 1.5 SBOM (``*-sbom.cdx.json``) inventories every shipped
+          third-party component — npm runtime closure, renderer bundle, Electron,
+          Rust core crates, bundled toolchains — with the pinned sha256s of the
+          bundled tools. Verify your download with the checksum table below.
           "@
           Set-Content -Path $notes -Value $intro
           $assets = Get-ChildItem $rel -File |
-            Where-Object { $_.Name -match '\.(exe|zip|blockmap)$|latest\.yml$' } |
+            Where-Object { $_.Name -match '\.(exe|zip|blockmap|cdx\.json)$|latest\.yml$' } |
             ForEach-Object { $_.FullName }
           $table = "checksum-table.md"
           node scripts/checksums.mjs @assets --markdown $table | Out-Host
           # --markdown writes the table to its own file; composing here keeps the
-          # intro (version, unsigned-build notice) ahead of the table. F-2: passing
-          # $notes directly would clobber the intro with the table.
+          # intro (version, SBOM notice) ahead of the table. F-2: passing $notes
+          # directly would clobber the intro with the table.
           Add-Content -Path $notes -Value (Get-Content -Path $table -Raw)
 
       - name: Publish the GitHub release (created by the pipeline, not by hand)
@@ -102,7 +123,7 @@ jobs:
           $rel = "apps/desktop/release"
           $assets = @()
           $assets += Get-ChildItem $rel -File |
-            Where-Object { $_.Name -match '\.(exe|zip|blockmap)$|latest\.yml$|\.sha256$' } |
+            Where-Object { $_.Name -match '\.(exe|zip|blockmap|cdx\.json)$|latest\.yml$|\.sha256$' } |
             ForEach-Object { $_.FullName }
           gh release create "${{ github.ref_name }}" @assets `
             --verify-tag `

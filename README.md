@@ -8,7 +8,7 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** development phases 0–29 of 31 are delivered and fully tested. Windows x64
+> **Status:** development phases 0–30 of 31 are delivered and fully tested. Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — releases are
 > built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
 > with **SHA-256 checksums** on the
@@ -223,9 +223,11 @@ toolkit bundle. All download/browser/media features work from a source checkout.
 Tagging a release (`v*`) triggers `.github/workflows/release.yml`: a Windows runner
 checks that the tag matches `package.json`, runs the exact same
 [`scripts/build-windows.ps1`](scripts/build-windows.ps1) a human would run
-(contracts + desktop + Rust core in release mode + electron-builder), computes SHA-256
+(contracts + desktop + Rust core in release mode + electron-builder), generates a
+CycloneDX 1.5 **SBOM** from the exact sources being released, computes SHA-256
 checksums over the produced bytes, and publishes the GitHub release with every asset
 attached — the installer, the portable zip, the differential-update blockmaps, the
+`SyntaxDownloadManager-<version>-sbom.cdx.json` software bill of materials, the
 `latest.yml` auto-update feed, and a `.sha256` sidecar for each binary artifact.
 
 Every published release notes carries a checksum table. Verify your download before
@@ -257,12 +259,15 @@ core test suite on the shipping platform.
 
 - [`docs/PHASES.md`](docs/PHASES.md) — the authoritative 0–31 phase map and build rules
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — process architecture and key decisions
+- [`SECURITY.md`](SECURITY.md) — vulnerability reporting + security architecture in one page
+- [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — bundled third-party software and licenses
+- [`docs/security-privacy-review.md`](docs/security-privacy-review.md) — the final pre-1.0 security & privacy review (Phase 30)
 - [`docs/phases/`](docs/phases/) — per-phase plans and reports (plan → implement → test → fix → document → review)
 - [`worklog.md`](worklog.md) — the full, honest engineering work log
 
 ## Roadmap
 
-Delivered: **phases 0–29** (scaffold, contracts, shell, browser engine, download core,
+Delivered: **phases 0–30** (scaffold, contracts, shell, browser engine, download core,
 segmented engine, recovery, queue/bandwidth, proxies, media toolkit, media inspector,
 media pipeline, torrents, library, scheduler, settings completion, notifications/tray,
 auto-update, **packaging**, **diagnostics**, **accessibility + i18n fa/en**,
@@ -282,8 +287,19 @@ performance budgets (core cold start, core memory — including a new Windows RS
 echo latency, bundle bytes, IPC dispatch, store hot path, queue ordering) and produces a
 schema-checked, log-persisted pass/breach verdict report the user can copy or export).
 
-Next: **phase 30 — security & privacy final review (supply chain, SBOM)**, followed
-by the remaining phases in `docs/PHASES.md`.
+Next: **phase 31 — 1.0.0: final QA, version, release** — the last phase in
+`docs/PHASES.md`.
+
+Phase 30 (delivered) completed the **security & privacy final review**: every Phase 23
+trust boundary re-verified against current sources, the supply chain hardened (GitHub
+Actions pinned to commit SHAs, tokenless checkouts, an `npm audit --omit=dev` hard gate
+on shipped dependencies, a weekly scheduled `cargo-audit` + npm sweep — the sweep's
+first run caught and fixed four rustls RustSec advisories), a deterministic
+zero-dependency **CycloneDX 1.5 SBOM** now attached to every release with the full
+shipped-component inventory (npm runtime + renderer closures, Electron, all Rust crates
+with Cargo.lock hashes, the sha256-pinned bundled toolchains), plus `SECURITY.md`,
+`THIRD-PARTY-NOTICES.md`, and a complete privacy data-flow inventory in
+[`docs/security-privacy-review.md`](docs/security-privacy-review.md).
 
 ## Security & policy stance
 
