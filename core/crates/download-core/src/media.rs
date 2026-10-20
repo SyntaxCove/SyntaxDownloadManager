@@ -100,7 +100,7 @@ pub async fn inspect(
         .spawn()
         .map_err(|e| {
             ContractError::new(
-                ErrorCode::MediaToolMissing,
+                spawn_launch_code(&e, ErrorCode::MediaToolMissing),
                 format!("failed to launch the bundled yt-dlp: {e}"),
             )
         })?;
@@ -463,6 +463,50 @@ fn last_lines(s: &str, n: usize) -> String {
     lines[start..].join("\n")
 }
 
+// ---------------------------------------------------------------------------
+// spawn error classification
+// ---------------------------------------------------------------------------
+
+/// Honest spawn-error classification. A tool that cannot be FOUND — or cannot be
+/// executed due to permissions — is genuinely "missing" and keeps the caller's
+/// missing-tool code. Any OTHER spawn failure (EAGAIN / EMFILE / fd exhaustion —
+/// transient OS pressure under load) must NOT claim the tool is missing: that
+/// misleads the user and made `oversized_output_is_capped` flake in CI when the
+/// runner briefly hit process limits. Such failures surface as `InternalError`
+/// with the OS error in the message.
+pub(crate) fn spawn_launch_code(e: &std::io::Error, missing_code: ErrorCode) -> ErrorCode {
+    match e.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => missing_code,
+        _ => ErrorCode::InternalError,
+    }
+}
+
+#[test]
+fn spawn_launch_code_is_honest() {
+    let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+    assert_eq!(
+        spawn_launch_code(&missing, ErrorCode::MediaToolMissing),
+        ErrorCode::MediaToolMissing
+    );
+    let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    assert_eq!(
+        spawn_launch_code(&denied, ErrorCode::MediaToolMissing),
+        ErrorCode::MediaToolMissing
+    );
+    // EAGAIN (11) — the transient class that made the CI test flake; must NOT read
+    // "tool missing".
+    let transient = std::io::Error::from_raw_os_error(11);
+    assert_eq!(
+        spawn_launch_code(&transient, ErrorCode::MediaToolMissing),
+        ErrorCode::InternalError
+    );
+    let other = std::io::Error::from(std::io::ErrorKind::Other);
+    assert_eq!(
+        spawn_launch_code(&other, ErrorCode::MediaToolMissing),
+        ErrorCode::InternalError
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -791,16 +835,28 @@ mod tests {
             max_output_bytes: 64 * 1024,
             ..Default::default()
         };
-        let err = inspect(
-            &tool(&path),
-            &ProxyMap::new(),
-            &sem(),
-            params("https://example.com/v"),
-            &limits,
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(err.code, ErrorCode::MediaInvalidResponse);
+        // A spawn can transiently fail under heavy parallel load (EAGAIN / fd pressure —
+        // the phase 32 CI flake). Retry ONLY that internal-error class; the assertion
+        // itself stays strict, so the cap path must actually execute to pass.
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let err = inspect(
+                &tool(&path),
+                &ProxyMap::new(),
+                &sem(),
+                params("https://example.com/v"),
+                &limits,
+            )
+            .await
+            .unwrap_err();
+            if err.code == ErrorCode::InternalError && attempt < 3 {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+            assert_eq!(err.code, ErrorCode::MediaInvalidResponse);
+            break;
+        }
     }
 
     #[cfg(unix)]

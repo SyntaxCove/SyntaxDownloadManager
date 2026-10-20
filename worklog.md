@@ -1498,3 +1498,18 @@ Verification (post-push, real runs):
   components, app syntax-download-manager 1.1.0); portable zip sha256sum -c OK, 131
   entries, all CRCs OK.
 - Post-1.0 iteration 1 shipped: app 1.1.0, contracts 1.17.0.
+
+En-route fix (post-release, found by the docs-commit CI run 39418356707):
+- The verify job's Rust suite flaked: media::tests::oversized_output_is_capped got
+  MediaToolMissing instead of MediaInvalidResponse. Root cause: Command::spawn failures
+  were classified unconditionally as media_tool_missing — a transient OS launch failure
+  (EAGAIN/fd pressure under runner load) misreported the bundled tool as missing, in
+  runtime classification too (pre-existing since phase 12, hit under CI load now).
+- Fix: shared honest classifier media::spawn_launch_code used by BOTH spawn sites
+  (media.rs inspect + media_job.rs run_child): NotFound/PermissionDenied keep the
+  missing-tool code, all other launch failures → internal_error (OS error in message).
+  No wire change (both codes exist). Flaky test hardened: retries ONLY the
+  internal-error class (max 3), assertion stays strict. New unit test
+  spawn_launch_code_is_honest pins the decisions. 301 cargo tests green locally
+  (fmt/clippy clean).
+- v1.1.0 stays as published (tags are never re-pointed); the fix rides the next release.

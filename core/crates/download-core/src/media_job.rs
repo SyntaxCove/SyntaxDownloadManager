@@ -1421,7 +1421,10 @@ async fn run_child(
         .spawn()
         .map_err(|e| {
             PipelineError::Contract(ContractError::new(
-                spawn_err_code,
+                // Honest classification (see media::spawn_launch_code): only a tool that
+                // is truly absent/unrunnable keeps the missing-tool code; transient OS
+                // launch pressure surfaces as internal_error instead.
+                media::spawn_launch_code(&e, spawn_err_code),
                 format!("failed to launch {program}: {e}"),
             ))
         })?;

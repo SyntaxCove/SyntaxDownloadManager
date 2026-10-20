@@ -56,6 +56,27 @@ node scripts/layout-repro.cjs`).
 - **i18n parity** is enforced automatically by the existing suite (fa keys are a
   `Record<keyof settingsEn, string>` and placeholder parity is re-checked).
 
+## En-route fix: honest spawn-error classification (found by real CI)
+
+The docs-recording commit's CI run caught a **pre-existing flaky test**:
+`media::tests::oversized_output_is_capped` failed with `MediaToolMissing` where
+`MediaInvalidResponse` was expected. Root cause: `Command::spawn` failures were
+classified **unconditionally** as `media_tool_missing` — a transient OS launch failure
+(EAGAIN / fd pressure under runner load) misreported the bundled tool as missing, in
+runtime behavior as well as in the test. Fix: a shared honest classifier
+(`media::spawn_launch_code`) used by BOTH spawn sites (`media.rs` inspect,
+`media_job.rs` child runner) — `NotFound`/`PermissionDenied` keep the missing-tool
+code, every other launch failure surfaces as `internal_error` with the OS error in the
+message (no wire change; both codes already exist). The flaky test now retries only
+that internal-error class (max 3, 100 ms apart) with the assertion itself still strict,
+and a unit test pins the classifier's decisions (NotFound/PermissionDenied → missing;
+EAGAIN/Other → internal). Suite total: **301 cargo tests** green locally.
+
+Honesty note: v1.1.0 was already tagged and published when this was found, so the
+released binary keeps the coarse classification (cosmetic mislabeling only — the OS
+error text was always included). The fix rides the next release; the tag is never
+re-pointed after publication.
+
 ## Verification
 
 - `scripts/verify-all.sh` end-to-end on the 1.1.0 sources: **all checks passed** —
