@@ -17,6 +17,17 @@ export const settingsEn = {
   "settings.language.en": "English",
   "settings.language.fa": "فارسی",
 
+  // ---- browser user agent (post-1.0) ----
+  "settings.section.browserUA": "Browser user agent",
+  "settings.browserUA.current": "Current user agent",
+  "settings.browserUA.badgeDefault": "default",
+  "settings.browserUA.badgeCustom": "custom",
+  "settings.browserUA.customField": "Custom user agent",
+  "settings.browserUA.placeholder": "Leave empty to use the app default",
+  "settings.browserUA.hint":
+    "Sent by browser tabs from the next load on; already-open pages pick it up when reloaded.",
+  "settings.browserUA.reset": "Reset to default",
+
   // ---- downloads ----
   "settings.section.downloads": "Downloads",
   "settings.downloadDir": "Default download directory",
@@ -125,6 +136,16 @@ export const settingsFa: Record<keyof typeof settingsEn, string> = {
   "settings.language": "زبان رابط",
   "settings.language.en": "English",
   "settings.language.fa": "فارسی",
+
+  "settings.section.browserUA": "عامل کاربر مرورگر",
+  "settings.browserUA.current": "عامل کاربر فعلی",
+  "settings.browserUA.badgeDefault": "پیش‌فرض",
+  "settings.browserUA.badgeCustom": "سفارشی",
+  "settings.browserUA.customField": "عامل کاربر سفارشی",
+  "settings.browserUA.placeholder": "خالی بگذارید تا پیش‌فرض برنامه به کار رود",
+  "settings.browserUA.hint":
+    "از بارگیری بعدی به بعد توسط زبانه‌های مرورگر فرستاده می‌شود؛ صفحه‌های باز با بارگیری دوباره آن را می‌گیرند.",
+  "settings.browserUA.reset": "بازنشانی به پیش‌فرض",
 
   "settings.section.downloads": "دریافت‌ها",
   "settings.downloadDir": "پوشه پیش‌فرض دریافت",

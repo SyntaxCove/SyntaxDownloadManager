@@ -8,8 +8,10 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** **1.0.0** — all 31 development phases are delivered and fully tested; the
-> phase map (`docs/PHASES.md`) is complete. Windows x64
+> **Status:** **1.1.0** — all 31 development phases are delivered and fully tested; the
+> phase map (`docs/PHASES.md`) is complete, and post-1.0 iterations continue on top
+> (phase 32: an editable, localized **browser user agent** in Settings plus the fix for
+> the browser pane not filling the window in browse mode). Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — releases are
 > built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
 > with **SHA-256 checksums** on the
@@ -295,6 +297,14 @@ budget report harness**: the Diagnostics page measures the running app against t
 performance budgets (core cold start, core memory — including a new Windows RSS sampler —
 echo latency, bundle bytes, IPC dispatch, store hot path, queue ordering) and produces a
 schema-checked, log-persisted pass/breach verdict report the user can copy or export).
+
+Post-1.0 iterations continue on the same discipline. **Phase 32** added an editable,
+localized **browser user agent** (Settings shows the effective UA with a default/custom
+badge; the override persists, applies live to the browser and per-proxy tab sessions,
+and resets to the Electron default) — and fixed the **browser pane fill** bug: the shell
+collapsed to content width inside the row-flex `FluentProvider` wrapper, leaving most of
+the window empty in browse mode (root-caused and regression-harnessed in real Chromium
+via `scripts/layout-repro.cjs`).
 
 Phase 31 closed the map as **1.0.0**: a codified final-QA gate (`scripts/final-qa.mjs`)
 that keeps the app version aligned across every manifest and lockfile (enforced in CI

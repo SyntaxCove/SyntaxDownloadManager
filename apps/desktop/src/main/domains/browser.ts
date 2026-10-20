@@ -136,5 +136,13 @@ export function registerBrowserDomain(
     },
   });
 
+  // Post-1.0: the effective user agent for the Settings page (custom override or the
+  // captured Electron default). Read-only — writes go through settings.setAll.
+  router.handle("browser.getUserAgent", {
+    paramsSchema: METHODS["browser.getUserAgent"].params,
+    resultSchema: METHODS["browser.getUserAgent"].result,
+    handler: async () => manager.getUserAgent(),
+  });
+
   return manager;
 }

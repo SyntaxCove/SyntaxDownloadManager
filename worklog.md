@@ -1435,3 +1435,54 @@ Verification (post-push, real runs):
   latest.yml carries version: 1.0.0; release notes carry the full checksum table
   (portable zip digest 5019c12d…).
 - The 31-phase map is complete. App 1.0.0, contracts 1.16.0.
+
+---
+Task ID: 32
+Agent: main
+Task: post-1.0 user request (Persian, 2026-10-20): (1) show the current user agent in
+Settings and make it editable; (2) fix the browser pane rendering small and leaving
+most of the window empty in browse mode. Executed as phase 32 under the full phase
+discipline; contracts 1.16.0 → 1.17.0 (additive), app 1.0.0 → 1.1.0.
+
+Work Log:
+- Sandbox reset recovered (rustup 1.99.1 + rustfmt/clippy, git creds).
+- LAYOUT BUG ROOT-CAUSED EMPIRICALLY: reproduced the exact shell DOM/CSS chain in real
+  Chromium (scripts/layout-repro.cjs, Playwright 1.57) — FluentProvider carries
+  display:flex with no flex-direction (a ROW container), so the AppShell flex item
+  shrank to content width: in 1280×800 the shell measured 248px, the content pane 32px,
+  the browser hole 0px wide (658 tall). Heights were always fine; the WIDTH chain was
+  the bug. Fix verified in the same harness: flexDirection column on FluentProvider +
+  width 100% on the shell root → hole 1032×658 (window minus sidebar + padding).
+  Repro kept as the durable regression harness.
+- Contracts 1.17.0 additive: AppSettings.browserUserAgent (string max 512, default ""
+  = Electron default) + new main-served browser.getUserAgent → { userAgent, isCustom };
+  version.ts, dc-protocol const, and the version-floor test all bumped to 1.17.
+- TabManager UA: captures the pristine Electron UA from persist:browser BEFORE any
+  override; setUserAgent(custom|null) applies live to the browser session AND all
+  per-proxy sessions (null/empty/whitespace trimmed = reset to captured default);
+  sessions created later are born with the override; getUserAgent() reports effective.
+- Wiring: main.ts applies the persisted value right after registerBrowserDomain (before
+  the first tab can exist) and re-applies on every settings.changed; browser domain
+  serves the new read-only method.
+- Settings UI (en+fa): localized "Browser user agent" section — effective UA in
+  monospace with default/custom badge, editable field (max 512), dirty-gated Save,
+  Reset-to-default (persists ""); hint documents the on-next-load semantics.
+- Tests: contracts +2 (defaults/bounds, method shape); NEW tab-manager-ua.test.ts +6
+  with Electron stubbed at its exact port boundary (default capture, pre/post-session
+  override, live re-apply, reset semantics, trimming, proxy sessions); i18n parity
+  automatic via the existing suite.
+- Version bump 1.0.0 → 1.1.0 across root+desktop+lockfile(3)+Cargo.toml+Cargo.lock
+  (cargo metadata); contracts 1.17.0. Docs: phase-32-plan.md, phase-32.md, PHASES.md
+  row 32, README status/roadmap.
+- verify-all gate green on the 1.1.0 sources: 128 contracts + 406 desktop (E2E over
+  the real debug core) + 300 cargo, budgets respected, checksums/SBOM/final-qa
+  selftests ok, npm prod audit 0 vulnerabilities, fmt/clippy clean.
+
+Stage Summary:
+- Phase 32 delivered: the browser pane now fills the window minus the sidebar (root
+  cause proven and regression-harnessed in real Chromium), and the user agent is a
+  first-class, localized, live-applied setting.
+- Artifacts: scripts/layout-repro.cjs (new, Playwright-based), tab-manager UA support,
+  browser.getUserAgent IPC, SettingsPage section, i18n en/fa, contracts 1.17.0,
+  docs/phases/phase-32-{plan,md}, tool-results/verify-all-p32.log.
+- Next: push, CI green, tag v1.1.0 → release pipeline; post-push runs recorded below.

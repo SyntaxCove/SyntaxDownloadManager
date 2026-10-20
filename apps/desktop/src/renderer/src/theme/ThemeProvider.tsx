@@ -43,7 +43,15 @@ export function ThemeProvider({ children }: { children: ReactNode }): ReactNode 
 
   return (
     <I18nProvider>
-      <FluentProvider theme={fluentTheme} dir={dir} style={{ height: "100vh", display: "flex" }}>
+      <FluentProvider
+        theme={fluentTheme}
+        dir={dir}
+        // Post-1.0 layout fix: FluentProvider is a row flex container by default here, so
+        // the shell below shrank to its content width (~250px) and the rest of the window
+        // stayed empty. Column direction makes the sole child stretch to the full width
+        // (cross axis), which the real-Chromium layout repro proved restores the fill.
+        style={{ height: "100vh", display: "flex", flexDirection: "column" }}
+      >
         {children}
       </FluentProvider>
     </I18nProvider>

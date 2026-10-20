@@ -57,6 +57,11 @@ export class TabManager {
   /** Phase 14: per-tab settle dedupe for history recording. */
   private readonly visitRecorder = new VisitRecorder();
   private viewport: { x: number; y: number; width: number; height: number } = { x: 0, y: 0, width: 0, height: 0 };
+  /** Post-1.0: the pristine Electron/Chromium UA, captured from the browser session
+   *  before any override is applied — the reset target for `setUserAgent(null)`. */
+  private defaultUserAgent: string | null = null;
+  /** Post-1.0: the settings override; null = use the captured default unchanged. */
+  private customUserAgent: string | null = null;
 
   constructor(
     private readonly getWindow: () => BrowserWindow | undefined,
@@ -78,6 +83,10 @@ export class TabManager {
       this.session.setPermissionRequestHandler((_wc, permission, callback) => {
         callback(PERMISSION_POLICY.has(permission));
       });
+      // Capture the pristine UA first — after setUserAgent(custom) getUserAgent() would
+      // echo the override back and a later reset would have nothing to reset to.
+      if (this.defaultUserAgent === null) this.defaultUserAgent = this.session.getUserAgent();
+      if (this.customUserAgent !== null) this.session.setUserAgent(this.effectiveUserAgent());
     }
     return this.session;
   }
@@ -113,6 +122,8 @@ export class TabManager {
         }
       },
     );
+    // Post-1.0: a proxied tab obeys the same user-agent override as the default session.
+    if (this.customUserAgent !== null) ses.setUserAgent(this.effectiveUserAgent());
     this.proxySessions.set(profileId, ses);
     return ses;
   }
@@ -316,6 +327,29 @@ export class TabManager {
 
   list(): BrowserTab[] {
     return [...this.tabs.values()].map((e) => e.snapshot);
+  }
+
+  /**
+   * Post-1.0: apply the user-agent override from settings to every session this manager
+   * owns (null / empty = reset to the captured Electron default). `session.setUserAgent`
+   * affects loads from this point on — already-open pages pick the new UA up on their
+   * next navigation or reload, which the Settings page documents.
+   */
+  setUserAgent(custom: string | null): void {
+    const trimmed = custom?.trim();
+    this.customUserAgent = trimmed ? trimmed : null;
+    const ua = this.effectiveUserAgent();
+    if (this.session) this.session.setUserAgent(ua);
+    for (const ses of this.proxySessions.values()) ses.setUserAgent(ua);
+  }
+
+  /** The effective user agent new tab loads will use, and whether it is an override. */
+  getUserAgent(): { userAgent: string; isCustom: boolean } {
+    return { userAgent: this.effectiveUserAgent(), isCustom: this.customUserAgent !== null };
+  }
+
+  private effectiveUserAgent(): string {
+    return this.customUserAgent ?? this.defaultUserAgent ?? "";
   }
 
   /** Renderer-reported viewport rect; clamped against the real content size. */

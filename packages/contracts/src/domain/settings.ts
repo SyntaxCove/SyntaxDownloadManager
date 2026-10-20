@@ -9,6 +9,8 @@ import { Ulid } from "../ids.js";
  * v1.12 (Phase 17) adds notification + tray preferences (main-consumed only; the core
  * never learns settings).
  * v1.13 (Phase 18) adds the auto-update check preference (main-consumed only).
+ * v1.17 (post-1.0) adds the browser user-agent override (main-consumed only; applied to
+ * the browser/proxy tab sessions by the TabManager — the core never learns settings).
  */
 
 export const ThemeMode = z.enum(["system", "light", "dark"]);
@@ -82,6 +84,14 @@ export const AppSettings = z.object({
    * support exports, not for continuous verbose capture.
    */
   verboseLogging: z.boolean().optional().default(false),
+  // ---- v1.17 (post-1.0): browser user agent ----
+  /**
+   * Custom user agent for browser tabs (persist:browser + per-proxy sessions). Empty
+   * string = the Electron/Chromium default is used unchanged. Applied live: new loads
+   * in every tab of the affected sessions pick it up; the effective string (custom or
+   * captured default) is surfaced to the renderer via `browser.getUserAgent`.
+   */
+  browserUserAgent: z.string().max(512).optional().default(""),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
 
@@ -104,6 +114,7 @@ export const SETTINGS_DEFAULTS: Readonly<AppSettings> = Object.freeze({
   closeToTray: true,
   updateAutoCheck: true,
   verboseLogging: false,
+  browserUserAgent: "",
 });
 
 export const SettingsGetParams = z.object({});

@@ -983,6 +983,30 @@ describe("v1.12 notifications + tray settings (Phase 17)", () => {
   });
 });
 
+describe("v1.17 browser user agent (post-1.0)", () => {
+  it("browserUserAgent defaults to empty (= Electron default UA) and is bounded", () => {
+    const defaults = AppSettings.parse({});
+    expect(defaults.browserUserAgent).toBe("");
+    expect(SETTINGS_DEFAULTS.browserUserAgent).toBe("");
+    expect(AppSettings.parse({ browserUserAgent: "  custom-ua/1.2  " }).browserUserAgent).toBe(
+      "  custom-ua/1.2  ",
+    );
+    expect(AppSettings.safeParse({ browserUserAgent: "x".repeat(513) }).success).toBe(false);
+    expect(AppSettings.safeParse({ browserUserAgent: 42 }).success).toBe(false);
+    expect(AppSettings.safeParse({ browserUserAgent: null }).success).toBe(false);
+  });
+
+  it("browser.getUserAgent is a main-served method with typed params/result", () => {
+    const m = METHODS["browser.getUserAgent"];
+    expect(m.server).toBe("main");
+    expect(m.params?.parse({})).toEqual({});
+    const result = m.result?.parse({ userAgent: "SomeUA/1.0", isCustom: false });
+    expect(result).toEqual({ userAgent: "SomeUA/1.0", isCustom: false });
+    expect(m.result?.safeParse({ userAgent: "SomeUA/1.0" }).success).toBe(false);
+    expect(m.result?.safeParse({ userAgent: "SomeUA/1.0", isCustom: "yes" }).success).toBe(false);
+  });
+});
+
 describe("job end transitions (Phase 17)", () => {
   const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
@@ -1316,9 +1340,9 @@ describe("budget report (Phase 29, v1.16)", () => {
     expect(() => RendererMeasurements.parse({ ipcDispatch2000Ms: Infinity, uiStoreHotPathMs: 1, uiQueueSortMs: 1 })).toThrow();
   });
 
-  it("contract version advanced to at least 1.16.0 (Phase 29 budget report is additive)", () => {
+  it("contract version advanced to at least 1.17.0 (post-1.0 browser user-agent is additive)", () => {
     const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
-    if (maj === 1) expect(min).toBeGreaterThanOrEqual(16);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(17);
     else expect(maj).toBeGreaterThan(1);
   });
 });

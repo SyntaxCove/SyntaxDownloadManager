@@ -201,6 +201,17 @@ export const METHODS = {
     }),
     result: z.object({ applied: z.literal(true) }),
   },
+  /**
+   * v1.17 (post-1.0): the effective user agent new browser-tab loads will use — the
+   * settings override (`browserUserAgent`) when set, otherwise the Electron/Chromium
+   * default captured from the browser session. `isCustom` distinguishes the two so the
+   * Settings page can badge the current state.
+   */
+  "browser.getUserAgent": {
+    server: "main",
+    params: z.object({}),
+    result: z.object({ userAgent: z.string(), isCustom: z.boolean() }),
+  },
   "settings.get": { server: "main", params: SettingsGetParams, result: SettingsGetResult },
   "settings.setAll": { server: "main", params: SettingsSetAllParams, result: SettingsSetAllResult },
   // ---- main (v1.11, Phase 16): native directory picker (settings-completion deferral) ----

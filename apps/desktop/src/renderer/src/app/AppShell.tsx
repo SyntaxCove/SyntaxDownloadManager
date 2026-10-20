@@ -30,7 +30,10 @@ import { useI18n } from "../i18n/context.js";
  */
 
 const useStyles = makeStyles({
-  root: { display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" },
+  // Post-1.0 layout fix: `width: 100%` — as a flex item of a row-flex parent the shell
+  // shrinks to content width and leaves the rest of the window empty; explicit width
+  // pins the fill regardless of how the parent wrapper is configured.
+  root: { display: "flex", flexDirection: "column", width: "100%", height: "100%", overflow: "hidden" },
   titlebar: {
     height: "40px",
     minHeight: "40px",

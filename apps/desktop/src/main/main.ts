@@ -203,6 +203,9 @@ if (!gotLock) {
         })
         .catch(() => undefined); // classified: history is best-effort during core restarts
     });
+    // Post-1.0: apply the persisted user-agent override before the first tab can exist,
+    // so even the very first browser session is created with the right UA.
+    tabManager.setUserAgent(settingsStore.settings.browserUserAgent || null);
 
     // Phase 10: bundled media toolkit — pinned FFmpeg / yt-dlp / Deno, fetched + verified
     // into the user profile, then pushed to the core as executable paths.
@@ -400,6 +403,8 @@ if (!gotLock) {
         applyCoreLimits();
         applyCorePolicy();
         applyLogLevel();
+        // Post-1.0: live user-agent application — new loads in every open tab pick it up.
+        tabManager.setUserAgent(settingsStore.settings.browserUserAgent || null);
         // verbose logging reaches the core at its next (re)launch — env at spawn.
         supervisor.setVerboseCoreLogging(settingsStore.settings.verboseLogging);
       } else if (name === "download.updated") {

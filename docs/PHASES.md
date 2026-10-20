@@ -59,6 +59,7 @@
 | 29 | Performance validation — real-device budget report harness | delivered (2026-10-20) |
 | 30 | Security & privacy final review — supply chain, SBOM | delivered (2026-10-20) |
 | 31 | 1.0.0 — final QA, version, release | delivered (2026-10-20) |
+| 32 | post-1.0 — editable browser user-agent + browser pane fill fix | delivered (2026-10-20) |
 
 ## Contract versioning
 

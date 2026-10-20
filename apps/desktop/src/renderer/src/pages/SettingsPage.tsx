@@ -63,6 +63,7 @@ const useStyles = makeStyles({
     justifyContent: "space-between",
   },
   toolName: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 },
+  mono: { fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: tokens.fontSizeBase200 },
 });
 
 const TOOL_KEYS: Record<ToolkitToolStatus["id"], string> = {
@@ -154,6 +155,9 @@ export function SettingsPage(): ReactNode {
           </RadioGroup>
         </Field>
       </section>
+
+      {/* Post-1.0: browser user agent — current string shown, override editable. */}
+      <BrowserUserAgentSection />
 
       <section className={styles.section} aria-labelledby="download-title">
         <Text id="download-title" as="h2" className={styles.sectionTitle}>
@@ -410,6 +414,89 @@ function DefaultProxyField(): ReactNode {
  * state and issues install/cancel intents. Byte provenance (SHA-256, sizes) is never shown
  * as an editable surface; a failed tool can only be retried through main's verified pipeline.
  */
+/**
+ * Post-1.0: browser user agent. Shows the effective UA string (main owns it — Electron
+ * composes the Chromium default, the TabManager captures it before any override) with a
+ * default/custom badge, and edits the `browserUserAgent` settings override. Empty = the
+ * default; saved changes apply live to every browser session, with open pages picking
+ * the new UA up on their next load.
+ */
+function BrowserUserAgentSection(): ReactNode {
+  const styles = useStyles();
+  const { t } = useI18n();
+  const saved = useSettingsStore((s) => s.settings?.browserUserAgent ?? "");
+  const update = useSettingsStore((s) => s.update);
+  const [draft, setDraft] = useState(saved);
+  const [effective, setEffective] = useState<{ userAgent: string; isCustom: boolean } | null>(null);
+
+  // Follow external changes (restore-defaults) back to the persisted value.
+  useEffect(() => setDraft(saved), [saved]);
+
+  // Re-fetch after every save so the display and badge track the persisted setting.
+  useEffect(() => {
+    let cancelled = false;
+    void rpc("browser.getUserAgent", {})
+      .then((r) => {
+        if (!cancelled) setEffective(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [saved]);
+
+  const dirty = draft !== saved;
+  const atDefault = saved.length === 0;
+
+  return (
+    <section className={styles.section} aria-labelledby="browser-ua-title">
+      <Text id="browser-ua-title" as="h2" className={styles.sectionTitle}>
+        {t("settings.section.browserUA")}
+      </Text>
+      <Field label={t("settings.browserUA.current")}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <Text className={styles.mono} style={{ wordBreak: "break-all" }}>
+            {effective?.userAgent || t("common.unavailable")}
+          </Text>
+          {effective ? (
+            <Badge>
+              {effective.isCustom ? t("settings.browserUA.badgeCustom") : t("settings.browserUA.badgeDefault")}
+            </Badge>
+          ) : null}
+        </div>
+      </Field>
+      <Field label={t("settings.browserUA.customField")} hint={t("settings.browserUA.hint")}>
+        <Input
+          value={draft}
+          maxLength={512}
+          placeholder={t("settings.browserUA.placeholder")}
+          onChange={(_, data) => setDraft(data.value)}
+          aria-label={t("settings.browserUA.customField")}
+        />
+      </Field>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <Button
+          appearance="primary"
+          disabled={!dirty}
+          onClick={() => void update({ browserUserAgent: draft })}
+        >
+          {t("common.save")}
+        </Button>
+        <Button
+          icon={<ArrowCounterclockwiseRegular />}
+          disabled={atDefault}
+          onClick={() => {
+            setDraft("");
+            void update({ browserUserAgent: "" });
+          }}
+        >
+          {t("settings.browserUA.reset")}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function MediaToolkitSection(): ReactNode {
   const styles = useStyles();
   const { t } = useI18n();
