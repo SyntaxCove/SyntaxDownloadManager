@@ -65,5 +65,15 @@ is no next phase).
   budget gate respected; checksums selftest ok; SBOM selftest ok; final-QA selftest +
   gate ok; **npm audit --omit=dev: 0 vulnerabilities**; fmt/clippy clean and **300
   cargo tests** green. (Full log: `tool-results/verify-all-p31.log`.)
-- Post-push: CI run and the v1.0.0 release pipeline run are recorded at the bottom of
-  this report (updated after the real runs completed).
+- Post-push, real runs: CI run **39389700069** (commit de96818) — **both jobs green**
+  (verify + core-windows), every verify step evidenced success including the new
+  "Final QA gate (Phase 31)" step. Release pipeline run **39390410451** (tag v1.0.0) —
+  **success**; published "Syntax Download Manager v1.0.0" with 10 assets (Setup exe +
+  portable zip + blockmap + latest.yml + SBOM, each binary with a `.sha256` sidecar).
+- Byte-level acceptance: published SBOM `sha256sum -c` OK (356 components,
+  metadata.component `syntax-download-manager 1.0.0`, toolchains deno@2.9.7 /
+  ffmpeg@N-127259 / yt-dlp@2026.08.19); published portable zip (167,837,628 B)
+  `sha256sum -c` OK — 131 entries, all CRCs OK, toolchains manifest + perf-budgets
+  resources aboard; `latest.yml` carries `version: 1.0.0` with the installer sha512
+  and exact size; release notes carry the full five-row SHA-256 checksum table
+  (portable zip digest `5019c12d…`).

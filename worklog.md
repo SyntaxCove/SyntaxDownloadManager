@@ -1420,3 +1420,18 @@ Stage Summary:
   contracts unchanged at 1.16.0.
 - Next: push, CI green, tag v1.0.0 → release pipeline (installer + portable zip +
   SBOM + SHA-256 sidecars); post-push runs recorded below.
+
+Verification (post-push, real runs):
+- CI run 39389700069 (commit de96818): verify (ubuntu) + core tests (windows, msvc)
+  both completed success — all 19 verify steps evidenced success, including the new
+  "Final QA gate (Phase 31)" step; fast finish on warm caches.
+- Release pipeline run 39390410451 (tag v1.0.0): completed success — "Syntax Download
+  Manager v1.0.0" published with 10 assets (Setup exe 122,187,283 B + portable zip
+  167,837,628 B + blockmap + latest.yml + SBOM 205,154 B, each binary with a .sha256
+  sidecar).
+- Byte-level acceptance: SBOM sha256sum -c OK (356 components, app 1.0.0, toolchains
+  deno@2.9.7 / ffmpeg@N-127259 / yt-dlp@2026.08.19); portable zip sha256sum -c OK,
+  131 entries, all CRCs OK (toolchains manifest + perf-budgets resources aboard);
+  latest.yml carries version: 1.0.0; release notes carry the full checksum table
+  (portable zip digest 5019c12d…).
+- The 31-phase map is complete. App 1.0.0, contracts 1.16.0.
