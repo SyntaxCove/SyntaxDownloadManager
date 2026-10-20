@@ -1281,5 +1281,9 @@ Stage Summary:
   report; the verdict arithmetic is enforced by the wire contract itself.
 - One budget-home change (scripts → resources) makes CI-gate and device-report budgets
   byte-identical by construction.
-- Release: tag v0.16.0 via the Phase 26 pipeline (details in the commit + docs).
+- Release: CI run 39375633841 both jobs green; release pipeline run 39375975190 SUCCESS
+  (tag v0.16.0) — 8 assets, F-2-fixed notes composition verified in production for the
+  fourth consecutive run; published portable zip downloaded and sha256sum -c OK
+  (9dbf6bdc…d666b0, 131 entries intact — the +1 entry is exactly the new shipped
+  resources/perf-budgets.json, which parses with the Phase 29 baselines).
 - Next: phase 30 — security & privacy final review (supply chain, SBOM).
