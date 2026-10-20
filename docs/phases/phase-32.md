@@ -64,5 +64,9 @@ node scripts/layout-repro.cjs`).
   respected; checksums + SBOM + final-qa selftests ok; **npm audit --omit=dev: 0
   vulnerabilities**; fmt/clippy clean; **300 cargo tests** green.
   (Log: `tool-results/verify-all-p32.log`.)
-- Post-push: CI run and the v1.1.0 release pipeline run are recorded at the bottom of
-  this report (updated after the real runs completed).
+- Post-push, real runs: CI run **39416500781** (commit d09c377) — both jobs green.
+  Release pipeline run **39417048782** (tag v1.1.0) — **success**; published
+  "Syntax Download Manager v1.1.0" with 10 assets.
+- Byte-level acceptance: `latest.yml` carries `version: 1.1.0`; published SBOM
+  `sha256sum -c` OK (356 components, app `syntax-download-manager 1.1.0`); published
+  portable zip (167,843,398 B) `sha256sum -c` OK — 131 entries, all CRCs OK.

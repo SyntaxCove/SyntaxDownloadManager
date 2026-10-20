@@ -1486,3 +1486,15 @@ Stage Summary:
   browser.getUserAgent IPC, SettingsPage section, i18n en/fa, contracts 1.17.0,
   docs/phases/phase-32-{plan,md}, tool-results/verify-all-p32.log.
 - Next: push, CI green, tag v1.1.0 → release pipeline; post-push runs recorded below.
+
+Verification (post-push, real runs):
+- CI run 39416500781 (commit d09c377): verify (ubuntu) + core tests (windows, msvc)
+  both completed success.
+- Release pipeline run 39417048782 (tag v1.1.0): completed success — "Syntax Download
+  Manager v1.1.0" published with 10 assets (Setup exe 122,191,357 B + portable zip
+  167,843,398 B + blockmap + latest.yml + SBOM 205,154 B, each binary with a .sha256
+  sidecar).
+- Byte-level acceptance: latest.yml version: 1.1.0; SBOM sha256sum -c OK (356
+  components, app syntax-download-manager 1.1.0); portable zip sha256sum -c OK, 131
+  entries, all CRCs OK.
+- Post-1.0 iteration 1 shipped: app 1.1.0, contracts 1.17.0.
