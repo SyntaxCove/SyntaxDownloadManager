@@ -1350,3 +1350,17 @@ Stage Summary:
   verify-all.sh hardened, tool-results/verify-all-p30.log.
 - Contracts unchanged at 1.16.0; app 0.17.0. Next: phase 31 — 1.0.0 final QA, version,
   release.
+
+Verification (post-push, real runs):
+- CI run 39383214875 (commit 7e479d8): verify (ubuntu) + core tests (windows, msvc)
+  both completed success — first run with SHA-pinned actions, tokenless checkouts,
+  SBOM selftest and the npm-audit runtime gate in the job.
+- Release pipeline run 39383642647 (tag v0.17.0): completed success — first run with
+  the SBOM generation step; release published with 10 assets (Setup exe + portable zip
+  + blockmap + latest.yml, each with .sha256 sidecars, plus the new
+  SyntaxDownloadManager-0.17.0-sbom.cdx.json, 205,169 B, with its .sha256 sidecar).
+- Byte-level acceptance: published SBOM sha256sum -c OK (356 components, app 0.17.0,
+  rustls 0.23.46, toolchains deno@2.9.7 / ffmpeg@N-127259 / yt-dlp@2026.08.19);
+  published portable zip sha256sum -c OK (73a6ac02…, 131 entries, toolchains +
+  perf-budgets resources present). Release notes carry the SBOM paragraph + checksum
+  table.
