@@ -1044,7 +1044,9 @@ impl Engine {
                 let _ = f.sync_all();
             }
         }
+        let mut durable: u64 = 0;
         for (idx, written) in cursors.iter().enumerate() {
+            durable += *written;
             let _ = self.store.update_segment_progress(
                 job.id.as_str(),
                 idx as u64,
@@ -1053,7 +1055,11 @@ impl Engine {
             );
         }
         drop(cursors);
-        job.received_bytes = state.received.load(Ordering::SeqCst);
+        // The persisted aggregate must never undercount the durable cursors it just
+        // persisted (data integrity first): every cursor advanced only after a
+        // successful write_all, so max() closes the abort edge where a write landed
+        // but its atomic increment was cut off.
+        job.received_bytes = state.received.load(Ordering::SeqCst).max(durable);
         let _ = self
             .store
             .update_progress(job.id.as_str(), job.received_bytes, 0, None);

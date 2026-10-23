@@ -1634,3 +1634,41 @@ Stage Summary:
   in-browser media detection with session credentials) is fully shipped — push, CI green,
   release pipeline green, 10 assets verified. Post-1.0 iteration 2 complete: app 1.2.0,
   contracts 1.18.0.
+
+---
+Task ID: 33-fix
+Agent: main
+Task: docs-commit CI run 39914208510 (944e430) caught a Windows-runner flake in
+download-core — bit_rot_in_a_paused_part_fails_typed_and_keeps_the_part panicked at
+integrity.rs:115 "must pause with real progress" (received_bytes == 0 after a pause the
+test believed landed mid-run). ubuntu verify job green; same test green twice on af26e76.
+
+Work Log:
+- Root cause (test-side witness, not engine data loss): pause_mid_run's progress loop
+  treated the part file's length as proof of progress ("the part file grows on the first
+  chunk"). That assumption is false for offset/segmented mode — engine.rs:794 sparse-pre-
+  sizes the part to total_bytes BEFORE any writer runs (legit F-3 file alignment), so a
+  4 MiB part proves zero downloaded bytes; under runner load the loop broke on the
+  pre-sized part, Pause landed before any fetch_add, and finalize_run persisted
+  received_bytes = 0.
+- Engine hardening (data integrity first): finalize_run now persists
+  received_bytes = max(state.received, Σ durable cursors) — every cursor advances only
+  after a successful write_all, so the persisted aggregate can never undercount the
+  journal it just persisted (closes the abort edge for every pause/cancel, not just the
+  test).
+- Test fix: new ProgressWitness enum {Aggregate, PartGrowth}. Segmented call sites
+  (part_deleted_..._segmented, bit_rot_...) use Aggregate (engine-attested only: ticker
+  aggregate + journal cursors); append call sites (part_deleted_..._append,
+  part_truncated_...) keep PartGrowth (append parts grow from zero and file length is
+  the only sub-ticker witness for 256 KiB bodies). Strict assertion kept.
+- Sandbox reset again: rustup 1.99.1 + rustfmt/clippy reinstalled (rustup-init needs
+  plain `-y --default-toolchain stable`, components added separately).
+- Verified: integrity suite 5/5 green (11 tests each), full workspace 308 cargo tests
+  green, cargo fmt --check clean, clippy -D warnings clean. No wire change — app stays
+  1.2.0 / contracts 1.18.0; v1.2.0 stays as published (tags never re-pointed), the fix
+  rides the next release (5bc0f68 precedent).
+
+Stage Summary:
+- The pause-time persisted aggregate is now provably honest (never below durable journal
+  state), and the integrity suite's progress witness matches the engine's real file
+  semantics per mode. Commit + push + CI watch below.

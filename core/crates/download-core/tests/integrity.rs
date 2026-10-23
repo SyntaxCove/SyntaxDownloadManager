@@ -76,11 +76,27 @@ fn body(len: usize) -> Vec<u8> {
         .collect()
 }
 
+/// What counts as an honest "real progress" witness while waiting for the pause.
+///
+/// The part file's length is NOT a universal witness: in offset (segmented) mode the
+/// engine sparse-pre-sizes the part to the full total BEFORE any writer runs, so a
+/// 4 MiB part proves zero downloaded bytes — only the engine-maintained aggregate
+/// (ticker-flushed, guaranteed within one 500 ms tick) and the persisted journal
+/// cursors attest real progress there. In append mode the part genuinely grows from
+/// zero and its length is the only witness fast enough for bodies shorter than the
+/// ticker period (a false witness here once paused mid-run with received == 0 —
+/// exactly the flake this split exists to kill).
+enum ProgressWitness {
+    Aggregate,
+    PartGrowth,
+}
+
 /// Spawn a run, wait for real progress, pause it, and return the paused row.
 async fn pause_mid_run(
     engine: &Arc<Engine>,
     store: &Arc<JobStore>,
     job: &dc_protocol::job::DownloadJob,
+    witness: ProgressWitness,
 ) -> dc_protocol::job::DownloadJob {
     let (cmd_tx, cmd_rx) = mpsc::channel(4);
     let task = tokio::spawn(engine.clone().run_job(
@@ -93,10 +109,17 @@ async fn pause_mid_run(
         if current.status == "completed" {
             panic!("run finished before the pause could land");
         }
-        // The aggregate counter is ticker-flushed every 500 ms; the part file grows on
-        // the first chunk — watch both so fast downloads stay pausable.
-        let mut progressed = current.received_bytes > 0;
-        if !progressed {
+        // Engine-attested progress: the ticker-flushed aggregate plus the journal
+        // cursors (advanced only after a successful write_all, flushed on the
+        // JOURNAL_FLUSH_BYTES cadence).
+        let mut progressed = current.received_bytes > 0
+            || store
+                .list_segments(job.id.as_str())
+                .map(|rows| rows.iter().any(|r| r.written_bytes > 0))
+                .unwrap_or(false);
+        if !progressed && matches!(witness, ProgressWitness::PartGrowth) {
+            // Append mode only: the part grows from zero on the first chunk (no sparse
+            // pre-size), so its length is real downloaded bytes.
             if let Some(dp) = &current.destination_path {
                 if let Ok(meta) = tokio::fs::metadata(format!("{dp}.part")).await {
                     progressed = meta.len() > 0;
@@ -154,7 +177,7 @@ async fn part_deleted_between_runs_restarts_clean_segmented() {
         .create_job(params(server.base_url.clone(), &dir))
         .await
         .unwrap();
-    let paused = pause_mid_run(&engine, &store, &job).await;
+    let paused = pause_mid_run(&engine, &store, &job, ProgressWitness::Aggregate).await;
     let requests_before = server.request_count();
 
     let part = dir.join("file.part");
@@ -196,7 +219,7 @@ async fn part_deleted_between_runs_restarts_clean_append_mode() {
         .create_job(params(server.base_url.clone(), &dir))
         .await
         .unwrap();
-    let paused = pause_mid_run(&engine, &store, &job).await;
+    let paused = pause_mid_run(&engine, &store, &job, ProgressWitness::PartGrowth).await;
     tokio::fs::remove_file(dir.join("file.part")).await.unwrap();
 
     resume_to_terminal(&engine, &store, &paused).await;
@@ -224,7 +247,7 @@ async fn part_truncated_below_journal_never_yields_corrupt_output() {
         .create_job(params(server.base_url.clone(), &dir))
         .await
         .unwrap();
-    let paused = pause_mid_run(&engine, &store, &job).await;
+    let paused = pause_mid_run(&engine, &store, &job, ProgressWitness::PartGrowth).await;
     let journaled: u64 = store
         .list_segments(job.id.as_str())
         .unwrap()
@@ -514,7 +537,7 @@ async fn bit_rot_in_a_paused_part_fails_typed_and_keeps_the_part() {
         ))
         .await
         .unwrap();
-    let paused = pause_mid_run(&engine, &store, &job).await;
+    let paused = pause_mid_run(&engine, &store, &job, ProgressWitness::Aggregate).await;
 
     // Bit-rot inside the WRITTEN region: offset 0 belongs to window 0's cursor.
     let part = dir.join("file.part");
