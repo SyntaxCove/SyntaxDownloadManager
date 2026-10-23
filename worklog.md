@@ -1596,3 +1596,8 @@ Stage Summary:
   contracts 1.18.0, dc-protocol headers, media_jobs migration v10, browser-media store +
   browse panel, i18n en/fa, docs/phases/phase-33-{plan,md}, tool-results/verify-all-p33.log.
 - Next: push, CI green, tag v1.2.0 → release pipeline; post-push runs recorded below.
+En-route blocker (2026-10-23):
+- GitHub PAT lost to the sandbox reset again (~/.git-credentials empty, no helper, no env
+  fallback) — commit 215a990 (phase 33) is local-only; push + tag v1.2.0 + CI watch +
+  release acceptance are pending the token. Same recovery path as the phase-32 session:
+  the user supplies a fresh PAT → write ~/.git-credentials → push → tag → verify runs.
