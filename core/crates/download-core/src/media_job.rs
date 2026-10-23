@@ -25,8 +25,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dc_protocol::media::{MediaContainer, MediaDownloadParams, MediaJob, MediaSubtitleSelection};
-use dc_protocol::{new_ulid, ContractError, ErrorCode, EventEnvelope, MediaInspectParams};
+use dc_protocol::media::{
+    MediaContainer, MediaDownloadParams, MediaHeaderMap, MediaJob, MediaSubtitleSelection,
+};
+use dc_protocol::{
+    add_header_args, new_ulid, validate_media_headers, ContractError, ErrorCode, EventEnvelope,
+    MediaInspectParams,
+};
 use dc_storage::JobStore;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncReadExt;
@@ -108,6 +113,10 @@ pub fn validate_download_params(p: &MediaDownloadParams) -> Result<(), ContractE
             ));
         }
     }
+    // v1.18 (Phase 33): request headers reach yt-dlp argv — validate before anything spawns.
+    if let Some(headers) = &p.headers {
+        validate_media_headers(headers)?;
+    }
     Ok(())
 }
 
@@ -124,11 +133,13 @@ pub fn dedupe_subtitles(subs: Vec<MediaSubtitleSelection>) -> Vec<MediaSubtitleS
 // ---------------------------------------------------------------------------
 
 /// yt-dlp invocation for ONE stream (`-f <id>`, private out template, machine progress).
+/// `headers` (v1.18) forwards browser-context auth (cookies/UA/referer) to yt-dlp.
 pub fn build_ytdlp_stream_args(
     url: &str,
     format_id: &str,
     out_template: &str,
     proxy: Option<&str>,
+    headers: Option<&MediaHeaderMap>,
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "--ignore-config".into(),
@@ -152,16 +163,21 @@ pub fn build_ytdlp_stream_args(
         args.push("--proxy".into());
         args.push(endpoint.into());
     }
+    if let Some(headers) = headers {
+        args.extend(add_header_args(headers));
+    }
     args.push(url.into());
     args
 }
 
 /// yt-dlp invocation for the subtitle fetch (single run for every selected track).
+/// `headers` (v1.18) forwards browser-context auth to yt-dlp.
 pub fn build_ytdlp_subs_args(
     url: &str,
     out_template: &str,
     subs: &[MediaSubtitleSelection],
     proxy: Option<&str>,
+    headers: Option<&MediaHeaderMap>,
 ) -> Vec<String> {
     let mut langs: Vec<String> = Vec::new();
     let mut exts: Vec<String> = Vec::new();
@@ -192,6 +208,9 @@ pub fn build_ytdlp_subs_args(
     if let Some(endpoint) = proxy {
         args.push("--proxy".into());
         args.push(endpoint.into());
+    }
+    if let Some(headers) = headers {
+        args.extend(add_header_args(headers));
     }
     args.push(url.into());
     args
@@ -472,6 +491,7 @@ impl MediaJobManager {
             video_format_id: params.video_format_id.clone(),
             audio_format_id: params.audio_format_id.clone(),
             filename: params.filename.clone(),
+            headers: params.headers.clone(),
             subtitles: dedupe_subtitles(params.subtitles),
             container: params.container,
             destination_dir: params.destination_dir,
@@ -826,6 +846,7 @@ impl MediaJobManager {
                 MediaInspectParams {
                     url: job.source_url.clone(),
                     proxy_profile_id: job.proxy_profile_id.clone(),
+                    headers: job.headers.clone(),
                 },
                 &limits,
             );
@@ -945,6 +966,7 @@ impl MediaJobManager {
                 &plan.format_id,
                 &out_template,
                 proxy.as_deref(),
+                job.headers.as_ref(),
             );
             let prog = progress.clone();
             let done_before = completed;
@@ -1017,6 +1039,7 @@ impl MediaJobManager {
                     &out_template,
                     &job.subtitles,
                     proxy.as_deref(),
+                    job.headers.as_ref(),
                 );
                 let outcome = run_child(
                     &tool.path,
@@ -1524,6 +1547,7 @@ mod tests {
             container: MediaContainer::Mkv,
             destination_dir: "/tmp/syntaxdm".into(),
             filename: None,
+            headers: None,
             proxy_profile_id: None,
         }
     }
@@ -1598,19 +1622,55 @@ mod tests {
             "137",
             "/work/video.%(ext)s",
             None,
+            None,
         );
         assert_eq!(args.last().unwrap(), "https://example.com/watch/abc");
         assert!(args.iter().any(|a| a == "137"));
         assert!(args.iter().any(|a| a.contains("SYNTAXDM")));
         assert!(!args.iter().any(|a| a == "--proxy"));
+        assert!(!args.iter().any(|a| a == "--add-header"));
         let proxied = build_ytdlp_stream_args(
             "https://example.com/watch/abc",
             "137",
             "/work/video.%(ext)s",
             Some("http://u:p@proxy:3128"),
+            None,
         );
         let idx = proxied.iter().position(|a| a == "--proxy").unwrap();
         assert_eq!(proxied[idx + 1], "http://u:p@proxy:3128");
+    }
+
+    #[test]
+    fn ytdlp_stream_args_forward_session_headers() {
+        let headers = MediaHeaderMap::from([
+            ("Cookie".to_string(), "sid=abc".to_string()),
+            (
+                "Referer".to_string(),
+                "https://example.com/watch".to_string(),
+            ),
+        ]);
+        let args = build_ytdlp_stream_args(
+            "https://example.com/watch/abc",
+            "137",
+            "/work/video.%(ext)s",
+            None,
+            Some(&headers),
+        );
+        // the URL stays the last argv element; headers ride as --add-header pairs before it
+        assert_eq!(args.last().unwrap(), "https://example.com/watch/abc");
+        let pairs: Vec<&String> = args
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| *a == "--add-header" && *i > 0)
+            .map(|(_, a)| a)
+            .collect();
+        assert_eq!(pairs.len(), 2);
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--add-header" && w[1] == "Cookie: sid=abc"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--add-header" && w[1] == "Referer: https://example.com/watch"));
     }
 
     #[test]
@@ -1632,13 +1692,45 @@ mod tests {
                 is_auto_generated: false,
             },
         ];
-        let args = build_ytdlp_subs_args("https://example.com/x", "/work/base", &subs, None);
+        let args = build_ytdlp_subs_args("https://example.com/x", "/work/base", &subs, None, None);
         let langs = &args[args.iter().position(|a| a == "--sub-langs").unwrap() + 1];
         assert_eq!(langs, "en,de");
         let fmt = &args[args.iter().position(|a| a == "--sub-format").unwrap() + 1];
         assert_eq!(fmt, "vtt/srt/best");
         assert!(args.iter().any(|a| a == "--skip-download"));
         assert!(args.iter().any(|a| a == "--write-auto-subs"));
+        // headers ride along on the subtitle fetch too (auth'd caption endpoints exist)
+        let headers = MediaHeaderMap::from([("Cookie".to_string(), "sid=abc".to_string())]);
+        let with_headers = build_ytdlp_subs_args(
+            "https://example.com/x",
+            "/work/base",
+            &subs,
+            None,
+            Some(&headers),
+        );
+        assert!(with_headers
+            .windows(2)
+            .any(|w| w[0] == "--add-header" && w[1] == "Cookie: sid=abc"));
+    }
+
+    #[test]
+    fn validation_rejects_unsafe_headers() {
+        let mut p = params(Some("137"), None, vec![]);
+        p.headers = Some(MediaHeaderMap::from([(
+            "X-Evil".to_string(),
+            "a\rb".to_string(),
+        )]));
+        assert!(validate_download_params(&p).is_err());
+        p.headers = Some(MediaHeaderMap::from([(
+            "Bad Name".to_string(),
+            "v".to_string(),
+        )]));
+        assert!(validate_download_params(&p).is_err());
+        p.headers = Some(MediaHeaderMap::from([(
+            "Cookie".to_string(),
+            "sid=1".to_string(),
+        )]));
+        assert!(validate_download_params(&p).is_ok());
     }
 
     #[test]

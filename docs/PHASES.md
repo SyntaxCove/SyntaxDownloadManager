@@ -60,6 +60,7 @@
 | 30 | Security & privacy final review — supply chain, SBOM | delivered (2026-10-20) |
 | 31 | 1.0.0 — final QA, version, release | delivered (2026-10-20) |
 | 32 | post-1.0 — editable browser user-agent + browser pane fill fix | delivered (2026-10-20) |
+| 33 | post-1.1 — browser downloads in the Downloads list + in-browser media detection | delivered (2026-10-23) |
 
 ## Contract versioning
 

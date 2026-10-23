@@ -4,6 +4,7 @@ import { ThemeProvider } from "./theme/ThemeProvider.js";
 import { AppShell } from "./app/AppShell.js";
 import { subscribeSettingsChanged } from "./stores/settings.js";
 import { subscribeBrowserEvents, createTab, closeTab, useBrowserStore } from "./stores/browser.js";
+import { subscribeBrowserMediaEvents } from "./stores/browser-media.js";
 import { subscribeDownloadEvents } from "./stores/downloads.js";
 import { subscribeToolkitProgress } from "./stores/toolkit.js";
 import { subscribeMediaEvents } from "./stores/media.js";
@@ -21,6 +22,7 @@ import { subscribeStatusToasts } from "./app/toasts.js";
 async function boot(): Promise<void> {
   subscribeSettingsChanged();
   subscribeBrowserEvents();
+  subscribeBrowserMediaEvents();
   subscribeDownloadEvents();
   subscribeToolkitProgress();
   subscribeMediaEvents();

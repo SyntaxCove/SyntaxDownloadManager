@@ -1513,3 +1513,86 @@ En-route fix (post-release, found by the docs-commit CI run 39418356707):
   spawn_launch_code_is_honest pins the decisions. 301 cargo tests green locally
   (fmt/clippy clean).
 - v1.1.0 stays as published (tags are never re-pointed); the fix rides the next release.
+
+---
+Task ID: 33
+Agent: main
+Task: post-1.1 user request (Persian, 2026-10-23): (1) downloads started anywhere in the
+browser must appear in the Downloads list with live status and full controls; (2) while
+browsing, media must be detected and listed with one-click downloads, the browsing
+session's login credentials (cookies) must reach the media downloader, and multi-server
+players must be detected on whichever server is played (preload or playback). Executed
+as phase 33 under the full phase discipline; contracts 1.17.0 → 1.18.0 (additive),
+app 1.1.0 → 1.2.0.
+
+Work Log:
+- Toolchain: sandbox reset again — rustup 1.99.1 + rustfmt/clippy reinstalled; contracts
+  dist rebuilt before typecheck.
+- Plan: docs/phases/phase-33-plan.md (F-1 browser downloads, F-2 in-browser media
+  detection, work items P-1..P-8, acceptance criteria, explicit non-goals).
+- F-1 (browser-downloads.ts): will-download attached to every browser session (default +
+  per-proxy) at creation via the new TabManager session-lifecycle observer; http(s) +
+  ready core → preventDefault + download.create (settings download dir, browser-suggested
+  filename with URL fallback, session-fact headers: effective UA / page Referer /
+  initiator Origin / explicit Cookie header rebuilt from the cookie jar — httpOnly
+  included, path-sorted, size-bounded); blob:/data: and a not-ready core keep native;
+  failed hand-off rescues natively exactly once (session.downloadURL + 30 s one-shot
+  marker) with log + OS notification. Electron 44's DownloadItem has no
+  getRequestHeaders — headers assemble from session facts + the will-download
+  webContents arg instead.
+- F-2 (browser-media.ts): passive main-side detection only (no preload — Phase 23
+  posture kept). Network sniffing via session.webRequest.onHeadersReceived (never
+  modifies traffic; callback({}) always) → classifyMediaResponse (mime + ext →
+  video/audio/manifest/segment) → per-tab TabMediaIndex (dedupe by kind:url, cap 100
+  oldest-evicted, segments withheld while a manifest exists, clear on main-frame
+  navigation and tab close); DOM scan via a static read-only executeJavaScript snippet
+  (result treated as untrusted page data, strictly validated, capped) triggered on
+  demand + debounced after media-started-playing (multi-server switches);
+  webContentsId → tabId attribution via TabManager.
+- Credentials: browser.media.download orchestrated in main — the tab's OWN session
+  supplies UA/Referer/Cookie (cookies never enter the renderer, never logged — pinned
+  by test). Direct file → download.create (tab proxy wins, Downloads-page default-proxy
+  semantics via applyDefaultProxy); manifest → media.inspect (headers) → pickBestFormats
+  (tallest video, highest-bitrate audio; audio-only/progressive handled) →
+  media.download (mkv, title filename).
+- Contracts 1.18.0 additive: BrowserMediaItem/SnapshotEvent, browser.media.list|scan|
+  clear|download (main-served; download = discriminated file/stream union),
+  browser.media.updated event; MediaHeaders (≤16, token names, no CR/LF/NUL) on
+  media.inspect/download params + MediaJob.
+- Rust: dc-protocol mirror 1.18.0 + MediaHeaderMap (BTreeMap, deterministic wire+argv) +
+  validate_media_headers + add_header_args (--add-header "Name: Value", verified against
+  yt-dlp's documented flag); media.rs inspect forwards headers; media_job.rs stream/sub
+  argv builders gain headers + validation; create() persists headers; dc-storage
+  migration v10 (media_jobs.headers_json) so resumed media jobs re-authenticate.
+- Renderer: stores/browser-media.ts (per-tab mirrors + panel state + pending flags +
+  toasts), BrowsePage navbar toggle with count badge + collapsible bottom panel
+  (kind/filename/meta + per-row Download + scan/clear; the WebContentsView auto-shrinks
+  via the existing geometry sync), i18n en+fa (17 new keys), main.tsx subscription.
+- TabManager: setSessionLifecycleObserver (attach exactly once per session),
+  setTabActivityObserver (pageChanged/mediaPlaying), tabIdForWebContents,
+  sessionForTab (credential session per tab), webContentsForTab.
+- Tests: contracts +8; desktop +43 (browser-media domain incl. classifier matrix /
+  index / best-format picker / untrusted scan parsing / cookie assembly, browser-downloads
+  wiring incl. rescue + log-redaction pins, TabManager hooks over stubbed Electron,
+  browser-media store); cargo 300 → 308 (dc-protocol serde/validation/argv determinism,
+  media_job argv + unsafe-header rejection, storage headers persistence incl. legacy
+  rows). En-route fixes: dc-protocol missing error imports; 5 test-side strict-TS issues
+  (noUncheckedIndexedAccess) + duplicate-key TestDeps builder.
+- Version 1.1.0 → 1.2.0 across root+desktop package.json, package-lock (3 app spots —
+  has-symbols/math-intrinsics are third-party 1.1.0 packages, untouched), Cargo.toml
+  workspace version + Cargo.lock refresh (5 crates); contracts 1.18.0. Docs:
+  phase-33-plan.md, phase-33.md, PHASES.md row 33, README status + roadmap.
+- verify-all gate green on the 1.2.0 sources (tool-results/verify-all-p33.log): 136
+  contracts + 449 desktop (real-core E2E green) + 308 cargo, fmt/clippy clean, budgets
+  respected (1,168,475/1,200,000 B), checksums/SBOM/final-qa selftests ok, final-qa
+  app-version alignment + contracts ≠ app version, npm prod audit 0 vulnerabilities.
+
+Stage Summary:
+- Phase 33 delivered: the browser and the download manager are one system — every
+  browser-initiated download is visible and controllable in Downloads, and media
+  detection during browsing is one click from playback to a job, with the browsing
+  session's login carried to the engines.
+- Artifacts: main/domains/{browser-downloads,browser-media}.ts (new), TabManager hooks,
+  contracts 1.18.0, dc-protocol headers, media_jobs migration v10, browser-media store +
+  browse panel, i18n en/fa, docs/phases/phase-33-{plan,md}, tool-results/verify-all-p33.log.
+- Next: push, CI green, tag v1.2.0 → release pipeline; post-push runs recorded below.

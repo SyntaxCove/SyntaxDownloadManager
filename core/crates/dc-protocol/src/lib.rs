@@ -27,9 +27,10 @@ pub use error::{ContractError, ErrorCode};
 pub use ids::{new_ulid, ulid_time, Ulid, UlidError};
 pub use job::{ChecksumAlgorithm, DownloadJob};
 pub use media::{
-    AudioFormat, MediaContainer, MediaDownloadParams, MediaDownloadResult, MediaInspectParams,
-    MediaInspectResult, MediaJob, MediaListResult, MediaManifest, MediaProgress, MediaRemoveParams,
-    MediaSubtitleSelection, SubtitleTrack, VideoFormat,
+    add_header_args, validate_media_headers, AudioFormat, MediaContainer, MediaDownloadParams,
+    MediaDownloadResult, MediaHeaderMap, MediaInspectParams, MediaInspectResult, MediaJob,
+    MediaListResult, MediaManifest, MediaProgress, MediaRemoveParams, MediaSubtitleSelection,
+    SubtitleTrack, VideoFormat, MEDIA_HEADERS_MAX,
 };
 pub use scheduler::{
     SchedulerCreateParams, SchedulerCreateResult, SchedulerJob, SchedulerJobResult,
@@ -43,7 +44,7 @@ pub use torrent::{
 
 /// Mirrors CONTRACT_VERSION in packages/contracts/src/version.ts.
 /// download-core refuses to start against a mismatched main process.
-pub const CONTRACT_VERSION: &str = "1.17.0";
+pub const CONTRACT_VERSION: &str = "1.18.0";
 
 /// Wire protocol version carried by every envelope (`v`).
 pub const PROTOCOL_VERSION: i64 = 1;

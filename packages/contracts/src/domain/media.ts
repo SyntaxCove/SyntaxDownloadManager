@@ -60,11 +60,41 @@ export const MediaManifest = z.object({
 });
 export type MediaManifest = z.infer<typeof MediaManifest>;
 
+/**
+ * v1.18 (Phase 33): browser-context request headers the main process attaches to media
+ * requests (User-Agent / Referer / Cookie from the browsing session). Bounds mirror the
+ * HTTP reality: token names, no CR/LF/NUL in values, at most 16 headers. The renderer
+ * never supplies these — only main (which owns the cookie jars) does.
+ */
+export const MEDIA_HEADERS_MAX_ENTRIES = 16;
+/** RFC 7230 token characters (no separators, no colon — the name never carries one). */
+const HTTP_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+export const MediaHeaderName = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(HTTP_TOKEN_RE, "header name must be an HTTP token");
+export const MediaHeaderValue = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((v) => !/[\r\n\0]/.test(v), "header value must not contain CR/LF/NUL");
+
+export const MediaHeaders = z
+  .record(MediaHeaderName, MediaHeaderValue)
+  .refine((h) => Object.keys(h).length <= MEDIA_HEADERS_MAX_ENTRIES, {
+    message: `at most ${MEDIA_HEADERS_MAX_ENTRIES} headers are supported`,
+  });
+export type MediaHeaders = z.infer<typeof MediaHeaders>;
+
 /** `media.inspect` (v1.6, Phase 11) — served by the Rust core. */
 export const MediaInspectParams = z.object({
   url: z.string().min(1),
   /** Route the extractor's own traffic through a proxy profile (fail-closed if missing). */
   proxyProfileId: z.string().min(1).optional(),
+  /** v1.18 (Phase 33): session headers (cookies/UA/referer) forwarded to yt-dlp. */
+  headers: MediaHeaders.optional(),
 });
 export type MediaInspectParams = z.infer<typeof MediaInspectParams>;
 
@@ -115,6 +145,11 @@ export const MediaJob = z.object({
   audioFormatId: z.string().min(1).nullable(),
   /** Explicit base filename from creation params; omitted when none was given. */
   filename: z.string().min(1).nullish(),
+  /**
+   * v1.18 (Phase 33): browser-context request headers persisted with the job so every
+   * run (yt-dlp re-extracts each time) re-authenticates; omitted when none were given.
+   */
+  headers: MediaHeaders.nullish(),
   subtitles: z.array(MediaSubtitleSelection).max(8),
   container: MediaContainer,
   destinationDir: z.string().min(1),
@@ -145,6 +180,8 @@ export const MediaDownloadParams = z
     destinationDir: z.string().min(1),
     /** Base filename without extension; default: sanitized page title (filled on extract). */
     filename: z.string().min(1).optional(),
+    /** v1.18 (Phase 33): session headers (cookies/UA/referer) forwarded to yt-dlp. */
+    headers: MediaHeaders.optional(),
     proxyProfileId: Ulid.nullish(),
   })
   .refine((p) => p.videoFormatId !== undefined || p.audioFormatId !== undefined, {

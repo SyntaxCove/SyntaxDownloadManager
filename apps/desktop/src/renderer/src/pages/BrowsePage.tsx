@@ -19,18 +19,23 @@ import {
   ArrowRightRegular,
   DismissRegular,
   ArrowClockwiseRegular,
+  ArrowDownloadRegular,
+  ArrowSyncRegular,
   GlobeShieldRegular,
   StarFilled,
   StarRegular,
+  VideoRegular,
 } from "@fluentui/react-icons";
 import { useBrowserStore } from "../stores/browser.js";
 import { useProxyStore } from "../stores/proxy.js";
 import { useBrowserDataStore } from "../stores/browser-data.js";
+import { useBrowserMediaStore } from "../stores/browser-media.js";
 import {
   activateTab, closeTab, createTab, goBack, goForward, navigateActiveTab,
   pushViewportBounds, reloadTab,
 } from "../stores/browser.js";
 import { useI18n } from "../i18n/context.js";
+import { formatBytes } from "../i18n/format.js";
 
 /**
  * Browse page: tab strip + navigation bar + the transparent viewport "hole".
@@ -67,7 +72,71 @@ const useStyles = makeStyles({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Phase 33: detected-media panel — a layout sibling of the viewport hole, so the
+  // WebContentsView overlay auto-shrinks through the existing geometry sync.
+  mediaPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    height: "200px",
+    flexShrink: 0,
+    padding: "6px 8px",
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: tokens.colorNeutralBackground2,
+    overflow: "hidden",
+  },
+  mediaPanelHeader: { display: "flex", gap: "4px", alignItems: "center" },
+  mediaList: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+  mediaRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    padding: "3px 4px",
+    borderRadius: tokens.borderRadiusSmall,
+    backgroundColor: tokens.colorNeutralBackground1,
+  },
+  mediaName: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+    maxWidth: "46%",
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  mediaMeta: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    flex: 1,
+    color: tokens.colorNeutralForeground3,
+  },
+  mediaCount: {
+    minWidth: "18px",
+    padding: "0 5px",
+    borderRadius: tokens.borderRadiusCircular,
+    backgroundColor: tokens.colorBrandBackground,
+    color: tokens.colorNeutralForegroundOnBrand,
+    fontSize: "11px",
+    lineHeight: "18px",
+    textAlign: "center",
+  },
 });
+
+/** Phase 33: item kind → its localized label key (closed set from the contracts enum). */
+const MEDIA_KIND_LABEL: Record<string, "browse.mediaKindVideo" | "browse.mediaKindAudio" | "browse.mediaKindManifest" | "browse.mediaKindSegment"> = {
+  video: "browse.mediaKindVideo",
+  audio: "browse.mediaKindAudio",
+  manifest: "browse.mediaKindManifest",
+  segment: "browse.mediaKindSegment",
+};
 
 export function BrowsePage(): ReactNode {
   const styles = useStyles();
@@ -88,6 +157,16 @@ export function BrowsePage(): ReactNode {
   const [bookmarked, setBookmarked] = useState(false);
   const toggleStarFromStore = useBrowserDataStore((s) => s.toggleStar);
   const isBookmarkedFromStore = useBrowserDataStore((s) => s.isBookmarked);
+
+  // Phase 33: detected-media panel state (lives in the store — survives page switches).
+  const mediaByTab = useBrowserMediaStore((s) => s.byTab);
+  const mediaPanelOpen = useBrowserMediaStore((s) => s.panelOpen);
+  const mediaPending = useBrowserMediaStore((s) => s.pending);
+  const setMediaPanelOpen = useBrowserMediaStore((s) => s.setPanelOpen);
+  const scanMedia = useBrowserMediaStore((s) => s.scan);
+  const clearMedia = useBrowserMediaStore((s) => s.clear);
+  const downloadMedia = useBrowserMediaStore((s) => s.download);
+  const mediaItems = activeTabId ? (mediaByTab[activeTabId] ?? []) : [];
 
   // Star state follows the active URL (no cache — the core is the source of truth).
   const activeUrl = active?.url ?? null;
@@ -280,9 +359,88 @@ export function BrowsePage(): ReactNode {
           </Tooltip>
         ) : null}
         {active?.isLoading ? <Spinner size="tiny" /> : null}
+        {/* Phase 33: detected-media panel toggle — count badge shows live findings. */}
+        {active ? (
+          <Tooltip content={t("browse.mediaPanelToggle")} relationship="label">
+            <Button
+              appearance="subtle"
+              aria-label={t("browse.mediaPanelToggle")}
+              aria-pressed={mediaPanelOpen}
+              onClick={() => setMediaPanelOpen(!mediaPanelOpen)}
+              icon={<VideoRegular />}
+            >
+              {mediaItems.length > 0 ? <span className={styles.mediaCount}>{mediaItems.length}</span> : null}
+            </Button>
+          </Tooltip>
+        ) : null}
       </div>
 
       <div className={styles.viewport} ref={viewportRef} aria-hidden="true" />
+
+      {/* Phase 33: detected-media panel — a sibling of the viewport hole, so the browser
+          view shrinks while it is open and the user can one-click-download any finding. */}
+      {mediaPanelOpen && active ? (
+        <div className={styles.mediaPanel} role="region" aria-label={t("browse.mediaPanelTitle")}>
+          <div className={styles.mediaPanelHeader}>
+            <Text weight="semibold">{t("browse.mediaPanelTitle")}</Text>
+            <div style={{ flex: 1 }} />
+            <Button
+              size="small"
+              appearance="subtle"
+              icon={<ArrowSyncRegular />}
+              aria-label={t("browse.mediaScanAgain")}
+              title={t("browse.mediaScanAgain")}
+              onClick={() => void scanMedia(active.id).catch(() => undefined)}
+            />
+            <Button
+              size="small"
+              appearance="subtle"
+              icon={<DismissRegular />}
+              aria-label={t("browse.mediaClear")}
+              title={t("browse.mediaClear")}
+              onClick={() => void clearMedia(active.id).catch(() => undefined)}
+            />
+          </div>
+          {mediaItems.length === 0 ? (
+            <Text size={200}>{t("browse.mediaPanelEmpty")}</Text>
+          ) : (
+            <ul className={styles.mediaList}>
+              {mediaItems.map((item) => {
+                const kindLabel = MEDIA_KIND_LABEL[item.kind] ?? "browse.mediaKindVideo";
+                const meta = [
+                  t(kindLabel),
+                  item.byteSize !== null ? formatBytes(item.byteSize, t.lang) : null,
+                  item.origin === "dom" ? t("browse.mediaOriginDom") : t("browse.mediaOriginNetwork"),
+                ]
+                  .filter((part): part is string => part !== null)
+                  .join(" · ");
+                return (
+                  <li key={item.id} className={styles.mediaRow}>
+                    <Text className={styles.mediaName} title={item.url}>
+                      {item.filename}
+                    </Text>
+                    <Text size={200} className={styles.mediaMeta} title={item.url}>
+                      {meta}
+                    </Text>
+                    <Button
+                      size="small"
+                      appearance="subtle"
+                      icon={<ArrowDownloadRegular />}
+                      disabled={mediaPending[item.id] === true}
+                      aria-label={t("browse.mediaDownloadAria", { name: item.filename })}
+                      onClick={() =>
+                        void downloadMedia(active.id, item).catch(() => undefined)
+                      }
+                    >
+                      {t("browse.mediaDownload")}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

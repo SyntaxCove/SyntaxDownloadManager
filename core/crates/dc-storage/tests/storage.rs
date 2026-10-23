@@ -240,6 +240,7 @@ fn sample_media_job(id: &str, status: &str) -> dc_protocol::MediaJob {
         video_format_id: Some("137".into()),
         audio_format_id: Some("140".into()),
         filename: None,
+        headers: None,
         subtitles: vec![dc_protocol::MediaSubtitleSelection {
             language: "en".into(),
             extension: "vtt".into(),
@@ -327,6 +328,59 @@ fn media_jobs_crud_round_trip() {
     assert!(!store
         .delete_media_job("01JMEDIA000000000000000001")
         .unwrap());
+}
+
+#[test]
+fn media_job_headers_persist_for_authenticated_resume() {
+    let store = JobStore::open_in_memory().unwrap();
+
+    // a job created with browser-context headers round-trips them (Phase 33: yt-dlp
+    // re-extracts on every run, so the persisted headers are what re-authenticates)
+    let mut job = sample_media_job("01JMEDIA000000000000000002", "queued");
+    let mut headers = std::collections::BTreeMap::new();
+    headers.insert("Cookie".to_string(), "sid=abc; other=1".to_string());
+    headers.insert("User-Agent".to_string(), "SyntaxDM-UA/1.2".to_string());
+    job.headers = Some(headers);
+    store.insert_media_job(&job).unwrap();
+    let read = store
+        .get_media_job("01JMEDIA000000000000000002")
+        .unwrap()
+        .unwrap();
+    let cookie = read
+        .headers
+        .as_ref()
+        .expect("headers persisted")
+        .get("Cookie");
+    assert_eq!(cookie.map(String::as_str), Some("sid=abc; other=1"));
+
+    // a full update keeps the headers (and clearing them persists the clear)
+    let mut updated = read;
+    updated.status = "completed".into();
+    store.update_media_job(&updated).unwrap();
+    assert!(store
+        .get_media_job("01JMEDIA000000000000000002")
+        .unwrap()
+        .unwrap()
+        .headers
+        .is_some());
+    updated.headers = None;
+    store.update_media_job(&updated).unwrap();
+    assert!(store
+        .get_media_job("01JMEDIA000000000000000002")
+        .unwrap()
+        .unwrap()
+        .headers
+        .is_none());
+
+    // a headerless job reads back headerless (legacy rows stay legacy)
+    let plain = sample_media_job("01JMEDIA000000000000000003", "queued");
+    store.insert_media_job(&plain).unwrap();
+    assert!(store
+        .get_media_job("01JMEDIA000000000000000003")
+        .unwrap()
+        .unwrap()
+        .headers
+        .is_none());
 }
 
 #[test]

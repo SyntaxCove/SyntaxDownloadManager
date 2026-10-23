@@ -8,10 +8,14 @@ A production-grade **Windows 11 x64 desktop application** that fuses a Chromium-
 - **Advanced download engine** — segmented, multi-connection, byte-exactly resumable HTTP downloads with integrity gates and a full recovery/rebinding engine
 - **Zero extra installs for end users** — FFmpeg, yt-dlp, Deno, and a native BitTorrent stack ship **inside** the app; nothing else to download
 
-> **Status:** **1.1.0** — all 31 development phases are delivered and fully tested; the
+> **Status:** **1.2.0** — all 31 development phases are delivered and fully tested; the
 > phase map (`docs/PHASES.md`) is complete, and post-1.0 iterations continue on top
 > (phase 32: an editable, localized **browser user agent** in Settings plus the fix for
-> the browser pane not filling the window in browse mode). Windows x64
+> the browser pane not filling the window in browse mode; phase 33: **browser-initiated
+> downloads land in the Downloads list as fully controllable jobs**, and **in-browser
+> media detection** — a browse-mode panel lists every media a page's player fetches or
+> plays across all its servers, with one-click downloads that carry the browsing
+> session's cookies to the download engines). Windows x64
 > packaging is in place (electron-builder NSIS installer + portable zip) — releases are
 > built **by the CI artifact pipeline** (GitHub Actions, Windows runner) and published
 > with **SHA-256 checksums** on the
@@ -305,6 +309,21 @@ and resets to the Electron default) — and fixed the **browser pane fill** bug:
 collapsed to content width inside the row-flex `FluentProvider` wrapper, leaving most of
 the window empty in browse mode (root-caused and regression-harnessed in real Chromium
 via `scripts/layout-repro.cjs`).
+
+**Phase 33** unified the browser with the download manager. Every download started by a
+click inside any browser tab (direct or proxied) now becomes a real job in the
+**Downloads** list — resumable, controllable, with the session's cookies/UA/Referer
+captured for faithful resume, and honest native fallbacks so a download is never trapped
+(non-http(s) sources, a not-ready engine, or a failed hand-off rescued exactly once).
+Browsing also gained **media detection**: a bottom panel in browse mode (navbar toggle
+with a live count) lists the media a page's player fetches or plays — from any of a
+site's servers, whether preloaded or actually played — via passive main-side network
+sniffing plus a read-only in-page scan, with stream segments withheld while a manifest is
+known so HLS/DASH sites collapse to the manifest. One click downloads a direct file
+through the resumable engine or a stream manifest through the yt-dlp pipeline with
+auto-picked best formats — in both cases carrying the browsing session's login cookies
+(main-side only; the renderer never sees them), and media jobs persist those headers so
+resume re-authenticates.
 
 Phase 31 closed the map as **1.0.0**: a codified final-QA gate (`scripts/final-qa.mjs`)
 that keeps the app version aligned across every manifest and lockfile (enforced in CI

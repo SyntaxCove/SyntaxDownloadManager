@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   DownloadJob, DownloadProgress, DownloadCreateParams, BrowserTab, AppSettings, MediaManifest,
   MediaInspectParams, MediaJob, MediaDownloadParams, MediaProgress, MediaContainer,
-  MediaSubtitleSelection,
+  MediaSubtitleSelection, MediaHeaders,
+  BrowserMediaItem, BrowserMediaSnapshotEvent, BrowserMediaDownloadResult,
   TorrentJob, TorrentStatus, TorrentAddParams, TorrentProgress,
   RequestEnvelope, SuccessEnvelope, ErrorEnvelope, EventEnvelope,
   METHODS, EVENTS, CONTRACT_VERSION, PROTOCOL_VERSION, ErrorCodes,
@@ -1344,5 +1345,114 @@ describe("budget report (Phase 29, v1.16)", () => {
     const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
     if (maj === 1) expect(min).toBeGreaterThanOrEqual(17);
     else expect(maj).toBeGreaterThan(1);
+  });
+
+  it("contract version advanced to at least 1.18.0 (Phase 33 browser media is additive)", () => {
+    const [maj, min] = CONTRACT_VERSION.split(".").map(Number);
+    if (maj === 1) expect(min).toBeGreaterThanOrEqual(18);
+    else expect(maj).toBeGreaterThan(1);
+  });
+});
+
+describe("v1.18 browser media detection + session headers (Phase 33)", () => {
+  const tabId = newUlid();
+
+  const baseItem = {
+    id: "video:https://cdn.example.com/clip.mp4",
+    tabId,
+    url: "https://cdn.example.com/clip.mp4",
+    kind: "video",
+    mimeType: "video/mp4",
+    byteSize: 1234,
+    filename: "clip.mp4",
+    origin: "network",
+    detectedAt: 1_700_000_000_000,
+  };
+
+  it("BrowserMediaItem accepts a well-formed finding and closes kind/origin", () => {
+    const item = BrowserMediaItem.parse(baseItem);
+    expect(item.kind).toBe("video");
+    expect(() => BrowserMediaItem.parse({ ...baseItem, kind: "playlist" })).toThrow();
+    expect(() => BrowserMediaItem.parse({ ...baseItem, origin: "preload" })).toThrow();
+  });
+
+  it("BrowserMediaItem refuses non-http(s) URLs and negative byte sizes", () => {
+    expect(() => BrowserMediaItem.parse({ ...baseItem, url: "blob:https://example.com/x" })).toThrow();
+    expect(() => BrowserMediaItem.parse({ ...baseItem, url: "file:///C:/x.mp4" })).toThrow();
+    expect(() => BrowserMediaItem.parse({ ...baseItem, byteSize: -1 })).toThrow();
+  });
+
+  it("the snapshot event carries a bounded per-tab item list", () => {
+    const event = BrowserMediaSnapshotEvent.parse({ tabId, items: [baseItem] });
+    expect(event.items).toHaveLength(1);
+    const flood = Array.from({ length: 101 }, (_, i) => ({
+      ...baseItem,
+      id: `video:https://cdn.example.com/${i}.mp4`,
+      url: `https://cdn.example.com/${i}.mp4`,
+    }));
+    expect(() => BrowserMediaSnapshotEvent.parse({ tabId, items: flood })).toThrow();
+  });
+
+  it("browser.media.* methods are main-served and the snapshot event is main-sourced", () => {
+    for (const method of ["browser.media.list", "browser.media.scan", "browser.media.clear", "browser.media.download"] as const) {
+      expect(METHODS[method].server).toBe("main");
+    }
+    expect(EVENTS["browser.media.updated"].source).toBe("main");
+  });
+
+  it("the one-click download result is a file/stream discriminated union", () => {
+    const job = domainFixture.downloadJob as Record<string, unknown>;
+    const file = BrowserMediaDownloadResult.parse({ kind: "file", job });
+    expect(file.kind).toBe("file");
+    expect("job" in file).toBe(true);
+    // kind "stream" demands a MediaJob-shaped job — a download job must not pass
+    expect(() => BrowserMediaDownloadResult.parse({ kind: "stream", job })).toThrow();
+    expect(() => BrowserMediaDownloadResult.parse({ kind: "unknown", job })).toThrow();
+  });
+
+  it("MediaHeaders bounds: token names, no CR/LF/NUL values, at most 16 entries", () => {
+    expect(MediaHeaders.parse({ Cookie: "a=1", "User-Agent": "UA/1.0" })).toBeDefined();
+    expect(() => MediaHeaders.parse({ "Bad Name": "v" })).toThrow();
+    expect(() => MediaHeaders.parse({ "X-Evil": "line1\r\nX-Injected: 1" })).toThrow();
+    expect(() => MediaHeaders.parse({ "X-Evil": "line1\nline2" })).toThrow();
+    expect(() => MediaHeaders.parse({ "X-Nul": "a\0b" })).toThrow();
+    const tooMany = Object.fromEntries(
+      Array.from({ length: 17 }, (_, i) => [`X-H${i}`, `v${i}`]),
+    );
+    expect(() => MediaHeaders.parse(tooMany)).toThrow(/at most 16 headers/);
+  });
+
+  it("media.inspect / media.download accept optional headers; MediaJob headers are nullish", () => {
+    const tabIdUnused = undefined;
+    void tabIdUnused;
+    const inspected = MediaInspectParams.parse({ url: "https://example.com/watch/1", headers: { Cookie: "a=1" } });
+    expect(inspected.headers?.Cookie).toBe("a=1");
+    expect(MediaInspectParams.parse({ url: "https://example.com/watch/1" }).headers).toBeUndefined();
+    expect(() => MediaInspectParams.parse({ url: "https://example.com/watch/1", headers: { "x y": "v" } })).toThrow();
+
+    const dl = MediaDownloadParams.parse({
+      url: "https://example.com/watch/1",
+      audioFormatId: "140",
+      destinationDir: "/tmp/dl",
+      headers: { Referer: "https://example.com/" },
+    });
+    expect(dl.headers?.Referer).toBe("https://example.com/");
+    expect(() =>
+      MediaDownloadParams.parse({
+        url: "https://example.com/watch/1",
+        audioFormatId: "140",
+        destinationDir: "/tmp/dl",
+        headers: { "X-Bad": "a\rb" },
+      }),
+    ).toThrow();
+
+    const job = MediaJob.parse({ ...(domainFixture.mediaJob as Record<string, unknown>) });
+    expect("headers" in job ? job.headers : undefined).toBeUndefined(); // omitted stays omitted
+    const withHeaders = MediaJob.parse({
+      ...(domainFixture.mediaJob as Record<string, unknown>),
+      headers: { Cookie: "sid=abc" },
+    });
+    expect(withHeaders.headers?.Cookie).toBe("sid=abc");
+    expect(() => MediaJob.parse({ ...(domainFixture.mediaJob as Record<string, unknown>), headers: 5 })).toThrow();
   });
 });

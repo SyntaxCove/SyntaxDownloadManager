@@ -12,7 +12,9 @@ import {
 import {
   TabCreateParams, TabCreateResult, TabIdParams, TabResult, TabNavigateParams,
   TabMuteParams, TabCloseResult, TabListParams, TabListResult,
-  TabSetProxyParams, TabSetProxyResult,
+  TabSetProxyParams, TabSetProxyResult, BrowserMediaListParams, BrowserMediaListResult,
+  BrowserMediaScanParams, BrowserMediaScanResult, BrowserMediaClearParams,
+  BrowserMediaClearResult, BrowserMediaDownloadParams, BrowserMediaDownloadResult,
 } from "../domain/browser.js";
 import {
   SettingsGetParams, SettingsGetResult, SettingsSetAllParams, SettingsSetAllResult,
@@ -212,6 +214,15 @@ export const METHODS = {
     params: z.object({}),
     result: z.object({ userAgent: z.string(), isCustom: z.boolean() }),
   },
+  // ---- main (v1.18, Phase 33): media detected while browsing ----
+  /** Per-tab list of media detected by network sniffing + DOM scans. */
+  "browser.media.list": { server: "main", params: BrowserMediaListParams, result: BrowserMediaListResult },
+  /** Re-run the in-page media scan for a tab now (static read-only script, main-side). */
+  "browser.media.scan": { server: "main", params: BrowserMediaScanParams, result: BrowserMediaScanResult },
+  /** Drop every detection for a tab (also happens automatically on main-frame navigation). */
+  "browser.media.clear": { server: "main", params: BrowserMediaClearParams, result: BrowserMediaClearResult },
+  /** One-click download of one detected item (main orchestrates: file engine or yt-dlp). */
+  "browser.media.download": { server: "main", params: BrowserMediaDownloadParams, result: BrowserMediaDownloadResult },
   "settings.get": { server: "main", params: SettingsGetParams, result: SettingsGetResult },
   "settings.setAll": { server: "main", params: SettingsSetAllParams, result: SettingsSetAllResult },
   // ---- main (v1.11, Phase 16): native directory picker (settings-completion deferral) ----

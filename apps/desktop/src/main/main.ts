@@ -16,6 +16,7 @@ import type { OsNotificationPort } from "./domains/notify.js";
 import { createElectronUpdater } from "./domains/updates-adapter.js";
 import { registerUpdateDomain } from "./domains/updates.js";
 import { registerAppDomains, pushCoreRuntimeState } from "./composition.js";
+import { registerBrowserMediaDomain } from "./domains/browser-media.js";
 import { BootClock } from "./perf/boot-clock.js";
 import { budgetReportSourceLabel, rendererAssetsDirUnder } from "./perf/report-env.js";
 import {
@@ -289,6 +290,18 @@ if (!gotLock) {
         n.show();
       },
     };
+
+    // ---- Phase 33: browser download interception + in-browser media detection ----
+    // Wires the session-lifecycle observer (will-download routing + passive media
+    // sniffing on every browser session, default and per-proxy) and serves the
+    // browser.media.* surface. Must run before any tab/session can exist.
+    registerBrowserMediaDomain(router, tabManager, {
+      supervisor,
+      settings: settingsStore,
+      getDownloadDir: () => settingsStore.settings.downloadDir || app.getPath("downloads"),
+      logger,
+      notify: (title, body) => notificationPort.show({ title, body }),
+    });
 
     // ---- Phase 17: tray icon (creation is guarded — without a live tray, close-to-tray
     // self-disables and closing keeps the Phase 2 quit behavior) ----

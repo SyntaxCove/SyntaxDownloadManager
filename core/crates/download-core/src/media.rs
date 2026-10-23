@@ -11,7 +11,8 @@
 //! - Concurrency is capped by a semaphore so a burst of inspects cannot spawn a process storm.
 
 use dc_protocol::{
-    ContractError, ErrorCode, MediaInspectParams, MediaInspectResult, MediaManifest,
+    add_header_args, validate_media_headers, ContractError, ErrorCode, MediaInspectParams,
+    MediaInspectResult, MediaManifest,
 };
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -82,6 +83,12 @@ pub async fn inspect(
         })?;
         args.push("--proxy".into());
         args.push(proxy_url(&profile)?);
+    }
+    // v1.18 (Phase 33): browser-context headers (cookies/UA/referer) — validated before
+    // anything reaches argv, then forwarded verbatim (`--add-header "Name: Value"`).
+    if let Some(headers) = &params.headers {
+        validate_media_headers(headers)?;
+        args.extend(add_header_args(headers));
     }
     args.push(url);
 
@@ -547,6 +554,7 @@ mod tests {
         MediaInspectParams {
             url: url.into(),
             proxy_profile_id: None,
+            headers: None,
         }
     }
 
@@ -692,6 +700,7 @@ mod tests {
             MediaInspectParams {
                 url: "https://example.com/v".into(),
                 proxy_profile_id: Some("ghost".into()),
+                headers: None,
             },
             &InspectLimits::default(),
         )
@@ -894,6 +903,7 @@ mod tests {
             MediaInspectParams {
                 url: "https://example.com/watch/abc".into(),
                 proxy_profile_id: Some("01HPROXY".into()),
+                headers: None,
             },
             &InspectLimits::default(),
         )

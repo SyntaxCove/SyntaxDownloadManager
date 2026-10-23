@@ -16,6 +16,23 @@ export const browseEn = {
   "browse.addressAria": "Address bar",
   "browse.bookmarkAdd": "Bookmark this page",
   "browse.bookmarkRemove": "Remove bookmark",
+  // Phase 33: in-browser media detection panel
+  "browse.mediaPanelToggle": "Media on this page",
+  "browse.mediaPanelTitle": "Detected media",
+  "browse.mediaPanelEmpty":
+    "No media detected yet — play the video or audio on the page and it will appear here.",
+  "browse.mediaScanAgain": "Scan this page again",
+  "browse.mediaClear": "Clear the list",
+  "browse.mediaDownload": "Download",
+  "browse.mediaDownloadAria": "Download {name}",
+  "browse.mediaDownloadStarted": "Download started",
+  "browse.mediaDownloadFailed": "Download failed",
+  "browse.mediaKindVideo": "Video",
+  "browse.mediaKindAudio": "Audio",
+  "browse.mediaKindManifest": "Stream (m3u8/DASH)",
+  "browse.mediaKindSegment": "Stream segment",
+  "browse.mediaOriginDom": "page player",
+  "browse.mediaOriginNetwork": "network",
 };
 
 export const browseFa: Record<keyof typeof browseEn, string> = {
@@ -34,4 +51,21 @@ export const browseFa: Record<keyof typeof browseEn, string> = {
   "browse.addressAria": "نوار نشانی",
   "browse.bookmarkAdd": "نشان‌گذاری این صفحه",
   "browse.bookmarkRemove": "حذف نشانک",
+  // Phase 33: in-browser media detection panel
+  "browse.mediaPanelToggle": "رسانه‌های این صفحه",
+  "browse.mediaPanelTitle": "رسانه‌های شناسایی‌شده",
+  "browse.mediaPanelEmpty":
+    "هنوز رسانه‌ای شناسایی نشده — ویدیو یا صدای صفحه را پخش کنید تا اینجا نمایش داده شود.",
+  "browse.mediaScanAgain": "اسکن دوباره این صفحه",
+  "browse.mediaClear": "پاک کردن فهرست",
+  "browse.mediaDownload": "دانلود",
+  "browse.mediaDownloadAria": "دانلود {name}",
+  "browse.mediaDownloadStarted": "دانلود شروع شد",
+  "browse.mediaDownloadFailed": "دانلود ناموفق بود",
+  "browse.mediaKindVideo": "ویدیو",
+  "browse.mediaKindAudio": "صدا",
+  "browse.mediaKindManifest": "جریان (m3u8/DASH)",
+  "browse.mediaKindSegment": "بخش جریان",
+  "browse.mediaOriginDom": "پخش‌کننده صفحه",
+  "browse.mediaOriginNetwork": "شبکه",
 };

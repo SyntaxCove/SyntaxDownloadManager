@@ -32,6 +32,14 @@ export interface TabEvents {
 /** Main-wired proxy resolution: profile id → session config (null → the default session). */
 export type ProxyResolver = (profileId: string) => Promise<ResolvedTabProxy | null>;
 
+/** Phase 33: internal (main-side) tab activity — never a renderer event. */
+export type TabActivitySignal = { type: "pageChanged" | "mediaPlaying"; tabId: string };
+/** Phase 33: called exactly once per browser session at creation (default + per-proxy). */
+export type SessionLifecycleObserver = (
+  session: Electron.Session,
+  proxyProfileId: string | null,
+) => void;
+
 interface TabEntry {
   readonly id: string;
   view: WebContentsView;
@@ -62,6 +70,9 @@ export class TabManager {
   private defaultUserAgent: string | null = null;
   /** Post-1.0: the settings override; null = use the captured default unchanged. */
   private customUserAgent: string | null = null;
+  /** Phase 33: observers wired by main before any tab/session can exist. */
+  private sessionLifecycle: SessionLifecycleObserver | null = null;
+  private tabActivity: ((signal: TabActivitySignal) => void) | null = null;
 
   constructor(
     private readonly getWindow: () => BrowserWindow | undefined,
@@ -87,6 +98,8 @@ export class TabManager {
       // echo the override back and a later reset would have nothing to reset to.
       if (this.defaultUserAgent === null) this.defaultUserAgent = this.session.getUserAgent();
       if (this.customUserAgent !== null) this.session.setUserAgent(this.effectiveUserAgent());
+      // Phase 33: download interception + media sniffing attach per session, exactly once.
+      this.sessionLifecycle?.(this.session, null);
     }
     return this.session;
   }
@@ -125,6 +138,8 @@ export class TabManager {
     // Post-1.0: a proxied tab obeys the same user-agent override as the default session.
     if (this.customUserAgent !== null) ses.setUserAgent(this.effectiveUserAgent());
     this.proxySessions.set(profileId, ses);
+    // Phase 33: the proxied session gets the same download/media handling.
+    this.sessionLifecycle?.(ses, profileId);
     return ses;
   }
 
@@ -348,6 +363,47 @@ export class TabManager {
     return { userAgent: this.effectiveUserAgent(), isCustom: this.customUserAgent !== null };
   }
 
+  /**
+   * Phase 33: wire the main-side observers (download interception, media sniffing) that
+   * attach to each browser session at creation. Must be set before any session exists —
+   * main wires it during boot, before the renderer can request a tab. `null` detaches.
+   */
+  setSessionLifecycleObserver(cb: SessionLifecycleObserver | null): void {
+    this.sessionLifecycle = cb;
+  }
+
+  /** Phase 33: internal tab activity (page navigations, media playback) for main-side consumers. */
+  setTabActivityObserver(cb: ((signal: TabActivitySignal) => void) | null): void {
+    this.tabActivity = cb;
+  }
+
+  /** Phase 33: attribute a webRequest/webContents id back to its tab (null = unknown). */
+  tabIdForWebContents(webContentsId: number): string | null {
+    for (const entry of this.tabs.values()) {
+      const wc = entry.view.webContents;
+      if (!wc.isDestroyed() && wc.id === webContentsId) return entry.id;
+    }
+    return null;
+  }
+
+  /**
+   * Phase 33: the session a tab browses on — the credential source for downloads of
+   * media that tab detected (cookies are per-partition, so the tab's identity decides).
+   */
+  async sessionForTab(tabId: string): Promise<Electron.Session | null> {
+    const entry = this.tabs.get(tabId);
+    if (!entry) return null;
+    return this.sessionFor(entry.snapshot.proxyProfileId);
+  }
+
+  /** Phase 33: the tab's live webContents for main-side in-page scans (null = unknown/dead). */
+  webContentsForTab(tabId: string): Electron.WebContents | null {
+    const entry = this.tabs.get(tabId);
+    if (!entry) return null;
+    const wc = entry.view.webContents;
+    return wc.isDestroyed() ? null : wc;
+  }
+
   private effectiveUserAgent(): string {
     return this.customUserAgent ?? this.defaultUserAgent ?? "";
   }
@@ -427,7 +483,11 @@ export class TabManager {
       const favicon = icons.at(-1) ?? null;
       this.refresh(entry, { faviconUrl: favicon });
     });
-    wc.on("did-navigate", (_e, url) => this.refresh(entry, { url, status: "loaded" }));
+    wc.on("did-navigate", (_e, url) => {
+      this.refresh(entry, { url, status: "loaded" });
+      // Phase 33: a new main-frame document invalidates the tab's detected-media list.
+      this.tabActivity?.({ type: "pageChanged", tabId: entry.id });
+    });
     wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
       if (isMainFrame) {
         this.refresh(entry, { url });
@@ -442,6 +502,9 @@ export class TabManager {
       if (!wc.isDestroyed()) this.recordVisit(entry, wc.getURL());
     });
     wc.on("audio-state-changed", () => this.refresh(entry, { isAudible: wc.isCurrentlyAudible() }));
+    // Phase 33: actual playback starts — the moment multi-server players switch sources;
+    // the consumer debounces a DOM scan so the panel sees the newly-selected media.
+    wc.on("media-started-playing", () => this.tabActivity?.({ type: "mediaPlaying", tabId: entry.id }));
     wc.on("render-process-gone", (_e, details) =>
       this.refresh(entry, { status: details.reason === "clean-exit" ? "loaded" : "crashed", isLoading: false }),
     );

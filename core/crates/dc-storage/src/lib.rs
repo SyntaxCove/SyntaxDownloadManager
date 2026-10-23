@@ -161,6 +161,10 @@ const MIGRATIONS: &[&str] = &[
         updated_at          INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_scheduler_due ON scheduler_jobs(enabled, next_run_at);",
+    // v10 (Phase 33): browser-context request headers (cookies/UA/referer) on media jobs.
+    // Persisted like jobs.headers_json so a resumed job re-authenticates: yt-dlp
+    // re-extracts on every run, and a logged-in source must survive restarts.
+    "ALTER TABLE media_jobs ADD COLUMN headers_json TEXT;",
 ];
 
 /// History rows kept after each insert (oldest beyond the cap are pruned in the same
@@ -554,11 +558,12 @@ impl JobStore {
         let conn = self.conn.lock().expect("storage mutex poisoned");
         conn.execute(
             "INSERT INTO media_jobs (id, source_url, title, thumbnail_url, video_format_id,
-                                     audio_format_id, filename, subtitles_json, container,
-                                     destination_dir, destination_path, work_dir, status,
-                                     total_bytes, received_bytes, speed_bps, eta_seconds,
-                                     error_code, proxy_profile_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                                     audio_format_id, filename, headers_json, subtitles_json,
+                                     container, destination_dir, destination_path, work_dir,
+                                     status, total_bytes, received_bytes, speed_bps,
+                                     eta_seconds, error_code, proxy_profile_id, created_at,
+                                     updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 job.id.as_str(),
                 job.source_url,
@@ -567,6 +572,7 @@ impl JobStore {
                 job.video_format_id,
                 job.audio_format_id,
                 job.filename,
+                media_headers_to_json(&job.headers),
                 subtitles_to_json(&job.subtitles),
                 job.container.as_str(),
                 job.destination_dir,
@@ -616,10 +622,10 @@ impl JobStore {
             .execute(
                 "UPDATE media_jobs SET source_url=?2, title=?3, thumbnail_url=?4,
                         video_format_id=?5, audio_format_id=?6, filename=?7,
-                        subtitles_json=?8, container=?9, destination_dir=?10,
-                        destination_path=?11, work_dir=?12, status=?13, total_bytes=?14,
-                        received_bytes=?15, speed_bps=?16, eta_seconds=?17, error_code=?18,
-                        proxy_profile_id=?19, updated_at=?20
+                        headers_json=?8, subtitles_json=?9, container=?10,
+                        destination_dir=?11, destination_path=?12, work_dir=?13,
+                        status=?14, total_bytes=?15, received_bytes=?16, speed_bps=?17,
+                        eta_seconds=?18, error_code=?19, proxy_profile_id=?20, updated_at=?21
                  WHERE id=?1",
                 params![
                     job.id.as_str(),
@@ -629,6 +635,7 @@ impl JobStore {
                     job.video_format_id,
                     job.audio_format_id,
                     job.filename,
+                    media_headers_to_json(&job.headers),
                     subtitles_to_json(&job.subtitles),
                     job.container.as_str(),
                     job.destination_dir,
@@ -1358,6 +1365,11 @@ fn media_job_from_row(row: &Row<'_>) -> rusqlite::Result<MediaJob> {
         video_format_id: row.get("video_format_id")?,
         audio_format_id: row.get("audio_format_id")?,
         filename: row.get("filename")?,
+        headers: row
+            .get::<_, Option<String>>("headers_json")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok()),
         subtitles,
         container: parse_container(&row.get::<_, String>("container")?),
         destination_dir: row.get("destination_dir")?,
@@ -1466,6 +1478,15 @@ fn parse_checksum_algorithm(s: &str) -> Option<dc_protocol::ChecksumAlgorithm> {
 }
 
 fn headers_to_json(headers: &Option<std::collections::HashMap<String, String>>) -> Option<String> {
+    match headers {
+        Some(map) if !map.is_empty() => serde_json::to_string(map).ok(),
+        _ => None,
+    }
+}
+
+/// Media jobs carry their request headers as a `BTreeMap` (deterministic wire + argv);
+/// serialization rules match `headers_to_json`: absent or empty → NULL.
+fn media_headers_to_json(headers: &Option<dc_protocol::MediaHeaderMap>) -> Option<String> {
     match headers {
         Some(map) if !map.is_empty() => serde_json::to_string(map).ok(),
         _ => None,

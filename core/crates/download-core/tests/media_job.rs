@@ -53,6 +53,7 @@ fn params(destination_dir: &str, subs: Vec<MediaSubtitleSelection>) -> MediaDown
         container: MediaContainer::Mkv,
         destination_dir: destination_dir.into(),
         filename: None,
+        headers: None,
         proxy_profile_id: None,
     }
 }

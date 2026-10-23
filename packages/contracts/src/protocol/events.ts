@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DownloadProgress, DownloadJob } from "../domain/download.js";
-import { TabUpdatedEvent, TabClosedEvent } from "../domain/browser.js";
+import { TabUpdatedEvent, TabClosedEvent, BrowserMediaSnapshotEvent } from "../domain/browser.js";
 import { SettingsChangedEvent } from "../domain/settings.js";
 import { ToolkitToolStatus } from "../domain/toolkit.js";
 import { MediaProgress, MediaJob } from "../domain/media.js";
@@ -40,6 +40,8 @@ export const EVENTS = {
   // main → renderer
   "browser.tab.updated": { source: "main", payload: TabUpdatedEvent },
   "browser.tab.closed": { source: "main", payload: TabClosedEvent },
+  /** v1.18 (Phase 33): authoritative per-tab media detection snapshot (full replace). */
+  "browser.media.updated": { source: "main", payload: BrowserMediaSnapshotEvent },
   "settings.changed": { source: "main", payload: SettingsChangedEvent },
   /** v1.5 (Phase 10): toolkit fetch/verify/activate progress (throttled; state changes immediate). */
   "toolkit.progress": { source: "main", payload: ToolkitToolStatus },
