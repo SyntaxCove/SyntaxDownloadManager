@@ -14,6 +14,9 @@ core/target/
 apps/desktop/release/
 apps/desktop/build/core/
 
+# Local-only user uploads (may contain credentials — never commit)
+upload/
+
 # Runtime artifacts
 *.log
 userData/

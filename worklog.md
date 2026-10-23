@@ -1601,3 +1601,36 @@ En-route blocker (2026-10-23):
   fallback) — commit 215a990 (phase 33) is local-only; push + tag v1.2.0 + CI watch +
   release acceptance are pending the token. Same recovery path as the phase-32 session:
   the user supplies a fresh PAT → write ~/.git-credentials → push → tag → verify runs.
+
+---
+Task ID: 33-release
+Agent: main
+Task: v1.2.0 publish + acceptance (resumption after the user supplied a fresh PAT in
+upload/Github.txt, 2026-10-23)
+
+Work Log:
+- Installed ~/.git-credentials from the uploaded file + credential.helper store. First push
+  failed ("Invalid username or token") — root cause: extraction kept a trailing space
+  (token length 94 vs 93); re-extracted with all whitespace stripped, push succeeded.
+- Token validated via REST API first: /user 200 (SyntaxCove), repo permissions
+  push/admin true.
+- Pushed main 5bc0f68..af26e76 (phase 33 commit 215a990 + the en-route blocker note).
+- Tagged annotated v1.2.0 on af26e76 and pushed it; both pipelines triggered.
+- Watched via REST polling script (scripts/poll-runs-33.sh): CI run 39912730908 success
+  (core tests windows/msvc 8 steps + verify ubuntu 23 steps, zero non-green steps),
+  release run 39912749534 success.
+- Byte-level acceptance (scripts/accept-v1.2.0.sh, evidence in tool-results/v1.2.0-accept/):
+  release "Syntax Download Manager v1.2.0" published 2026-10-23T06:47:58Z with all 10
+  assets — Setup exe 122,225,783 B, portable zip 167,902,164 B, SBOM 205,154 B, latest.yml
+  371 B + blockmap, each with .sha256 sidecar; all 5 sidecars verify OK; latest.yml carries
+  version: 1.2.0 / Setup exe path; SBOM parses as CycloneDX 1.5, app syntax-download-manager
+  1.2.0, 356 components; portable zip 131 entries, testzip CRC clean; large binaries
+  removed after verification (small sidecars + latest.yml + SBOM kept as evidence).
+- Housekeeping: upload/ added to .gitignore (contains the live PAT — must never be
+  committed); acceptance scripts committed under scripts/.
+
+Stage Summary:
+- v1.2.0 is live and byte-accepted: phase 33 (browser downloads in the Downloads list +
+  in-browser media detection with session credentials) is fully shipped — push, CI green,
+  release pipeline green, 10 assets verified. Post-1.0 iteration 2 complete: app 1.2.0,
+  contracts 1.18.0.
