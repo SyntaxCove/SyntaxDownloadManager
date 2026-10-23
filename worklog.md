@@ -1701,3 +1701,13 @@ Stage Summary:
 - Both Windows-runner flake classes (test-side false progress witness; load-inflated
   latency sample) now fixed at the root with honest semantics. Commit + push + CI watch
   below.
+
+Post-fix verification (2026-10-23):
+- CI run 39917964970 (e2f784a): both jobs green — core tests windows/msvc 8 steps,
+  verify ubuntu 23 steps, zero non-green steps. Both flake fixes hold on a real Windows
+  runner. HEAD main is green.
+- Final state of this session: phase 33 shipped as v1.2.0 (release run 39912749534,
+  10 assets byte-accepted), then two honest root-cause fixes for Windows-runner flakes
+  (b956f39 pause-aggregate honesty + ProgressWitness, e2f784a min-of-3 cold-start
+  sampling), both green on CI; v1.2.0 remains the published release (tags never
+  re-pointed — fixes ride the next release per the 5bc0f68 precedent).
